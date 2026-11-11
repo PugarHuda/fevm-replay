@@ -1,82 +1,47 @@
-// A time-locked vault: each account deposits ETH and can withdraw it once its
-// lock period has passed. Replace it with your own project.
+//! fevm-replay: replay Ethereum mainnet transactions in fevm and check the
+//! result against the chain.
 
-use std::evm::StorageMap
+use core::MemBuffer
+use std::env::Args
+use std::io::Stdout
+use json::parse
 
-msg VaultMsg {
-    #[selector = sol("deposit()")]
-    Deposit -> Timestamp,
-    #[selector = sol("withdraw(address)")]
-    Withdraw { to: Address } -> Wei,
-    #[selector = sol("balanceOf(address)")]
-    BalanceOf { owner: Address } -> Wei,
-    #[selector = sol("unlockTime(address)")]
-    UnlockTime { owner: Address } -> Timestamp,
-}
+pub use compare::{Mismatches, apply_diff, compare}
+pub use load::{hex_bytes, hex_word, load_block, load_tx, load_world}
+pub use replay::replay
 
-#[event]
-struct Deposited {
-    #[indexed]
-    owner: Address,
-    amount: Wei,
-    unlock_at: Timestamp,
-}
-
-#[event]
-struct Withdrawn {
-    #[indexed]
-    owner: Address,
-    to: Address,
-    amount: Wei,
-}
-
-pub contract Vault uses (ctx: Ctx, call: mut Call, log: mut Log) {
-    lock: Duration,
-    mut balances: StorageMap<Address, Wei>,
-    mut unlock_at: StorageMap<Address, Timestamp>,
-
-    init(lock_period: Duration) uses (mut lock) { lock = lock_period }
-
-    recv VaultMsg {
-        // Every deposit restarts the depositor's lock period.
-        #[payable]
-        Deposit -> Timestamp uses (ctx, lock, mut balances, mut unlock_at, mut log) {
-            let owner = ctx.caller()
-            let amount = ctx.value()
-            assert!(amount > Wei::zero(), "Nothing to deposit")
-
-            let unlock = ctx.timestamp() + lock
-            balances.set(key: owner, value: balances.get(key: owner) + amount)
-            unlock_at.set(key: owner, value: unlock)
-            log.emit(Deposited { owner, amount, unlock_at: unlock })
-            unlock
+/// `fevm-replay <fixture.json>...` replays each fixture and prints MATCH or
+/// DIFF with the differences. The exit status is the number of fixtures that
+/// did not match.
+// `std::fs` exists on Unix hosts only, as does fevm's native build.
+#[cfg(target_family = "unix")]
+pub fn main() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
+    if args.count() < 2 {
+        println!("usage: fevm-replay <fixture.json>...")
+        return 2
+    }
+    var failed: i32 = 0
+    for index in 1..args.count() {
+        let path = args.get(index)
+        let Result::Ok(bytes) = fs.read(path) else {
+            println!("ERROR {path}: cannot read")
+            failed += 1
+            continue
         }
-
-        Withdraw { to } -> Wei uses (ctx, mut call, mut balances, unlock_at, mut log) {
-            let owner = ctx.caller()
-            let amount = balances.get(key: owner)
-            assert!(amount > Wei::zero(), "Nothing to withdraw")
-            assert!(
-                ctx.timestamp() >= unlock_at.get(key: owner),
-                "Still locked",
-            )
-
-            // Update the balance before sending, so a reentrant call finds nothing.
-            balances.set(key: owner, value: Wei::zero())
-            assert!(
-                call.send_value(addr: to, gas: 0, value: amount).success(),
-                "Transfer failed",
-            )
-            log.emit(Withdrawn { owner, to, amount })
-            amount
+        let Result::Ok(doc) = parse(bytes.span()) else {
+            println!("ERROR {path}: not JSON")
+            failed += 1
+            continue
         }
-
-        BalanceOf { owner } -> Wei uses (balances) {
-            balances.get(key: owner)
-        }
-
-        UnlockTime { owner } -> Timestamp uses (unlock_at) {
-            unlock_at.get(key: owner)
+        var text = MemBuffer::empty()
+        let found = with (mut text) { replay(doc) }
+        if found.total() == 0 {
+            println!("MATCH {path}")
+        } else {
+            println!("DIFF  {path}")
+            print!(text)
+            failed += 1
         }
     }
+    failed
 }

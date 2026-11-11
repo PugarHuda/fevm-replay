@@ -1,0 +1,220 @@
+//! Checks fevm's result against the chain's. The expected world is the
+//! prestate with the `diffMode` post-state applied; both worlds are compared
+//! in both directions, so a wrong value and a stray write are both caught.
+
+use core::MemBuffer
+use core::text::{decimal, parse_hex_uint}
+use json::Value
+use fevm::{LogBuffer, OK, Receipt, WorldState}
+use fevm::hex::write_hex_word
+use fevm::status::{invalid_name, status_name}
+use ingot::load::{hex_bytes, hex_word}
+
+/// The prestate tracer's `diffMode` result applied to `world`. An account or
+/// slot that the diff's `pre` names but its `post` omits was cleared.
+pub fn apply_diff(_ world: mut WorldState, _ diff: Value) {
+    let pre = ref diff["pre"]
+    let post = ref diff["post"]
+    for ref member in pre.members() {
+        let address = parse_hex_uint(member.key.span()).unwrap_or(default: 0)
+        if !post.has(member.key.span()) {
+            // Deleted: SELFDESTRUCT in its creating transaction, or an empty touched account.
+            world.set_balance(address, 0)
+            world.set_nonce(address, 0)
+            world.set_code(address: address, code: MemBuffer::empty().span())
+        }
+        if member.value.has("storage") {
+            for ref slot in member.value["storage"].members() {
+                world.storage_store(address, parse_hex_uint(slot.key.span()).unwrap_or(default: 0), 0)
+            }
+        }
+    }
+    for ref member in post.members() {
+        let address = parse_hex_uint(member.key.span()).unwrap_or(default: 0)
+        let account = ref member.value
+        if account.has("balance") { world.set_balance(address, hex_word(account["balance"])) }
+        if account.has("nonce") { world.set_nonce(address, hex_word(account["nonce"])) }
+        if account.has("code") {
+            let code = hex_bytes(account["code"].text())
+            world.set_code(address: address, code: code.span())
+        }
+        if account.has("storage") {
+            for ref slot in account["storage"].members() {
+                world.storage_store(address, parse_hex_uint(slot.key.span()).unwrap_or(default: 0), hex_word(slot.value))
+            }
+        }
+    }
+}
+
+/// What a replay got wrong. Every count is zero for a transaction fevm
+/// replays exactly.
+pub struct Mismatches {
+    pub status: u64,
+    pub gas: u64,
+    pub logs: u64,
+    pub accounts: u64,
+    pub storage: u64,
+}
+
+impl Mismatches {
+    pub fn total(self) -> u64 { self.status + self.gas + self.logs + self.accounts + self.storage }
+}
+
+fn field(_ name: String<16>, _ address: u256, expected: u256, actual: u256) uses (text: mut MemBuffer) {
+    "  ".fmt(mut text)
+    name.fmt(mut text)
+    " ".fmt(mut text)
+    write_hex_word(address)
+    "\n    chain ".fmt(mut text)
+    write_hex_word(expected)
+    "\n    fevm  ".fmt(mut text)
+    write_hex_word(actual)
+    "\n".fmt(mut text)
+}
+
+fn same_code(_ left: WorldState, _ right: WorldState, _ address: u256) -> bool {
+    let a = left.code(address)
+    let b = right.code(address)
+    if a.len() != b.len() { return false }
+    for i in 0..a.len() {
+        if a[i] != b[i] { return false }
+    }
+    true
+}
+
+// Whether `address` differs between the worlds, writing what differs.
+fn account_differs(_ exp: WorldState, _ act: WorldState, _ address: u256) -> bool uses (text: mut MemBuffer) {
+    var bad = false
+    if exp.balance(address) != act.balance(address) {
+        field("balance", address, expected: exp.balance(address), actual: act.balance(address))
+        bad = true
+    }
+    if exp.nonce(address) != act.nonce(address) {
+        field("nonce", address, expected: exp.nonce(address), actual: act.nonce(address))
+        bad = true
+    }
+    if !same_code(exp, act, address) {
+        field("code size", address, expected: exp.code_size(address) as u256, actual: act.code_size(address) as u256)
+        bad = true
+    }
+    bad
+}
+
+// Every account of the expected world, then the accounts fevm has that the
+// expected world lacks: one report per account.
+fn compare_accounts(_ expected: WorldState, _ actual: WorldState) -> u64 uses (text: mut MemBuffer) {
+    var count: u64 = 0
+    for position in 0..expected.account_count() {
+        if account_differs(expected, actual, expected.account_at(position).address) { count += 1 }
+    }
+    for position in 0..actual.account_count() {
+        let address = actual.account_at(position).address
+        if !expected.exists(address) && account_differs(expected, actual, address) { count += 1 }
+    }
+    count
+}
+
+fn slot_line(_ address: u256, _ slot: u256, expected: u256, actual: u256) uses (text: mut MemBuffer) {
+    "  storage ".fmt(mut text)
+    write_hex_word(address)
+    " slot ".fmt(mut text)
+    write_hex_word(slot)
+    "\n    chain ".fmt(mut text)
+    write_hex_word(expected)
+    "\n    fevm  ".fmt(mut text)
+    write_hex_word(actual)
+    "\n".fmt(mut text)
+}
+
+// Every slot the expected world holds, then the nonzero slots fevm wrote
+// that the expected world reads as zero.
+// ponytail: a slot the chain cleared and fevm kept is reported by both passes;
+// the verdict is right, its count is one high.
+fn compare_storage(_ expected: WorldState, _ actual: WorldState) -> u64 uses (text: mut MemBuffer) {
+    var count: u64 = 0
+    for position in 0..expected.storage_slots() {
+        let entry = expected.storage_at(position)
+        if entry.occupied && entry.value != actual.storage_load(entry.address, entry.slot) {
+            slot_line(entry.address, entry.slot, expected: entry.value, actual: actual.storage_load(entry.address, entry.slot))
+            count += 1
+        }
+    }
+    for position in 0..actual.storage_slots() {
+        let entry = actual.storage_at(position)
+        if entry.occupied && entry.value != 0 && expected.storage_load(entry.address, entry.slot) == 0 {
+            slot_line(entry.address, entry.slot, expected: 0, actual: entry.value)
+            count += 1
+        }
+    }
+    count
+}
+
+fn compare_logs(_ expected: Value, _ actual: LogBuffer) -> u64 uses (text: mut MemBuffer) {
+    let want = expected.items()
+    if want.len() != actual.len().downcast_unchecked() {
+        "  log count: chain ".fmt(mut text)
+        decimal(want.len() as u256).fmt(mut text)
+        ", fevm ".fmt(mut text)
+        decimal(actual.len() as u256).fmt(mut text)
+        "\n".fmt(mut text)
+        return 1
+    }
+    var bad: u64 = 0
+    for index in 0..want.len() {
+        let log = ref want[index]
+        let entry = actual.entry(index.downcast_unchecked())
+        let topics = log["topics"].items()
+        var same = entry.address == hex_word(log["address"]) && entry.topic_count == topics.len().downcast_unchecked()
+        if same {
+            for t in 0..topics.len() {
+                same = same && entry.topics[t] == hex_word(topics[t])
+            }
+        }
+        if same {
+            let data = hex_bytes(log["data"].text())
+            let payload = actual.payload(index.downcast_unchecked())
+            same = data.len() == payload.len()
+            if same {
+                for i in 0..data.len() { same = same && data.span()[i] == payload[i] }
+            }
+        }
+        if !same {
+            "  log ".fmt(mut text)
+            decimal(index as u256).fmt(mut text)
+            " differs\n".fmt(mut text)
+            bad += 1
+        }
+    }
+    bad
+}
+
+/// Compares fevm's `receipt` and `world` with the chain's receipt and the
+/// expected world, writing one line per difference.
+pub fn compare(_ receipt: Receipt, _ world: WorldState, _ chain_receipt: Value, _ expected: WorldState) -> Mismatches
+    uses (text: mut MemBuffer)
+{
+    var found = Mismatches { status: 0, gas: 0, logs: 0, accounts: 0, storage: 0 }
+    let chain_ok = hex_word(chain_receipt["status"]) == 1
+    let fevm_ok = receipt.invalid == 0 && receipt.status == OK
+    if chain_ok != fevm_ok {
+        "  status: chain ".fmt(mut text)
+        (if chain_ok { "success" } else { "failure" }).fmt(mut text)
+        ", fevm ".fmt(mut text)
+        if receipt.invalid != 0 { invalid_name(receipt.invalid).fmt(mut text) } else { status_name(receipt.status).fmt(mut text) }
+        "\n".fmt(mut text)
+        found.status = 1
+    }
+    let chain_gas = hex_word(chain_receipt["gasUsed"])
+    if chain_gas != receipt.gas_used as u256 {
+        "  gas used: chain ".fmt(mut text)
+        decimal(chain_gas).fmt(mut text)
+        ", fevm ".fmt(mut text)
+        decimal(receipt.gas_used as u256).fmt(mut text)
+        "\n".fmt(mut text)
+        found.gas = 1
+    }
+    found.logs = compare_logs(chain_receipt["logs"], receipt.logs)
+    found.accounts = compare_accounts(expected, world)
+    found.storage = compare_storage(expected, world)
+    found
+}

@@ -1,0 +1,26 @@
+//! One replay: a fixture in, a verdict out.
+//!
+//! A fixture is one JSON object bundling the node's answers for one
+//! transaction: `block` (eth_getBlockByNumber), `tx`
+//! (eth_getTransactionByHash), `receipt` (eth_getTransactionReceipt),
+//! `prestate` and `diff` (debug_traceTransaction with the prestate tracer,
+//! without and with `diffMode`), plus `chainId` and `blobBaseFee`.
+
+use core::MemBuffer
+use json::Value
+use fevm::{Buffers, Config, transact}
+use ingot::compare::{Mismatches, apply_diff, compare}
+use ingot::load::{hex_word, load_block, load_tx, load_world}
+
+/// Replays the fixture `doc` in fevm, writing a line per difference.
+/// Nothing here touches the host: the verdict depends on the fixture alone.
+pub fn replay(_ doc: Value) -> Mismatches uses (text: mut MemBuffer) {
+    let block = load_block(doc["block"], chain_id: hex_word(doc["chainId"]), blobbasefee: hex_word(doc["blobBaseFee"]))
+    let request = load_tx(doc["tx"])
+    var expected = load_world(doc["prestate"])
+    apply_diff(mut expected, doc["diff"])
+    var buffers = Buffers::new()
+    var tracer = ()
+    let applied = transact(load_world(doc["prestate"]), request, block, Config::osaka(), mut buffers, mut tracer)
+    compare(applied.receipt, applied.state, doc["receipt"], expected)
+}

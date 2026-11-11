@@ -1,1 +1,6 @@
 out/
+
+# private notes, not part of the submission
+ANALISIS.md
+.playwright-mcp/
+fixtures/raw/
