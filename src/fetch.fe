@@ -1,0 +1,97 @@
+#![cfg(target_family = "unix")]
+//! Builds a fixture from a JSON-RPC node. The requests go out through `curl`,
+//! which this module starts with `Spawn`: the only code in fevm-replay that
+//! may reach the network is code that declares `proc: mut Spawn`.
+
+use core::MemBuffer
+use std::io::Display
+use std::process::{Command, Redirect, Spawn}
+use json::{Value, parse}
+use ingot::load::field
+
+/// The blob base fee for `excess` blob gas under the schedule's update
+/// fraction: EIP-4844's `fake_exponential(1, excess, fraction)`. Mainnet's
+/// current schedule (BPO2, from `eth_config`) uses 11,684,671.
+pub fn blob_base_fee(excess: u256, fraction: u256) -> u256 {
+    var output: u256 = 0
+    var accumulator: u256 = fraction
+    var i: u256 = 1
+    while accumulator > 0 {
+        output += accumulator
+        accumulator = accumulator * excess / (fraction * i)
+        i += 1
+    }
+    output / fraction
+}
+
+pub const BPO2_UPDATE_FRACTION: u256 = 11684671
+
+/// One JSON-RPC call; `params` is the JSON text of the parameter array.
+/// curl retries rate-limit answers (HTTP 429), which free endpoints send often.
+fn call<U: Display, M: Display, P: Display>(_ url: U, _ method: M, _ params: P) -> Option<Value> uses (proc: mut Spawn) {
+    var body = MemBuffer::empty()
+    "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"".fmt(mut body)
+    method.fmt(mut body)
+    "\",\"params\":".fmt(mut body)
+    params.fmt(mut body)
+    "}".fmt(mut body)
+    let command = Command::new("curl")
+        .arg("-sS").arg("--retry").arg("8").arg("--retry-all-errors").arg("--retry-delay").arg("2")
+        .arg("-H").arg("content-type: application/json")
+        .arg("--data-binary").arg(body)
+        .arg(url)
+        .stdout(Redirect::Capture)
+    let Result::Ok(output) = proc.output(command) else { return Option::None }
+    if !output.status.success() { return Option::None }
+    let Result::Ok(doc) = parse(output.stdout.span()) else { return Option::None }
+    if !doc.has("result") || doc["result"].is_null() { return Option::None }
+    Option::Some(doc)
+}
+
+/// The fixture for transaction `hash` (with its `0x`) as JSON text in `out`,
+/// or false if the node could not answer.
+pub fn fetch<U: Display, H: Display>(_ url: U, _ hash: H, _ out: mut MemBuffer) -> bool uses (proc: mut Spawn) {
+    var by_hash = MemBuffer::empty()
+    "[\"".fmt(mut by_hash)
+    hash.fmt(mut by_hash)
+    "\"]".fmt(mut by_hash)
+    let Option::Some(tx) = call(url, "eth_getTransactionByHash", by_hash) else { return false }
+
+    var by_number = MemBuffer::empty()
+    "[\"".fmt(mut by_number)
+    tx["result"]["blockNumber"].text().fmt(mut by_number)
+    "\",false]".fmt(mut by_number)
+    let Option::Some(block) = call(url, "eth_getBlockByNumber", by_number) else { return false }
+    let Option::Some(receipt) = call(url, "eth_getTransactionReceipt", by_hash) else { return false }
+
+    var traced = MemBuffer::empty()
+    "[\"".fmt(mut traced)
+    hash.fmt(mut traced)
+    "\",{\"tracer\":\"prestateTracer\"}]".fmt(mut traced)
+    let Option::Some(prestate) = call(url, "debug_traceTransaction", traced) else { return false }
+
+    var diffed = MemBuffer::empty()
+    "[\"".fmt(mut diffed)
+    hash.fmt(mut diffed)
+    "\",{\"tracer\":\"prestateTracer\",\"tracerConfig\":{\"diffMode\":true}}]".fmt(mut diffed)
+    let Option::Some(diff) = call(url, "debug_traceTransaction", diffed) else { return false }
+
+    let Option::Some(chain) = call(url, "eth_chainId", "[]") else { return false }
+    let fee = blob_base_fee(excess: field(block["result"], "excessBlobGas"), fraction: BPO2_UPDATE_FRACTION)
+    "{\"chainId\":\"".fmt(mut out)
+    chain["result"].text().fmt(mut out)
+    "\",\"blobBaseFee\":\"0x".fmt(mut out)
+    core::text::hex(fee, 32).fmt(mut out)
+    "\",\"block\":".fmt(mut out)
+    block["result"].write(mut out)
+    ",\"tx\":".fmt(mut out)
+    tx["result"].write(mut out)
+    ",\"receipt\":".fmt(mut out)
+    receipt["result"].write(mut out)
+    ",\"prestate\":".fmt(mut out)
+    prestate["result"].write(mut out)
+    ",\"diff\":".fmt(mut out)
+    diff["result"].write(mut out)
+    "}\n".fmt(mut out)
+    true
+}

@@ -2,24 +2,71 @@
 //! result against the chain.
 
 use core::MemBuffer
-use std::env::Args
+use std::env::{Arg, Args}
 use std::io::Stdout
 use json::parse
 
 pub use compare::{Mismatches, apply_diff, compare}
-pub use load::{hex_bytes, hex_word, load_block, load_tx, load_world}
+pub use load::{field, hex_bytes, hex_word, load_block, load_tx, load_world}
 pub use replay::replay
 
+const DEFAULT_RPC: String<21> = "https://eth.drpc.org"
+
+fn is_word<const N: usize>(_ arg: Arg, _ word: [u8; N]) -> bool {
+    let bytes = arg.span()
+    if bytes.len() != N { return false }
+    for i in 0..N {
+        if bytes[i] != word[i] { return false }
+    }
+    true
+}
+
 /// `fevm-replay <fixture.json>...` replays each fixture and prints MATCH or
-/// DIFF with the differences. The exit status is the number of fixtures that
-/// did not match.
-// `std::fs` exists on Unix hosts only, as does fevm's native build.
+/// DIFF with the differences; the exit status is the number of fixtures
+/// that did not match.
+/// `fevm-replay fetch <txhash> <fixture.json> [rpc-url]` writes the fixture
+/// for one mainnet transaction.
+// `std::fs` and `std::process` exist on Unix hosts only, as does fevm's native build.
 #[cfg(target_family = "unix")]
-pub fn main() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
+pub fn main() -> i32 uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut Stdout) {
     if args.count() < 2 {
         println!("usage: fevm-replay <fixture.json>...")
+        println!("       fevm-replay fetch <txhash> <fixture.json> [rpc-url]")
         return 2
     }
+    // "fetch"
+    if is_word(args.get(1), [0x66, 0x65, 0x74, 0x63, 0x68]) {
+        return fetch_command()
+    }
+    replay_command()
+}
+
+#[cfg(target_family = "unix")]
+fn fetch_command() -> i32 uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut Stdout) {
+    if args.count() != 4 && args.count() != 5 {
+        println!("usage: fevm-replay fetch <txhash> <fixture.json> [rpc-url]")
+        return 2
+    }
+    var text = MemBuffer::empty()
+    let fetched = if args.count() == 5 {
+        fetch::fetch(args.get(4), args.get(2), mut text)
+    } else {
+        fetch::fetch(DEFAULT_RPC, args.get(2), mut text)
+    }
+    if !fetched {
+        println!("ERROR ", args.get(2), ": the node did not answer")
+        return 1
+    }
+    let Result::Ok(_) = fs.write(args.get(3), text.span()) else {
+        println!("ERROR ", args.get(3), ": cannot write")
+        return 1
+    }
+    println!("wrote ", args.get(3))
+    0
+}
+
+#[cfg(target_family = "unix")]
+fn replay_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
     var failed: i32 = 0
     for index in 1..args.count() {
         let path = args.get(index)
