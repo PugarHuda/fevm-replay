@@ -10,12 +10,12 @@ use core::MemBuffer
 use json::Value
 use fevm::{Buffers, Config, transact}
 use ingot::compare::{Mismatches, apply_diff, compare}
-use ingot::load::{hex_word, load_block, load_tx, load_world}
+use ingot::load::{field, load_block, load_tx, load_world}
 
 /// Replays the fixture `doc` in fevm, writing a line per difference.
 /// Nothing here touches the host: the verdict depends on the fixture alone.
 pub fn replay(_ doc: Value) -> Mismatches uses (text: mut MemBuffer) {
-    let block = load_block(doc["block"], chain_id: hex_word(doc["chainId"]), blobbasefee: hex_word(doc["blobBaseFee"]))
+    let block = load_block(doc["block"], chain_id: field(doc, "chainId"), blobbasefee: field(doc, "blobBaseFee"))
     let request = load_tx(doc["tx"])
     var expected = load_world(doc["prestate"])
     apply_diff(mut expected, doc["diff"])

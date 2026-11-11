@@ -2,7 +2,7 @@
 //! `WorldState`, and a block header into a `BlockEnv`.
 
 use core::text::parse_hex_uint
-use json::Value
+use json::{Key, Value}
 use fevm::{Authorization, BlockEnv, InputData, OK, TxEnv, TxRequest, WorldState}
 use fevm::processor::{TX_ACCESS_LIST, TX_LEGACY}
 
@@ -18,6 +18,15 @@ pub fn hex_word(_ value: Value) -> u256 {
             Option::Some(word) => word
             Option::None => 0
         }
+    }
+}
+
+/// The quantity `object[key]`, or zero when the node leaves the field out (a
+/// legacy transaction has no `maxPriorityFeePerGas`, for one).
+pub fn field<K: Key>(_ object: Value, _ key: K) -> u256 {
+    match object.get(key) {
+        Option::Some(ref value) => hex_word(value)
+        Option::None => 0
     }
 }
 
@@ -44,13 +53,13 @@ fn nibble(_ digit: u8) -> u8 {
 /// `blobbasefee` is passed in, since it depends on the fork's blob schedule.
 pub fn load_block(_ header: Value, chain_id: u256, blobbasefee: u256) -> BlockEnv {
     BlockEnv {
-        coinbase: hex_word(header["miner"]),
-        timestamp: hex_word(header["timestamp"]),
-        number: hex_word(header["number"]),
-        prevrandao: hex_word(header["mixHash"]),
-        gaslimit: hex_word(header["gasLimit"]),
+        coinbase: field(header, "miner"),
+        timestamp: field(header, "timestamp"),
+        number: field(header, "number"),
+        prevrandao: field(header, "mixHash"),
+        gaslimit: field(header, "gasLimit"),
         chainid: chain_id,
-        basefee: hex_word(header["baseFeePerGas"]),
+        basefee: field(header, "baseFeePerGas"),
         blobbasefee,
     }
 }
@@ -61,8 +70,8 @@ pub fn load_world(_ prestate: Value) -> WorldState {
     for ref member in prestate.members() {
         let address = parse_hex_uint(member.key.span()).unwrap_or(default: 0)
         let account = ref member.value
-        world.set_balance(address, hex_word(account["balance"]))
-        world.set_nonce(address, hex_word(account["nonce"]))
+        world.set_balance(address, field(account, "balance"))
+        world.set_nonce(address, field(account, "nonce"))
         if account.has("code") {
             let code = hex_bytes(account["code"].text())
             world.set_code(address: address, code: code.span())
@@ -79,30 +88,30 @@ pub fn load_world(_ prestate: Value) -> WorldState {
 /// An `eth_getTransactionByHash` result as an fevm request. fevm takes the
 /// recovered sender, which the node reports as `from`.
 pub fn load_tx(_ tx: Value) -> TxRequest {
-    let kind: u8 = hex_word(tx["type"]).downcast_truncate()
+    let kind: u8 = field(tx, "type").downcast_truncate()
     let creates = !tx.has("to") || tx["to"].is_null()
     let env = TxEnv {
         kind,
-        chain_id: if tx.has("chainId") { Option::Some(hex_word(tx["chainId"])) } else { Option::None },
-        sender: hex_word(tx["from"]),
-        to: if creates { 0 } else { hex_word(tx["to"]) },
+        chain_id: if tx.has("chainId") { Option::Some(field(tx, "chainId")) } else { Option::None },
+        sender: field(tx, "from"),
+        to: if creates { 0 } else { field(tx, "to") },
         creates,
-        nonce: hex_word(tx["nonce"]),
-        gas_limit: hex_word(tx["gas"]).downcast_truncate(),
+        nonce: field(tx, "nonce"),
+        gas_limit: field(tx, "gas").downcast_truncate(),
         // Legacy and EIP-2930 transactions name one price; later kinds a maximum.
         gas_price: if kind == TX_LEGACY || kind == TX_ACCESS_LIST {
-            hex_word(tx["gasPrice"])
+            field(tx, "gasPrice")
         } else {
-            hex_word(tx["maxFeePerGas"])
+            field(tx, "maxFeePerGas")
         },
-        max_priority_fee_per_gas: hex_word(tx["maxPriorityFeePerGas"]),
-        max_fee_per_blob_gas: hex_word(tx["maxFeePerBlobGas"]),
-        value: hex_word(tx["value"]),
+        max_priority_fee_per_gas: field(tx, "maxPriorityFeePerGas"),
+        max_fee_per_blob_gas: field(tx, "maxFeePerBlobGas"),
+        value: field(tx, "value"),
     }
     var request = TxRequest::new(env, data: InputData::new(hex_bytes(tx["input"].text()), status: OK))
     if tx.has("accessList") {
         for ref entry in tx["accessList"].items() {
-            let address = hex_word(entry["address"])
+            let address = field(entry, "address")
             request.add_access_account(address)
             for ref key in entry["storageKeys"].items() {
                 request.add_access_key(address: address, slot: hex_word(key))
@@ -115,12 +124,12 @@ pub fn load_tx(_ tx: Value) -> TxRequest {
     if tx.has("authorizationList") {
         for ref auth in tx["authorizationList"].items() {
             request.add_authorization(Authorization {
-                chain_id: hex_word(auth["chainId"]),
-                address: hex_word(auth["address"]),
-                nonce: hex_word(auth["nonce"]),
-                y_parity: hex_word(auth["yParity"]),
-                r: hex_word(auth["r"]),
-                s: hex_word(auth["s"]),
+                chain_id: field(auth, "chainId"),
+                address: field(auth, "address"),
+                nonce: field(auth, "nonce"),
+                y_parity: field(auth, "yParity"),
+                r: field(auth, "r"),
+                s: field(auth, "s"),
             })
         }
     }

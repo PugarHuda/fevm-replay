@@ -8,7 +8,7 @@ use json::Value
 use fevm::{LogBuffer, OK, Receipt, WorldState}
 use fevm::hex::write_hex_word
 use fevm::status::{invalid_name, status_name}
-use ingot::load::{hex_bytes, hex_word}
+use ingot::load::{field, hex_bytes, hex_word}
 
 /// The prestate tracer's `diffMode` result applied to `world`. An account or
 /// slot that the diff's `pre` names but its `post` omits was cleared.
@@ -32,8 +32,8 @@ pub fn apply_diff(_ world: mut WorldState, _ diff: Value) {
     for ref member in post.members() {
         let address = parse_hex_uint(member.key.span()).unwrap_or(default: 0)
         let account = ref member.value
-        if account.has("balance") { world.set_balance(address, hex_word(account["balance"])) }
-        if account.has("nonce") { world.set_nonce(address, hex_word(account["nonce"])) }
+        if account.has("balance") { world.set_balance(address, field(account, "balance")) }
+        if account.has("nonce") { world.set_nonce(address, field(account, "nonce")) }
         if account.has("code") {
             let code = hex_bytes(account["code"].text())
             world.set_code(address: address, code: code.span())
@@ -60,7 +60,7 @@ impl Mismatches {
     pub fn total(self) -> u64 { self.status + self.gas + self.logs + self.accounts + self.storage }
 }
 
-fn field(_ name: String<16>, _ address: u256, expected: u256, actual: u256) uses (text: mut MemBuffer) {
+fn field_line(_ name: String<16>, _ address: u256, expected: u256, actual: u256) uses (text: mut MemBuffer) {
     "  ".fmt(mut text)
     name.fmt(mut text)
     " ".fmt(mut text)
@@ -86,15 +86,15 @@ fn same_code(_ left: WorldState, _ right: WorldState, _ address: u256) -> bool {
 fn account_differs(_ exp: WorldState, _ act: WorldState, _ address: u256) -> bool uses (text: mut MemBuffer) {
     var bad = false
     if exp.balance(address) != act.balance(address) {
-        field("balance", address, expected: exp.balance(address), actual: act.balance(address))
+        field_line("balance", address, expected: exp.balance(address), actual: act.balance(address))
         bad = true
     }
     if exp.nonce(address) != act.nonce(address) {
-        field("nonce", address, expected: exp.nonce(address), actual: act.nonce(address))
+        field_line("nonce", address, expected: exp.nonce(address), actual: act.nonce(address))
         bad = true
     }
     if !same_code(exp, act, address) {
-        field("code size", address, expected: exp.code_size(address) as u256, actual: act.code_size(address) as u256)
+        field_line("code size", address, expected: exp.code_size(address) as u256, actual: act.code_size(address) as u256)
         bad = true
     }
     bad
@@ -164,7 +164,7 @@ fn compare_logs(_ expected: Value, _ actual: LogBuffer) -> u64 uses (text: mut M
         let log = ref want[index]
         let entry = actual.entry(index.downcast_unchecked())
         let topics = log["topics"].items()
-        var same = entry.address == hex_word(log["address"]) && entry.topic_count == topics.len().downcast_unchecked()
+        var same = entry.address == field(log, "address") && entry.topic_count == topics.len().downcast_unchecked()
         if same {
             for t in 0..topics.len() {
                 same = same && entry.topics[t] == hex_word(topics[t])
@@ -194,7 +194,7 @@ pub fn compare(_ receipt: Receipt, _ world: WorldState, _ chain_receipt: Value, 
     uses (text: mut MemBuffer)
 {
     var found = Mismatches { status: 0, gas: 0, logs: 0, accounts: 0, storage: 0 }
-    let chain_ok = hex_word(chain_receipt["status"]) == 1
+    let chain_ok = field(chain_receipt, "status") == 1
     let fevm_ok = receipt.invalid == 0 && receipt.status == OK
     if chain_ok != fevm_ok {
         "  status: chain ".fmt(mut text)
@@ -204,7 +204,7 @@ pub fn compare(_ receipt: Receipt, _ world: WorldState, _ chain_receipt: Value, 
         "\n".fmt(mut text)
         found.status = 1
     }
-    let chain_gas = hex_word(chain_receipt["gasUsed"])
+    let chain_gas = field(chain_receipt, "gasUsed")
     if chain_gas != receipt.gas_used as u256 {
         "  gas used: chain ".fmt(mut text)
         decimal(chain_gas).fmt(mut text)

@@ -24,21 +24,21 @@ pub fn main() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
     for index in 1..args.count() {
         let path = args.get(index)
         let Result::Ok(bytes) = fs.read(path) else {
-            println!("ERROR {path}: cannot read")
+            println!("ERROR ", path, ": cannot read")
             failed += 1
             continue
         }
         let Result::Ok(doc) = parse(bytes.span()) else {
-            println!("ERROR {path}: not JSON")
+            println!("ERROR ", path, ": not JSON")
             failed += 1
             continue
         }
         var text = MemBuffer::empty()
         let found = with (mut text) { replay(doc) }
         if found.total() == 0 {
-            println!("MATCH {path}")
+            println!("MATCH ", path)
         } else {
-            println!("DIFF  {path}")
+            println!("DIFF  ", path)
             print!(text)
             failed += 1
         }
