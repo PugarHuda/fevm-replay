@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/PugarHuda/fevm-replay/actions/workflows/ci.yml/badge.svg)](https://github.com/PugarHuda/fevm-replay/actions/workflows/ci.yml)
 
+**Site and documentation:** https://pugarhuda.github.io/fevm-replay/
+
 **Pitch:** Replay real Ethereum mainnet transactions inside
 [fevm](https://github.com/fe-lang/fevm), the EVM written in Fe, and prove
 that each one ends exactly as it did on chain: status, gas, logs and every
@@ -38,7 +40,7 @@ did, runs the transaction in fevm, and compares:
 1. **Fetch** (`fetch`, `fetch-block`): the transaction, its block and
    receipt, and two `prestateTracer` traces: the accounts and slots the
    transaction read (its pre-state), and in `diffMode` everything it
-   changed. A whole block takes four calls: `eth_getBlockByNumber`,
+   changed. A whole block takes five calls: `eth_chainId`, `eth_getBlockByNumber`,
    `eth_getBlockReceipts` and two `debug_traceBlockByNumber`.
 2. **Load**: the pre-state becomes an fevm `WorldState`, the transaction a
    `TxRequest` (all five envelope kinds, access lists, blob hashes,
@@ -246,7 +248,7 @@ svg-term. The same steps by hand:
 (cd ports/weth9 && fe build -O 2 --out-dir ../../out/weth9 .)
 ./out/fevm_replay block blocks/26394000 0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2 out/weth9/WETH9.runtime.bin
 
-# Many blocks: fetches what is missing (four calls a block), replays, totals.
+# Many blocks: fetches what is missing (five calls a block), replays, totals.
 # Run it again to resume; saved blocks are not fetched twice.
 ./out/fevm_replay range 26394000 20 blocks
 ./out/fevm_replay range 26394000 20 blocks 0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2 out/weth9/WETH9.runtime.bin

@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fevm-replay docs</title>
+<meta name="description" content="How to build and run fevm-replay: replay mainnet transactions and blocks in fevm, read the results, and shadow-replay a Fe port of a Solidity contract.">
+<meta name="color-scheme" content="light dark">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='3' fill='%23f2f4f3' stroke='%231f2624' stroke-width='2'/%3E%3Ctext x='16' y='22' font-family='sans-serif' font-weight='700' font-size='14' text-anchor='middle' fill='%231f2624'%3EFe%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+<header class="wrap site-head">
+  <a class="mark" href="./" aria-label="fevm-replay home">
+    <span class="tile" aria-hidden="true"><small>26</small><b>Fe</b></span>
+    <span>fevm-replay</span>
+  </a>
+  <nav aria-label="Main">
+    <a href="./">Overview</a>
+    <a href="docs.html" aria-current="page">Docs</a>
+    <a href="https://github.com/PugarHuda/fevm-replay">GitHub</a>
+  </nav>
+</header>
+
+<div class="wrap docs">
+  <nav class="toc" aria-label="On this page">
+    <ol>
+      <li><a href="#quickstart">Quickstart</a></li>
+      <li><a href="#commands">Commands</a></li>
+      <li><a href="#reading">Reading the output</a></li>
+      <li><a href="#fixtures">Fixture format</a></li>
+      <li><a href="#blocks">Block directories</a></li>
+      <li><a href="#shadow">Shadow replay</a></li>
+      <li><a href="#ports">Writing a port</a></li>
+      <li><a href="#architecture">Architecture</a></li>
+      <li><a href="#limits">Limitations</a></li>
+    </ol>
+  </nav>
+
+  <main class="doc">
+    <h1>Documentation</h1>
+    <p class="intro">fevm-replay is a command-line tool written in Fe. It needs a Linux x86-64 or macOS AArch64 host (on Windows, use WSL), a C compiler, and <code>curl</code> for fetching.</p>
+
+    <h2 id="quickstart">Quickstart</h2>
+    <p>fevm needs <code>std::native::sha256_compress</code>, which reached Fe's <code>master</code> just after the 26.6.0 release, so the project pins Fe at the commit fevm itself pins. Building Fe from source needs Rust 1.99, Node.js and the tree-sitter CLI; <code>cranelift</code> is the native backend.</p>
+<pre><code>npm install -g tree-sitter-cli@0.24.7
+rustup toolchain install 1.99.0 --profile minimal
+cargo +1.99.0 install --locked --root ~/fe \
+  --git https://github.com/argotorg/fe \
+  --rev 4608e5fdfa3783ec78347f297ad0fced8928fcc7 --features cranelift fe
+export PATH="$HOME/fe/bin:$PATH"
+
+git clone https://github.com/PugarHuda/fevm-replay
+cd fevm-replay
+fe test --backend native .
+fe build --backend native -O 2 --emit executable --out-dir out .
+./out/fevm_replay fixtures/mainnet/*.json</code></pre>
+    <p>The last command replays seven saved mainnet transactions and prints <code>MATCH</code> for each.</p>
+
+    <h2 id="commands">Commands</h2>
+    <table>
+      <thead><tr><th scope="col">Command</th><th scope="col">What it does</th></tr></thead>
+      <tbody>
+        <tr><td><code>fevm_replay &lt;fixture.json&gt;...</code></td><td>Replays each single-transaction fixture and prints MATCH or DIFF with every difference. The exit status is the number of fixtures that did not match.</td></tr>
+        <tr><td><code>fevm_replay fetch &lt;txhash&gt; &lt;fixture.json&gt; [rpc]</code></td><td>Asks the node about one transaction and writes its fixture.</td></tr>
+        <tr><td><code>fevm_replay fetch-block &lt;0x-number&gt; &lt;dir&gt; [rpc]</code></td><td>Saves the node's answers for a whole block in <code>dir</code>, with five calls plus one per missing delegation target.</td></tr>
+        <tr><td><code>fevm_replay block &lt;dir&gt; [&lt;address&gt; &lt;runtime.bin&gt;]</code></td><td>Replays every transaction of a saved block. With an address and runtime code, runs a shadow replay.</td></tr>
+        <tr><td><code>fevm_replay range &lt;first&gt; &lt;count&gt; &lt;dir&gt; [&lt;address&gt; &lt;runtime.bin&gt;]</code></td><td>Fetches the blocks not yet saved under <code>dir</code>, replays them and prints totals. Run it again to resume.</td></tr>
+      </tbody>
+    </table>
+    <p>The node needs the <code>debug</code> namespace. The default is the free <code>https://eth.drpc.org</code>; pass another URL as the last argument of <code>fetch</code> or <code>fetch-block</code>. Fetch blocks a few minutes behind the head: near the head, a load-balanced endpoint can answer from nodes that disagree.</p>
+
+    <h2 id="reading">Reading the output</h2>
+<pre><code>DIFF  fixtures/negative/storage.json
+  storage 0x…dac17f958d2ee523a2206206994597c13d831ec7 slot 0x03416c29…
+    chain 0x…7d44e33f
+    fevm  0x…7d44e33e</code></pre>
+    <p>Each difference names what differs and shows the chain's value above fevm's: <code>status</code>, <code>gas used</code>, a <code>log</code>, an account's <code>balance</code>, <code>nonce</code> or <code>code size</code>, or a <code>storage</code> slot. A block replay labels a difference whose cause it can name:</p>
+    <table>
+      <thead><tr><th scope="col">Label</th><th scope="col">Meaning</th></tr></thead>
+      <tbody>
+        <tr><td>(ran BLOCKHASH…)</td><td>The transaction read a block hash older than its parent's, which the node's traces cannot carry. Give the fixture a <code>blockHashes</code> object to replay it exactly.</td></tr>
+        <tr><td>(reads gas after the shadow code ran)</td><td>Shadow replay only. Other code read the gas left after the port ran, so a cheaper or dearer port may change what it does.</td></tr>
+        <tr><td>no label</td><td>Anything else. In a plain replay, fetch the transaction again with <code>fetch</code>: block traces from load-balanced nodes are sometimes inconsistent. In a shadow replay, the port behaved differently.</td></tr>
+      </tbody>
+    </table>
+    <p><code>block</code> also refuses data whose receipts name a different block hash than the header, and asks you to fetch again.</p>
+
+    <h2 id="fixtures">Fixture format</h2>
+    <p>A fixture is one JSON object holding the node's answers about one transaction, so it replays offline and identically on any machine.</p>
+    <table>
+      <thead><tr><th scope="col">Field</th><th scope="col">Source</th></tr></thead>
+      <tbody>
+        <tr><td><code>block</code></td><td><code>eth_getBlockByNumber</code> of the transaction's block</td></tr>
+        <tr><td><code>tx</code></td><td><code>eth_getTransactionByHash</code></td></tr>
+        <tr><td><code>receipt</code></td><td><code>eth_getTransactionReceipt</code></td></tr>
+        <tr><td><code>prestate</code></td><td><code>debug_traceTransaction</code> with <code>prestateTracer</code>: every account and slot it read</td></tr>
+        <tr><td><code>diff</code></td><td>The same tracer with <code>diffMode</code>: what it changed</td></tr>
+        <tr><td><code>chainId</code>, <code>blobBaseFee</code></td><td><code>eth_chainId</code>, and EIP-4844's fee from the block's excess blob gas under mainnet's BPO2 schedule</td></tr>
+        <tr><td><code>delegates</code> (optional)</td><td>Code of EIP-7702 delegation targets the prestate leaves out, from <code>eth_getCode</code> at the parent block</td></tr>
+        <tr><td><code>blockHashes</code> (optional)</td><td>Block numbers to hashes, for BLOCKHASH beyond the parent</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="blocks">Block directories</h2>
+    <p><code>fetch-block</code> saves the raw JSON-RPC responses: <code>block.json</code> (with full transactions), <code>receipts.json</code> (<code>eth_getBlockReceipts</code>), <code>prestate.json</code> and <code>diff.json</code> (<code>debug_traceBlockByNumber</code>), <code>chain.json</code>, and <code>delegates.json</code>. A mainnet block takes about 22 MB.</p>
+
+    <h2 id="shadow">Shadow replay</h2>
+    <p>Shadow replay answers one question: does this Fe port behave exactly like the Solidity contract it replaces, on real traffic? For every transaction that touches the address, fevm-replay replaces the code there with the port's runtime code and requires the same logs, balances, nonces and storage as on chain.</p>
+<pre><code>(cd ports/weth9 &amp;&amp; fe build -O 2 --out-dir ../../out/weth9 .)
+./out/fevm_replay range 26394000 20 blocks \
+  0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2 out/weth9/WETH9.runtime.bin</code></pre>
+    <p>Gas may differ, and with it what the sender paid and the coinbase earned, so those two balances are settled by the gas difference before comparing. The summary line counts transactions that ran the port, those identical, those that differ only where code read the gas left, and those that behaved differently, and totals the gas on chain and with the port.</p>
+    <p class="note">Code that reads the gas left can legitimately act differently when a port is cheaper: MEV bots that size a builder payment from gas used, and ERC-4337 bundles that record it. A <code>GasWatch</code> tracer detects this, so only a difference without such a reading counts against the port.</p>
+
+    <h2 id="ports">Writing a port</h2>
+    <p><a href="https://github.com/PugarHuda/fevm-replay/tree/main/ports/weth9"><code>ports/weth9</code></a> is the worked example. A port is only a drop-in replacement if it keeps the deployed contract's:</p>
+    <ul>
+      <li>function selectors and ABI encoding, including return values;</li>
+      <li>event signatures and which arguments are indexed;</li>
+      <li>storage layout, slot for slot. Fe's <code>StorageMap</code> derives keys like a Solidity mapping, and nested maps like nested mappings;</li>
+      <li>fallback behavior and revert data (WETH9 reverts with none);</li>
+      <li>gas passed to calls it makes. WETH9's <code>transfer</code> gives 2,300 gas even when no ETH moves, which is the bug shadow replay found.</li>
+    </ul>
+
+    <h2 id="architecture">Architecture</h2>
+    <table>
+      <thead><tr><th scope="col">Module</th><th scope="col">Role</th></tr></thead>
+      <tbody>
+        <tr><td><code>src/fetch.fe</code></td><td>JSON-RPC through curl, started with <code>Spawn</code>; fixtures, block directories, delegation targets, the blob base fee</td></tr>
+        <tr><td><code>src/load.fe</code></td><td>JSON to fevm: <code>load_world</code>, <code>load_tx</code>, <code>load_block</code>, <code>add_extras</code></td></tr>
+        <tr><td><code>src/replay.fe</code></td><td><code>replay_tx</code>: load, <code>fevm::transact</code>, compare. No host capabilities</td></tr>
+        <tr><td><code>src/compare.fe</code></td><td>Applies the chain's diff to the prestate, then compares worlds, receipts and logs in both directions</td></tr>
+        <tr><td><code>src/watch.fe</code></td><td><code>GasWatch</code>, an fevm tracer that records GAS after the shadow code ran, and BLOCKHASH</td></tr>
+        <tr><td><code>src/lib.fe</code></td><td>The command line</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="limits">Limitations</h2>
+    <ul>
+      <li>Each transaction runs alone on its own pre-state. Block-level effects such as system contracts and withdrawals are not replayed.</li>
+      <li>Osaka rules and mainnet's BPO2 blob schedule only.</li>
+      <li><code>fetch-block</code> loads only the parent's block hash. Fetching all 256 costs 86 calls on a free endpoint that allows three requests per batch.</li>
+      <li>The node's traces are the reference, so a node bug shows up as a difference. That has happened, and the chain's own state settled it.</li>
+    </ul>
+  </main>
+</div>
+
+<footer class="wrap site-foot">
+  <span>Built for the Fe Builders Challenge 2026. Apache-2.0.</span>
+  <span><a href="./">Overview</a> and <a href="https://github.com/PugarHuda/fevm-replay">source</a></span>
+</footer>
+</body>
+</html>

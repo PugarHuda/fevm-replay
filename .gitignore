@@ -5,3 +5,7 @@ ANALISIS.md
 .playwright-mcp/
 fixtures/raw/
 blocks/
+
+# private hackathon reports (strategy, judge notes), not part of the submission
+docs/reports/
+docs/REPORT.md

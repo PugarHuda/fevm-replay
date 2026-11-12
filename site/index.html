@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fevm-replay</title>
+<meta name="description" content="Replay real Ethereum mainnet transactions in fevm, the EVM written in Fe, and prove each ends exactly as it did on chain. Then swap in a Fe port of a Solidity contract and check it against real traffic.">
+<meta name="color-scheme" content="light dark">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='3' fill='%23f2f4f3' stroke='%231f2624' stroke-width='2'/%3E%3Ctext x='16' y='22' font-family='sans-serif' font-weight='700' font-size='14' text-anchor='middle' fill='%231f2624'%3EFe%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+<header class="wrap site-head">
+  <a class="mark" href="./" aria-label="fevm-replay home">
+    <span class="tile" aria-hidden="true"><small>26</small><b>Fe</b></span>
+    <span>fevm-replay</span>
+  </a>
+  <nav aria-label="Main">
+    <a href="./" aria-current="page">Overview</a>
+    <a href="docs.html">Docs</a>
+    <a href="https://github.com/PugarHuda/fevm-replay">GitHub</a>
+  </nav>
+</header>
+
+<main>
+  <div class="wrap hero">
+    <h1>Real Ethereum history, replayed through an EVM written in Fe.</h1>
+    <p class="lede">fevm-replay runs mainnet transactions inside <a href="https://github.com/fe-lang/fevm">fevm</a> and checks that each one ends <strong>exactly as it did on chain</strong>: status, gas, logs and every balance, nonce, code byte and storage slot. Then it swaps a Solidity contract for its Fe port and checks the port against real traffic.</p>
+
+    <figure class="block-figure">
+      <div class="mosaic" role="group" aria-label="Mainnet block 26,393,604: one cell per transaction, sized by gas used. Select a cell to open it on Etherscan."></div>
+      <figcaption class="block-caption">
+        <span>Mainnet block 26,393,604, one cell per transaction, sized by gas used</span>
+        <span class="tally" aria-live="polite"></span>
+      </figcaption>
+      <p class="picked" aria-live="polite"></p>
+    </figure>
+
+    <div class="actions">
+      <a class="btn primary" href="docs.html#quickstart">Run it yourself</a>
+      <a class="btn" href="https://github.com/PugarHuda/fevm-replay">Source on GitHub</a>
+    </div>
+  </div>
+
+  <section id="how" class="wrap">
+    <h2>How a replay works</h2>
+    <p class="intro">Everything is Fe, from the HTTP call to the verdict, and the compiler proves which parts can touch the network.</p>
+    <ol class="pipeline">
+      <li><h3>Fetch</h3><p>Ask a JSON-RPC node for the transaction, its block and receipt, the accounts it read (prestate) and everything it changed (diff). A whole block takes five calls.</p></li>
+      <li><h3>Load</h3><p>Turn the prestate into an fevm <code>WorldState</code>, the transaction into a <code>TxRequest</code> (all five envelope types) and the header into a <code>BlockEnv</code>.</p></li>
+      <li><h3>Run</h3><p>Execute it with <code>fevm::transact</code> under Osaka rules, natively, at about 870 transactions a second.</p></li>
+      <li><h3>Compare</h3><p>Diff fevm's world against the chain's in both directions, so a wrong value and a write the chain never made are both caught.</p></li>
+    </ol>
+  </section>
+
+  <section id="results" class="wrap">
+    <h2>115,213 mainnet transactions, no fevm bug</h2>
+    <p class="intro">Every difference was traced to its cause, and fevm-replay now names each cause on its own.</p>
+    <table class="numbers">
+      <thead><tr><th scope="col">Run</th><th scope="col" class="n">Transactions</th><th scope="col" class="n">Match</th></tr></thead>
+      <tbody>
+        <tr><td>Hand-picked fixtures</td><td class="n">6</td><td class="n">6</td></tr>
+        <tr><td>Blocks 26,394,000 to 26,394,019</td><td class="n">5,129</td><td class="n">5,129</td></tr>
+        <tr><td>Blocks 26,394,100 to 26,394,199</td><td class="n">24,991</td><td class="n">24,982</td></tr>
+        <tr><td>Blocks 26,380,000 to 26,380,299</td><td class="n">85,087</td><td class="n">84,964</td></tr>
+        <tr class="total"><td>Total</td><td class="n">115,213</td><td class="n">115,081</td></tr>
+      </tbody>
+    </table>
+    <div class="causes">
+      <article><span class="count">91</span><h3>Older block hashes</h3><p>The transaction ran BLOCKHASH for a block before its parent. Block hashes are not state, so the node's traces cannot carry them. Detected by a tracer and labeled.</p></article>
+      <article><span class="count">40</span><h3>Inconsistent node answers</h3><p>Block traces from a load-balanced endpoint that disagreed with the chain. Every one matches when fetched again per transaction.</p></article>
+      <article><span class="count">1</span><h3>A node tracer bug</h3><p>An account created and self-destructed in one transaction (EIP-6780) was reported as kept. The chain's own state agrees with fevm that it was deleted.</p></article>
+    </div>
+  </section>
+
+  <section id="shadow" class="wrap">
+    <h2>Is a Fe port a drop-in replacement? Ask mainnet.</h2>
+    <div class="story">
+      <div>
+        <p>Shadow replay puts a Fe port in place of a deployed Solidity contract in every transaction that touches it, and requires the same logs and state. Only gas may differ.</p>
+        <p>We wrote WETH9 in Fe and shadowed mainnet WETH across 300 blocks. In 4,806 real transactions it found one that behaved differently: a contract that withdraws zero WETH into its fallback. Solidity's <code>transfer</code> passes 2,300 gas when no ETH moves, because the EVM only adds its stipend to calls that do. The Fe port passed none, so the fallback ran out of gas.</p>
+        <p>The unit tests had not caught it. The port is fixed, and a test now fails without the fix.</p>
+      </div>
+      <div class="ledger" role="table" aria-label="Fe WETH9 in place of mainnet WETH over 300 blocks">
+        <div role="row"><span role="cell">Ran Fe WETH9</span><strong role="cell">4,806</strong></div>
+        <div role="row"><span role="cell">Identical logs and state</span><strong role="cell">4,348</strong></div>
+        <div role="row"><span role="cell">Differ only where code reads the gas left</span><strong role="cell">454</strong></div>
+        <div role="row" class="bug"><span role="cell">The zero-withdrawal bug, now fixed</span><strong role="cell">1</strong></div>
+        <div role="row"><span role="cell">Inconsistent block traces</span><strong role="cell">3</strong></div>
+        <div role="row"><span role="cell">Gas, Fe against deployed Solidity</span><strong role="cell">0.42% less</strong></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="fe" class="wrap">
+    <div class="split">
+      <div>
+        <h2>The compiler proves the verdict is offline</h2>
+        <p>Fe functions declare the capabilities they use. Only <code>main</code> and the fetcher ask to start processes or read files. The function that decides MATCH or DIFF asks for a text buffer and nothing else, so calling the network from inside it is a type error.</p>
+        <p>That makes every fixture replay identically on any machine, with no node in sight.</p>
+      </div>
+<pre><code>pub fn replay_tx(
+    _ block: BlockEnv,
+    parent_hash: u256,
+    _ extras: Value,
+    _ tx: Value,
+    _ receipt: Value,
+    _ prestate: Value,
+    _ diff: Value,
+    shadow_address: u256,
+    shadow_code: MemSpan,
+) -&gt; Mismatches
+uses (text: mut MemBuffer)</code></pre>
+    </div>
+  </section>
+</main>
+
+<footer class="wrap site-foot">
+  <span>Built for the Fe Builders Challenge 2026. Apache-2.0.</span>
+  <span><a href="docs.html">Documentation</a> and <a href="https://github.com/PugarHuda/fevm-replay">source</a></span>
+</footer>
+<script src="app.js" type="module"></script>
+</body>
+</html>
