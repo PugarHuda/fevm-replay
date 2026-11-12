@@ -102,6 +102,7 @@ uses (text: mut MemBuffer)
         gas_must_match: !shadowed,
     )
     found.gas_observed = watch.observed
+    found.code_observed = watch.read_code
     found.read_blockhash = watch.read_blockhash
     // The same transaction on the deployed code, for its gas per function.
     if shadowed && found.total() == 0 {

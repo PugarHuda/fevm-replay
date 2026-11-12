@@ -6,6 +6,8 @@ use fevm::trace::{CallEnd, CallStart, Step, Tracer}
 
 const OP_GAS: u8 = 0x5a
 const OP_BLOCKHASH: u8 = 0x40
+const OP_EXTCODECOPY: u8 = 0x3c
+const OP_EXTCODEHASH: u8 = 0x3f
 
 /// Watches a shadow replay for code other than the shadow code reading the
 /// gas left (the GAS opcode) after the shadow code first ran. Until the
@@ -63,6 +65,11 @@ pub struct GasWatch {
     /// only, so a transaction that differs after reading another one most
     /// likely read a hash the node's traces do not carry.
     pub read_blockhash: bool,
+    /// Whether code other than the shadow code ran EXTCODEHASH or
+    /// EXTCODECOPY. Shadow code is other code, so a contract that checks
+    /// what runs at an address (a bot verifying a pair's code hash, say)
+    /// may refuse it.
+    pub read_code: bool,
     /// Gas used per function of the code at the watched address, whichever
     /// code runs there: the deployed contract or the shadow port.
     pub profile: MemVec<SelectorGas>,
@@ -80,6 +87,7 @@ impl GasWatch {
             shadow_ran: false,
             observed: false,
             read_blockhash: false,
+            read_code: false,
             profile: MemVec::new(),
         }
     }
@@ -98,6 +106,16 @@ impl Tracer for GasWatch {
     fn step(mut self, _ step: Step) {
         if step.op == OP_BLOCKHASH {
             self.read_blockhash = true
+        }
+        if (step.op == OP_EXTCODEHASH || step.op == OP_EXTCODECOPY) && self.shadows.len() > 0 {
+            match self.frames.last() {
+                Option::Some(ref frame) => {
+                    if !is_shadow(self.shadows, frame.to) {
+                        self.read_code = true
+                    }
+                },
+                Option::None => {},
+            }
         }
         if step.op == OP_GAS && self.shadow_ran {
             match self.frames.last() {

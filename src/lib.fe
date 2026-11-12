@@ -240,6 +240,8 @@ pub struct Totals {
     pub shadowed: u64,
     /// Shadowed transactions that differ where code read the gas left.
     pub gas_sensitive: u64,
+    /// Shadowed transactions that differ where code read a code hash.
+    pub code_sensitive: u64,
     /// Shadowed transactions that differ without reading the gas left.
     pub behavior: u64,
     pub chain_gas: u64,
@@ -259,6 +261,7 @@ impl Totals {
             old_hashes: 0,
             shadowed: 0,
             gas_sensitive: 0,
+            code_sensitive: 0,
             behavior: 0,
             chain_gas: 0,
             shadow_gas: 0,
@@ -460,6 +463,15 @@ uses (fs: std::fs::Fs, out: mut Stdout)
                 txs[index]["hash"].text(),
                 " (reads gas after the shadow code ran)",
             )
+        } else if found.shadowed && found.code_observed {
+            totals.code_sensitive += 1
+            println!(
+                "DIFF  tx ",
+                index,
+                " ",
+                txs[index]["hash"].text(),
+                " (reads code hashes, and the shadow code is other code)",
+            )
         } else if found.read_blockhash {
             totals.old_hashes += 1
             println!(
@@ -502,10 +514,12 @@ fn print_totals(_ totals: Totals, shadowing: bool) uses (out: mut Stdout) {
             "shadow: ",
             totals.shadowed,
             " transactions ran the shadow code, ",
-            totals.shadowed - totals.gas_sensitive - totals.behavior,
+            totals.shadowed - totals.gas_sensitive - totals.code_sensitive - totals.behavior,
             " identical, ",
             totals.gas_sensitive,
             " differ where code reads the gas left, ",
+            totals.code_sensitive,
+            " where code reads code hashes, ",
             totals.behavior,
             " behave differently; gas used chain ",
             totals.chain_gas,
