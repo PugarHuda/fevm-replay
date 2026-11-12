@@ -70,6 +70,13 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     if is_word(args.get(1), [0x66, 0x75, 0x7a, 0x7a]) {
         return fuzz_command(pair: false)
     }
+    // "fuzz-block"
+    if is_word(
+        args.get(1),
+        [0x66, 0x75, 0x7a, 0x7a, 0x2d, 0x62, 0x6c, 0x6f, 0x63, 0x6b],
+    ) {
+        return fuzz_block_command()
+    }
     // "fuzz-pair"
     if is_word(
         args.get(1),
@@ -959,4 +966,178 @@ fn outcome(_ result: [i32; 2]) -> String<20> {
     } else {
         fevm::status::status_name(result[1])
     }
+}
+
+/// `fuzz-block <dir>... <deployed.hex> <port.bin> [mutations] [seed]`:
+/// mainnet-seeded fuzzing. Every transaction of the saved blocks whose
+/// pre-state holds the deployed code is mutated `mutations` times (default
+/// 20) and run on its own pre-state with the deployed code and with the
+/// port. The directories come first; the last arguments that read as
+/// numbers are `mutations` and `seed`.
+#[cfg(target_family = "unix")]
+fn fuzz_block_command() -> i32
+uses (args: Args, fs: std::fs::Fs, out: mut Stdout)
+{
+    // Trailing numbers: up to two.
+    var end = args.count()
+    var numbers: usize = 0
+    while numbers < 2 && end > 5 && is_number(args.get(end - 1)) {
+        end -= 1
+        numbers += 1
+    }
+    if end < 5 {
+        println!(
+            "usage: fevm-replay fuzz-block <dir>... <deployed.hex> <port.bin> [mutations] [seed]",
+        )
+        return 2
+    }
+    let Option::Some(deployed) = read_shadow(args.get(end - 2)) else {
+        return 1
+    }
+    let Option::Some(port) = read_shadow(args.get(end - 1)) else {
+        return 1
+    }
+    let count = if numbers >= 1 {
+        number_arg(end, default: 20)
+    } else {
+        20
+    }
+    let seed = if numbers == 2 {
+        number_arg(end + 1, default: 1)
+    } else {
+        1
+    }
+    var found = mutate::Mutations::new()
+    var first_block = MemBuffer::empty()
+    var first_hash = MemBuffer::empty()
+    for d in 2 .. end - 2 {
+        let dir = args.get(d)
+        let Option::Some(chain) = load_response(dir, "chain.json") else {
+            continue
+        }
+        let Option::Some(block) = load_response(dir, "block.json") else {
+            continue
+        }
+        let Option::Some(prestates) = load_response(dir, "prestate.json") else {
+            continue
+        }
+        let header = ref block["result"]
+        var problem = MemBuffer::empty()
+        if !check::header_ok(header, mut problem) || !header["transactions"].as_array().is_some() {
+            println!("ERROR ", dir, "/block.json: ", problem)
+            continue
+        }
+        let env = load_block(
+            header,
+            chain_id: field(chain, "result"),
+            blobbasefee: fetch::blob_base_fee(
+                excess: field(header, "excessBlobGas"),
+                fraction: fetch::BPO2_UPDATE_FRACTION,
+            ),
+        )
+        let extras = match load_json(dir, "delegates.json") {
+            Option::Some(doc) => doc,
+            Option::None => Value::object(),
+        }
+        let txs = header["transactions"].items()
+        if !same_length(prestates["result"], txs.len()) {
+            println!(
+                "ERROR ",
+                dir,
+                ": the traces do not list one entry per transaction",
+            )
+            continue
+        }
+        for index in 0 .. txs.len() {
+            let entry = ref prestates["result"][index]
+            if !entry.as_object().is_some() || !entry.has("result") {
+                continue
+            }
+            let before = found.first_tx
+            mutate::mutate_tx(
+                env,
+                parent_hash: field(header, "parentHash"),
+                extras,
+                txs[index],
+                entry["result"],
+                index: index.downcast_unchecked(),
+                deployed: deployed.span(),
+                port: port.span(),
+                count,
+                seed,
+                mut found,
+            )
+            if before == 0 && found.first_tx != 0 {
+                dir.fmt(mut first_block)
+                txs[index]["hash"].text().fmt(mut first_hash)
+            }
+        }
+    }
+    println!(
+        "mutated ",
+        found.transactions,
+        " transactions ",
+        count,
+        " times each (",
+        found.tx_runs,
+        " with their own calldata changed, ",
+        found.direct_runs,
+        " as direct calls into the shadowed code)",
+    )
+    println!(
+        "  ",
+        found.runs,
+        " runs: ",
+        found.identical,
+        " identical, ",
+        found.sensitive,
+        " differ where code reads the gas left or code hashes, ",
+        found.dirtied,
+        " differ after an address-shaped word got upper bits, ",
+        found.differ,
+        " differ",
+    )
+    if found.first_tx == 0 {
+        return 0
+    }
+    println!(
+        "first difference: ",
+        first_block,
+        " tx ",
+        found.first_tx - 1,
+        " ",
+        first_hash,
+        if found.first_direct {
+            " (direct call)"
+        } else {
+            " (its calldata changed)"
+        },
+    )
+    println!(
+        "  to 0x",
+        core::text::hex(found.first_to, 20),
+        " calldata 0x",
+        hex_text(found.first_data.span()),
+    )
+    println!(
+        "  deployed ",
+        outcome(found.first_deployed),
+        ", port ",
+        outcome(found.first_port),
+    )
+    1
+}
+
+#[cfg(target_family = "unix")]
+fn is_number(_ arg: Arg) -> bool {
+    let text = arg.span()
+    if text.len() == 0 {
+        return false
+    }
+    for i in 0 .. text.len() {
+        if text[i] < 0x30 || text[i] > 0x39 {
+            return false
+        }
+    }
+    true
 }

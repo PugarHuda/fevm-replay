@@ -739,13 +739,13 @@ fn request(
 // Exceptional halts all end a call the same way: no return data and no gas
 // back. solc 0.5 halts with INVALID on division by zero, where a Fe port
 // runs out of gas.
-fn same_status(_ a: i32, _ b: i32) -> bool {
+pub fn same_status(_ a: i32, _ b: i32) -> bool {
     a == b || (exceptional(a) && exceptional(b))
 }
 
 // Whether `a` and `b` are the same `Error(string)` revert up to the padding
 // after the reason.
-fn same_reason(_ a: MemSpan, _ b: MemSpan) -> bool {
+pub fn same_reason(_ a: MemSpan, _ b: MemSpan) -> bool {
     if a.len() != b.len()
         || a.len() < 68
         || a[0] != 0x08
@@ -773,7 +773,16 @@ fn same_reason(_ a: MemSpan, _ b: MemSpan) -> bool {
     true
 }
 
-fn same_bytes(_ a: MemSpan, _ b: MemSpan) -> bool {
+fn contains(_ list: MemVec<u256>, _ x: u256) -> bool {
+    for i in 0 .. list.len() {
+        if list[i] == x {
+            return true
+        }
+    }
+    false
+}
+
+pub fn same_bytes(_ a: MemSpan, _ b: MemSpan) -> bool {
     if a.len() != b.len() {
         return false
     }
@@ -785,7 +794,7 @@ fn same_bytes(_ a: MemSpan, _ b: MemSpan) -> bool {
     true
 }
 
-fn same_logs(_ a: LogBuffer, _ b: LogBuffer) -> bool {
+pub fn same_logs(_ a: LogBuffer, _ b: LogBuffer) -> bool {
     if a.len() != b.len() {
         return false
     }
@@ -812,12 +821,21 @@ fn same_logs(_ a: LogBuffer, _ b: LogBuffer) -> bool {
 // Whether every balance, nonce, code (but the tested contract's) and slot
 // agrees.
 fn same_state(_ a: WorldState, _ b: WorldState) -> bool {
+    var tested: MemVec<u256> = MemVec::new()
+    tested.push(TARGET)
+    tested.push(PAIR)
+    same_state_except(a, b, tested)
+}
+
+/// Whether every balance, nonce, code (but at `ported`, where the codes
+/// differ by design) and storage slot of `a` and `b` agrees.
+pub fn same_state_except(_ a: WorldState, _ b: WorldState, _ ported: MemVec<u256>) -> bool {
     for position in 0 .. a.account_count() {
         let address = a.account_at(position).address
         if a.balance(address) != b.balance(address) || a.nonce(address) != b.nonce(address) {
             return false
         }
-        if address != TARGET && address != PAIR && !same_bytes(a.code(address), b.code(address)) {
+        if !contains(ported, address) && !same_bytes(a.code(address), b.code(address)) {
             return false
         }
     }

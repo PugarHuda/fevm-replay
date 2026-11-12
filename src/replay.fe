@@ -153,7 +153,7 @@ uses (text: mut MemBuffer)
 
 // The accounts of `world` to shadow: `address` if present, and every account
 // whose code is `like` (when `like` is not empty).
-fn shadow_targets(_ world: WorldState, _ address: u256, _ like: MemSpan) -> MemVec<u256> {
+pub fn shadow_targets(_ world: WorldState, _ address: u256, _ like: MemSpan) -> MemVec<u256> {
     var targets: MemVec<u256> = MemVec::new()
     if address != 0 && world.exists(address) {
         targets.push(address)
@@ -183,7 +183,7 @@ fn same_bytes(_ a: MemSpan, _ b: MemSpan) -> bool {
 
 // The prestate as an fevm world, with the shadow code at `targets` and what
 // the node knows beyond its traces.
-fn build_world(
+pub fn build_world(
     _ prestate: Value,
     _ block: BlockEnv,
     _ parent_hash: u256,

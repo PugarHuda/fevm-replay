@@ -1,6 +1,7 @@
 //! Turns JSON-RPC results into fevm inputs: a `prestateTracer` result into a
 //! `WorldState`, and a block header into a `BlockEnv`.
 
+use core::{MemBuffer, MemSpan}
 use core::text::parse_hex_uint
 use json::{Key, Value}
 use fevm::{Authorization, BlockEnv, InputData, OK, TxEnv, TxRequest, WorldState}
@@ -102,6 +103,16 @@ pub fn load_world(_ prestate: Value) -> WorldState {
 /// An `eth_getTransactionByHash` result as an fevm request. fevm takes the
 /// recovered sender, which the node reports as `from`.
 pub fn load_tx(_ tx: Value) -> TxRequest {
+    load_tx_with(
+        tx,
+        input: hex_bytes(tx["input"].text()).span(),
+        priced: true,
+    )
+}
+
+/// `tx` with `input` for its calldata, and when not `priced`, paying nothing
+/// for gas (for a block whose base fee is zero).
+pub fn load_tx_with(_ tx: Value, input: MemSpan, priced: bool) -> TxRequest {
     let kind: u8 = field(tx, "type").downcast_truncate()
     let creates = !tx.has("to") || tx["to"].is_null()
     let env = TxEnv {
@@ -117,18 +128,24 @@ pub fn load_tx(_ tx: Value) -> TxRequest {
         nonce: field(tx, "nonce"),
         gas_limit: field(tx, "gas").downcast_truncate(),
         // Legacy and EIP-2930 transactions name one price; later kinds a maximum.
-        gas_price: if kind == TX_LEGACY || kind == TX_ACCESS_LIST {
+        gas_price: if !priced {
+            0
+        } else if kind == TX_LEGACY || kind == TX_ACCESS_LIST {
             field(tx, "gasPrice")
         } else {
             field(tx, "maxFeePerGas")
         },
-        max_priority_fee_per_gas: field(tx, "maxPriorityFeePerGas"),
+        max_priority_fee_per_gas: if priced {
+            field(tx, "maxPriorityFeePerGas")
+        } else {
+            0
+        },
         max_fee_per_blob_gas: field(tx, "maxFeePerBlobGas"),
         value: field(tx, "value"),
     }
     var request = TxRequest::new(
         env,
-        data: InputData::new(hex_bytes(tx["input"].text()), status: OK),
+        data: InputData::new(MemBuffer::from_span(input), status: OK),
     )
     if tx.has("accessList") {
         for ref entry in tx["accessList"].items() {
