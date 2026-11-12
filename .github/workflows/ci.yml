@@ -41,6 +41,13 @@ jobs:
       - run: fe fmt --check
       - run: fe test --backend native .
 
+      - name: WETH9 port
+        working-directory: ports/weth9
+        run: |
+          fe fmt --check
+          fe test .
+          fe build -O 2 --out-dir ../../out/weth9 .
+
       - name: Build fevm-replay
         run: fe build --backend native -O 2 --emit executable --out-dir out .
 
