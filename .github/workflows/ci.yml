@@ -8,19 +8,43 @@ permissions:
   contents: read
 
 env:
-  # Any Fe release from 26.5.0 on is allowed for the contest.
-  FE_VERSION: v26.5.0
+  # fevm needs `std::native::sha256_compress`, which landed on Fe master right
+  # after 26.6.0 (argotorg/fe#1977). The contest allows pinning a master commit.
+  FE_REVISION: 4608e5fdfa3783ec78347f297ad0fced8928fcc7
+  RUST_VERSION: 1.99.0
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Install Fe
+
+      - name: Restore the Fe compiler
+        id: fe-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/fe
+          key: fe-${{ runner.os }}-${{ env.FE_REVISION }}-${{ env.RUST_VERSION }}
+
+      - name: Build the Fe compiler
+        if: steps.fe-cache.outputs.cache-hit != 'true'
         run: |
-          curl -fsSL https://raw.githubusercontent.com/argotorg/fe/master/feup/feup.sh | bash -s -- --version "$FE_VERSION" --no-modify-path
-          echo "$HOME/.fe/bin" >> "$GITHUB_PATH"
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          cargo "+$RUST_VERSION" install --locked --root ~/fe \
+            --git https://github.com/argotorg/fe --rev "$FE_REVISION" fe
+
+      - run: echo "$HOME/fe/bin" >> "$GITHUB_PATH"
       - run: fe --version
       - run: fe fmt --check
-      - run: fe test
-      - run: fe build
+
+      - name: Build fevm-replay
+        run: fe build --backend native -O 2 --emit executable --out-dir out .
+
+      - name: Mainnet fixtures replay exactly
+        run: ./out/fevm_replay fixtures/mainnet/*.json
+
+      - name: Every negative fixture is caught
+        run: |
+          for f in fixtures/negative/*.json; do
+            if ./out/fevm_replay "$f"; then echo "missed: $f"; exit 1; fi
+          done

@@ -1,0 +1,46 @@
+// Run with `fe test --backend native .` on Linux or macOS.
+
+use json::parse
+use ingot::load::{field, hex_bytes, hex_word}
+
+#[test]
+fn hex_word_reads_quantities_and_numbers() {
+    let doc = parse("{\"a\":\"0x2a\",\"b\":42,\"c\":\"0x2A\"}".span()).unwrap()
+    assert!(hex_word(doc["a"]) == 42)
+    // The prestate tracer writes nonces as JSON numbers.
+    assert!(hex_word(doc["b"]) == 42)
+    assert!(hex_word(doc["c"]) == 42)
+}
+
+#[test]
+fn missing_fields_read_as_zero() {
+    let doc = parse("{\"gas\":\"0x5208\"}".span()).unwrap()
+    assert!(field(doc, "gas") == 21000)
+    // A legacy transaction has no maxPriorityFeePerGas.
+    assert!(field(doc, "maxPriorityFeePerGas") == 0)
+}
+
+#[test]
+fn hex_bytes_decodes_with_and_without_prefix() {
+    let bytes = hex_bytes("0x00ffA0".span())
+    assert!(bytes.len() == 3)
+    assert!(
+        bytes.span()[0] == 0x00 && bytes.span()[1] == 0xff && bytes.span()[2] == 0xa0,
+    )
+    assert!(hex_bytes("0x".span()).len() == 0)
+    assert!(hex_bytes("beef".span()).len() == 2)
+}
+
+#[cfg(target_family = "unix")]
+#[test]
+fn blob_base_fee_matches_the_node() {
+    // Mainnet block 26393604: excessBlobGas 0xb58bccf under BPO2; the node's
+    // blob gas price for its blob transactions was 0xb58b03.
+    assert!(
+        ingot::fetch::blob_base_fee(excess: 0xb58bccf, fraction: 11684671) == 0xb58b03,
+    )
+    // No excess blob gas: the minimum price of one wei.
+    assert!(
+        ingot::fetch::blob_base_fee(excess: 0, fraction: 11684671) == 1,
+    )
+}

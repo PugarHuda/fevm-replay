@@ -17,8 +17,15 @@ use ingot::load::{field, load_block, load_tx, load_world}
 /// `block` whose parent's hash is `parent_hash`, and compares the outcome
 /// with the chain's `receipt` and `diff`, writing a line per difference. Nothing here touches the host: the verdict depends on the
 /// node's answers alone.
-pub fn replay_tx(_ block: BlockEnv, parent_hash: u256, _ tx: Value, _ receipt: Value, _ prestate: Value,
-                 _ diff: Value) -> Mismatches uses (text: mut MemBuffer)
+pub fn replay_tx(
+    _ block: BlockEnv,
+    parent_hash: u256,
+    _ tx: Value,
+    _ receipt: Value,
+    _ prestate: Value,
+    _ diff: Value,
+) -> Mismatches
+uses (text: mut MemBuffer)
 {
     var expected = load_world(prestate)
     apply_diff(mut expected, diff)
@@ -28,12 +35,30 @@ pub fn replay_tx(_ block: BlockEnv, parent_hash: u256, _ tx: Value, _ receipt: V
     // BLOCKHASH reads the client's block hashes, not state, so the prestate
     // tracer cannot see them; the parent's comes with the header.
     world.set_block_hash(block.number - 1, parent_hash)
-    let applied = transact(world, load_tx(tx), block, Config::osaka(), mut buffers, mut tracer)
+    let applied = transact(
+        world,
+        load_tx(tx),
+        block,
+        Config::osaka(),
+        mut buffers,
+        mut tracer,
+    )
     compare(applied.receipt, applied.state, receipt, expected)
 }
 
 /// Replays a single-transaction fixture.
 pub fn replay(_ doc: Value) -> Mismatches uses (text: mut MemBuffer) {
-    let block = load_block(doc["block"], chain_id: field(doc, "chainId"), blobbasefee: field(doc, "blobBaseFee"))
-    replay_tx(block, parent_hash: field(doc["block"], "parentHash"), doc["tx"], doc["receipt"], doc["prestate"], doc["diff"])
+    let block = load_block(
+        doc["block"],
+        chain_id: field(doc, "chainId"),
+        blobbasefee: field(doc, "blobBaseFee"),
+    )
+    replay_tx(
+        block,
+        parent_hash: field(doc["block"], "parentHash"),
+        doc["tx"],
+        doc["receipt"],
+        doc["prestate"],
+        doc["diff"],
+    )
 }

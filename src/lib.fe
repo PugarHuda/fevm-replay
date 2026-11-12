@@ -14,9 +14,13 @@ const DEFAULT_RPC: String<21> = "https://eth.drpc.org"
 
 fn is_word<const N: usize>(_ arg: Arg, _ word: [u8; N]) -> bool {
     let bytes = arg.span()
-    if bytes.len() != N { return false }
-    for i in 0..N {
-        if bytes[i] != word[i] { return false }
+    if bytes.len() != N {
+        return false
+    }
+    for i in 0 .. N {
+        if bytes[i] != word[i] {
+            return false
+        }
     }
     true
 }
@@ -29,18 +33,26 @@ fn is_word<const N: usize>(_ arg: Arg, _ word: [u8; N]) -> bool {
 /// `fevm-replay fetch-block <0x-number> <dir> [rpc-url]` saves the node's
 /// answers for a whole block, and `fevm-replay block <dir>` replays every
 /// transaction in it.
-// `std::fs` and `std::process` exist on Unix hosts only, as does fevm's native build.
 #[cfg(target_family = "unix")]
-pub fn main() -> i32 uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut Stdout) {
+pub fn main() -> i32
+uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut Stdout)
+{
     if args.count() < 2 {
         println!("usage: fevm-replay <fixture.json>...")
-        println!("       fevm-replay fetch <txhash> <fixture.json> [rpc-url]")
-        println!("       fevm-replay fetch-block <0x-number> <dir> [rpc-url]")
+        println!(
+            "       fevm-replay fetch <txhash> <fixture.json> [rpc-url]",
+        )
+        println!(
+            "       fevm-replay fetch-block <0x-number> <dir> [rpc-url]",
+        )
         println!("       fevm-replay block <dir>")
         return 2
     }
     // "fetch-block"
-    if is_word(args.get(1), [0x66, 0x65, 0x74, 0x63, 0x68, 0x2d, 0x62, 0x6c, 0x6f, 0x63, 0x6b]) {
+    if is_word(
+        args.get(1),
+        [0x66, 0x65, 0x74, 0x63, 0x68, 0x2d, 0x62, 0x6c, 0x6f, 0x63, 0x6b],
+    ) {
         return fetch_block_command()
     }
     // "block"
@@ -55,9 +67,13 @@ pub fn main() -> i32 uses (args: Args, fs: mut std::fs::Fs, proc: mut std::proce
 }
 
 #[cfg(target_family = "unix")]
-fn fetch_command() -> i32 uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut Stdout) {
+fn fetch_command() -> i32
+uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut Stdout)
+{
     if args.count() != 4 && args.count() != 5 {
-        println!("usage: fevm-replay fetch <txhash> <fixture.json> [rpc-url]")
+        println!(
+            "usage: fevm-replay fetch <txhash> <fixture.json> [rpc-url]",
+        )
         return 2
     }
     var text = MemBuffer::empty()
@@ -81,7 +97,7 @@ fn fetch_command() -> i32 uses (args: Args, fs: mut std::fs::Fs, proc: mut std::
 #[cfg(target_family = "unix")]
 fn replay_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
     var failed: i32 = 0
-    for index in 1..args.count() {
+    for index in 1 .. args.count() {
         let path = args.get(index)
         let Result::Ok(bytes) = fs.read(path) else {
             println!("ERROR ", path, ": cannot read")
@@ -94,7 +110,9 @@ fn replay_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
             continue
         }
         var text = MemBuffer::empty()
-        let found = with (mut text) { replay(doc) }
+        let found = with (mut text) {
+            replay(doc)
+        }
         if found.total() == 0 {
             println!("MATCH ", path)
         } else {
@@ -107,9 +125,13 @@ fn replay_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
 }
 
 #[cfg(target_family = "unix")]
-fn fetch_block_command() -> i32 uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut Stdout) {
+fn fetch_block_command() -> i32
+uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut Stdout)
+{
     if args.count() != 4 && args.count() != 5 {
-        println!("usage: fevm-replay fetch-block <0x-number> <dir> [rpc-url]")
+        println!(
+            "usage: fevm-replay fetch-block <0x-number> <dir> [rpc-url]",
+        )
         return 2
     }
     let Result::Ok(_) = fs.create_dir_all(args.get(3)) else {
@@ -131,7 +153,9 @@ fn fetch_block_command() -> i32 uses (args: Args, fs: mut std::fs::Fs, proc: mut
 
 // The `result` of the JSON-RPC response saved in `dir/name`.
 #[cfg(target_family = "unix")]
-fn load_response(_ dir: Arg, _ name: String<16>) -> Option<json::Value> uses (fs: std::fs::Fs, out: mut Stdout) {
+fn load_response(_ dir: Arg, _ name: String<16>) -> Option<json::Value>
+uses (fs: std::fs::Fs, out: mut Stdout)
+{
     let path = fetch::join(dir, name)
     let Result::Ok(bytes) = fs.read(path) else {
         println!("ERROR ", path, ": cannot read")
@@ -155,22 +179,43 @@ fn block_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
         return 2
     }
     let dir = args.get(2)
-    let Option::Some(chain) = load_response(dir, "chain.json") else { return 1 }
-    let Option::Some(block) = load_response(dir, "block.json") else { return 1 }
-    let Option::Some(receipts) = load_response(dir, "receipts.json") else { return 1 }
-    let Option::Some(prestates) = load_response(dir, "prestate.json") else { return 1 }
-    let Option::Some(diffs) = load_response(dir, "diff.json") else { return 1 }
+    let Option::Some(chain) = load_response(dir, "chain.json") else {
+        return 1
+    }
+    let Option::Some(block) = load_response(dir, "block.json") else {
+        return 1
+    }
+    let Option::Some(receipts) = load_response(dir, "receipts.json") else {
+        return 1
+    }
+    let Option::Some(prestates) = load_response(dir, "prestate.json") else {
+        return 1
+    }
+    let Option::Some(diffs) = load_response(dir, "diff.json") else {
+        return 1
+    }
     let header = ref block["result"]
-    let env = load_block(header, chain_id: field(chain, "result"),
-                         blobbasefee: fetch::blob_base_fee(excess: field(header, "excessBlobGas"),
-                                                           fraction: fetch::BPO2_UPDATE_FRACTION))
+    let env = load_block(
+        header,
+        chain_id: field(chain, "result"),
+        blobbasefee: fetch::blob_base_fee(
+            excess: field(header, "excessBlobGas"),
+            fraction: fetch::BPO2_UPDATE_FRACTION,
+        ),
+    )
     let txs = header["transactions"].items()
     var matched: u64 = 0
-    for index in 0..txs.len() {
+    for index in 0 .. txs.len() {
         var text = MemBuffer::empty()
         let found = with (mut text) {
-            replay_tx(env, parent_hash: field(header, "parentHash"), txs[index], receipts["result"][index], prestates["result"][index]["result"],
-                      diffs["result"][index]["result"])
+            replay_tx(
+                env,
+                parent_hash: field(header, "parentHash"),
+                txs[index],
+                receipts["result"][index],
+                prestates["result"][index]["result"],
+                diffs["result"][index]["result"],
+            )
         }
         if found.total() == 0 {
             matched += 1
@@ -180,8 +225,23 @@ fn block_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
         }
     }
     let total: u64 = txs.len().downcast_unchecked()
-    let permille = if total == 0 { 1000 } else { matched * 1000 / total }
-    println!("block ", header["number"].text(), ": ", matched, "/", total, " transactions MATCH (",
-             permille / 10, ".", permille % 10, "%)")
+    let permille = if total == 0 {
+        1000
+    } else {
+        matched * 1000 / total
+    }
+    println!(
+        "block ",
+        header["number"].text(),
+        ": ",
+        matched,
+        "/",
+        total,
+        " transactions MATCH (",
+        permille / 10,
+        ".",
+        permille % 10,
+        "%)",
+    )
     if matched == total { 0 } else { 1 }
 }
