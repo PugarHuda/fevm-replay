@@ -36,6 +36,7 @@ jobs:
       - run: echo "$HOME/fe/bin" >> "$GITHUB_PATH"
       - run: fe --version
       - run: fe fmt --check
+      - run: fe test --backend native .
 
       - name: Build fevm-replay
         run: fe build --backend native -O 2 --emit executable --out-dir out .
