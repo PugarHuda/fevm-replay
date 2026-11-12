@@ -1,0 +1,820 @@
+//! UniswapV2Pair in Fe, built to drop in for the deployed Solidity code
+//! (solc 0.5.16) of every Uniswap V2 pair: same selectors, events, storage
+//! slots, revert reasons and external calls. Every pair on mainnet runs the
+//! same runtime code, so one port stands in for all of them. fevm-replay
+//! checks that claim against real mainnet traffic.
+
+use std::abi::{Bytes, Bytes32, DynString}
+use std::evm::{
+    StorageMap,
+    bubble_last_revert,
+    copy_returndata,
+    decode_returndata,
+    encode_abi_payload,
+    encode_msg_calldata,
+    revert_empty,
+    revert_error,
+    wei,
+}
+use std::evm::crypto::{ecrecover_raw, eip712_digest, keccak_words}
+
+msg PairMsg {
+    #[selector = sol("name()")]
+    Name -> DynString,
+    #[selector = sol("symbol()")]
+    Symbol -> DynString,
+    #[selector = sol("decimals()")]
+    Decimals -> u8,
+    #[selector = sol("totalSupply()")]
+    TotalSupply -> u256,
+    #[selector = sol("balanceOf(address)")]
+    BalanceOf { owner: Address } -> u256,
+    #[selector = sol("allowance(address,address)")]
+    Allowance { owner: Address, spender: Address } -> u256,
+    #[selector = sol("DOMAIN_SEPARATOR()")]
+    DomainSeparator -> u256,
+    #[selector = sol("PERMIT_TYPEHASH()")]
+    PermitTypehash -> u256,
+    #[selector = sol("nonces(address)")]
+    Nonces { owner: Address } -> u256,
+    #[selector = sol("approve(address,uint256)")]
+    Approve { spender: Address, value: u256 } -> bool,
+    #[selector = sol("transfer(address,uint256)")]
+    Transfer { to: Address, value: u256 } -> bool,
+    #[selector = sol("transferFrom(address,address,uint256)")]
+    TransferFrom { from: Address, to: Address, value: u256 } -> bool,
+    #[selector = sol(
+        "permit(address,address,uint256,uint256,uint8,bytes32,bytes32)",
+    )]
+    Permit {
+        owner: Address,
+        spender: Address,
+        value: u256,
+        deadline: u256,
+        v: u8,
+        r: Bytes32,
+        s: Bytes32,
+    },
+    #[selector = sol("MINIMUM_LIQUIDITY()")]
+    MinimumLiquidity -> u256,
+    #[selector = sol("factory()")]
+    Factory -> Address,
+    #[selector = sol("token0()")]
+    Token0 -> Address,
+    #[selector = sol("token1()")]
+    Token1 -> Address,
+    #[selector = sol("getReserves()")]
+    GetReserves -> (u256, u256, u256),
+    #[selector = sol("price0CumulativeLast()")]
+    Price0CumulativeLast -> u256,
+    #[selector = sol("price1CumulativeLast()")]
+    Price1CumulativeLast -> u256,
+    #[selector = sol("kLast()")]
+    KLast -> u256,
+    #[selector = sol("initialize(address,address)")]
+    Initialize { token0: Address, token1: Address },
+    #[selector = sol("mint(address)")]
+    Mint { to: Address } -> u256,
+    #[selector = sol("burn(address)")]
+    Burn { to: Address } -> (u256, u256),
+    #[selector = sol("swap(uint256,uint256,address,bytes)")]
+    Swap { amount0_out: u256, amount1_out: u256, to: Address, data: Bytes },
+    #[selector = sol("skim(address)")]
+    Skim { to: Address },
+    #[selector = sol("sync()")]
+    Sync,
+}
+
+// The calls a pair makes.
+msg TokenMsg {
+    #[selector = sol("balanceOf(address)")]
+    BalanceOf { owner: Address } -> u256,
+    #[selector = sol("transfer(address,uint256)")]
+    Transfer { to: Address, value: u256 } -> bool,
+}
+
+msg FactoryMsg {
+    #[selector = sol("feeTo()")]
+    FeeTo -> Address,
+}
+
+msg CalleeMsg {
+    #[selector = sol("uniswapV2Call(address,uint256,uint256,bytes)")]
+    UniswapV2Call { sender: Address, amount0: u256, amount1: u256, data: Bytes },
+}
+
+/// Solidity's `require(condition, reason)`: `Error(string)`.
+#[error]
+struct Error { message: DynString }
+
+#[event]
+struct Approval {
+    #[indexed]
+    owner: Address,
+    #[indexed]
+    spender: Address,
+    value: u256,
+}
+
+#[event]
+struct Transfer {
+    #[indexed]
+    from: Address,
+    #[indexed]
+    to: Address,
+    value: u256,
+}
+
+#[event]
+struct Mint {
+    #[indexed]
+    sender: Address,
+    amount0: u256,
+    amount1: u256,
+}
+
+#[event]
+struct Burn {
+    #[indexed]
+    sender: Address,
+    amount0: u256,
+    amount1: u256,
+    #[indexed]
+    to: Address,
+}
+
+#[event]
+struct Swap {
+    #[indexed]
+    sender: Address,
+    amount0_in: u256,
+    amount1_in: u256,
+    amount0_out: u256,
+    amount1_out: u256,
+    #[indexed]
+    to: Address,
+}
+
+// `Sync(uint112,uint112)`: Fe has no 112-bit integer, so the event is
+// logged by hand. The data is the same two padded words.
+const SYNC_TOPIC: u256 = 0x1c411e9a96e071241c2f21f7726b17ae89e3cab4c78be50e062b03a9fffbbad1
+
+// keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)")
+const PERMIT_TYPEHASH: u256 = 0x6e71edae12b1b97f4d1f60370fef10105fa2faae0126114a169c64845d6126c9
+// keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")
+const DOMAIN_TYPEHASH: u256 = 0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f
+// keccak256("Uniswap V2"), keccak256("1")
+const NAME_HASH: u256 = 0xbfcc8ef98ffbf7b6c3fec7bf5185b566b9863e35a9d83acd49ad6824b5969738
+const VERSION_HASH: u256 = 0xc89efdaa54c0f20c7adf612882df0950f5a951637e0307cdcb4c672f298b8bc6
+
+// "Uniswap V2" and "UNI-V2", left-aligned with their lengths.
+const NAME: u256 = 0x556e697377617020563200000000000000000000000000000000000000000014
+const SYMBOL: u256 = 0x554e492d5632000000000000000000000000000000000000000000000000000c
+
+const MINIMUM_LIQUIDITY: u256 = 1000
+const Q112: u256 = 0x10000000000000000000000000000
+const UINT112_MAX: u256 = 0xffffffffffffffffffffffffffff
+const UINT32_MAX: u256 = 0xffffffff
+
+/// The state of the deployed contract, slot for slot: UniswapV2ERC20's
+/// `totalSupply`, `balanceOf`, `allowance`, `DOMAIN_SEPARATOR`, `nonces`,
+/// then the pair's `factory`, `token0`, `token1`, the packed `reserve0`
+/// (uint112), `reserve1` (uint112) and `blockTimestampLast` (uint32),
+/// `price0CumulativeLast`, `price1CumulativeLast`, `kLast` and `unlocked`.
+pub contract UniswapV2Pair uses (ctx: Ctx, call: mut Call, log: mut Log) {
+    mut total_supply: u256,
+    mut balance_of: StorageMap<Address, u256>,
+    mut allowance: StorageMap<Address, StorageMap<Address, u256>>,
+    mut domain_separator: u256,
+    mut nonces: StorageMap<Address, u256>,
+    mut factory: Address,
+    mut token0: Address,
+    mut token1: Address,
+    mut reserves: u256,
+    mut price0_cumulative_last: u256,
+    mut price1_cumulative_last: u256,
+    mut k_last: u256,
+    mut unlocked: u256,
+
+    init()
+    uses (ctx, mut factory, mut unlocked, mut domain_separator)
+    {
+        factory = ctx.caller()
+        unlocked = 1
+        domain_separator = keccak_words(
+            [DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH, ctx.chainid(), ctx.address().word()],
+        )
+    }
+
+    recv PairMsg {
+        Name -> DynString {
+            DynString::from_word_prefix(word: NAME, len: 10)
+        }
+
+        Symbol -> DynString {
+            DynString::from_word_prefix(word: SYMBOL, len: 6)
+        }
+
+        Decimals -> u8 {
+            18
+        }
+
+        TotalSupply -> u256 uses (total_supply) {
+            total_supply
+        }
+
+        BalanceOf { owner } -> u256 uses (balance_of) {
+            balance_of.get(key: owner)
+        }
+
+        Allowance { owner, spender } -> u256 uses (allowance) {
+            allowance[owner][spender]
+        }
+
+        DomainSeparator -> u256 uses (domain_separator) {
+            domain_separator
+        }
+
+        PermitTypehash -> u256 {
+            PERMIT_TYPEHASH
+        }
+
+        Nonces { owner } -> u256 uses (nonces) {
+            nonces.get(key: owner)
+        }
+
+        Approve { spender, value } -> bool uses (ctx, mut allowance, mut log) {
+            approve(owner: ctx.caller(), spender, value)
+            true
+        }
+
+        Transfer { to, value } -> bool uses (ctx, mut balance_of, mut log) {
+            transfer(from: ctx.caller(), to, value)
+            true
+        }
+
+        TransferFrom { from, to, value } -> bool uses (
+            ctx,
+            mut balance_of,
+            mut allowance,
+            mut log,
+        ) {
+            let spender = ctx.caller()
+            let allowed = allowance[from][spender]
+            if allowed != u256::max() {
+                allowance[from][spender] = sub(allowed, value)
+            }
+            transfer(from, to, value)
+            true
+        }
+
+        Permit { owner, spender, value, deadline, v, r, s }
+        uses (ctx, mut allowance, mut nonces, domain_separator, mut log)
+        {
+            if deadline < ctx.timestamp().as_seconds() {
+                fail("EXPIRED")
+            }
+            let nonce = nonces.get(key: owner)
+            nonces.set(key: owner, value: nonce.wrapping_add(1))
+            let struct_hash = keccak_words(
+                [PERMIT_TYPEHASH, owner.word(), spender.word(), value, nonce, deadline],
+            )
+            let digest = eip712_digest(
+                domain_separator: domain_separator,
+                struct_hash: struct_hash,
+            )
+            let recovered = match ecrecover_raw(
+                hash: digest,
+                v: v as u256,
+                r: r.word(),
+                s: s.word(),
+            ) {
+                Result::Ok(Option::Some(signer)) => signer,
+                _ => 0,
+            }
+            if recovered == 0 || recovered != owner.word() {
+                fail("INVALID_SIGNATURE")
+            }
+            approve(owner, spender, value)
+        }
+
+        MinimumLiquidity -> u256 {
+            MINIMUM_LIQUIDITY
+        }
+
+        Factory -> Address uses (factory) {
+            factory
+        }
+
+        Token0 -> Address uses (token0) {
+            token0
+        }
+
+        Token1 -> Address uses (token1) {
+            token1
+        }
+
+        GetReserves -> (u256, u256, u256) uses (reserves) {
+            (reserve0_of(reserves), reserve1_of(reserves), reserves >> 224)
+        }
+
+        Price0CumulativeLast -> u256 uses (price0_cumulative_last) {
+            price0_cumulative_last
+        }
+
+        Price1CumulativeLast -> u256 uses (price1_cumulative_last) {
+            price1_cumulative_last
+        }
+
+        KLast -> u256 uses (k_last) {
+            k_last
+        }
+
+        Initialize { token0: first, token1: second }
+        uses (ctx, factory, mut token0, mut token1)
+        {
+            if ctx.caller() != factory {
+                fail("FORBIDDEN")
+            }
+            token0 = first
+            token1 = second
+        }
+
+        Mint { to } -> u256 uses (
+            ctx,
+            mut call,
+            mut log,
+            mut total_supply,
+            mut balance_of,
+            factory,
+            token0,
+            token1,
+            mut reserves,
+            mut price0_cumulative_last,
+            mut price1_cumulative_last,
+            mut k_last,
+            mut unlocked,
+        ) {
+            lock()
+            let reserve0 = reserve0_of(reserves)
+            let reserve1 = reserve1_of(reserves)
+            let balance0 = balance_of_token(token0)
+            let balance1 = balance_of_token(token1)
+            let amount0 = sub(balance0, reserve0)
+            let amount1 = sub(balance1, reserve1)
+            let fee_on = mint_fee(reserve0, reserve1)
+            let supply = total_supply
+            let liquidity = if supply == 0 {
+                let minted = sub(sqrt(mul(amount0, amount1)), MINIMUM_LIQUIDITY)
+                mint(to: Address::zero(), value: MINIMUM_LIQUIDITY)
+                minted
+            } else {
+                min(
+                    div(mul(amount0, supply), reserve0),
+                    div(mul(amount1, supply), reserve1),
+                )
+            }
+            if liquidity == 0 {
+                fail("INSUFFICIENT_LIQUIDITY_MINTED")
+            }
+            mint(to, value: liquidity)
+            update(balance0, balance1, reserve0, reserve1)
+            if fee_on {
+                k_last = mul(reserve0_of(reserves), reserve1_of(reserves))
+            }
+            log.emit(Mint { sender: ctx.caller(), amount0, amount1 })
+            unlocked = 1
+            liquidity
+        }
+
+        Burn { to } -> (u256, u256) uses (
+            ctx,
+            mut call,
+            mut log,
+            mut total_supply,
+            mut balance_of,
+            factory,
+            token0,
+            token1,
+            mut reserves,
+            mut price0_cumulative_last,
+            mut price1_cumulative_last,
+            mut k_last,
+            mut unlocked,
+        ) {
+            lock()
+            let reserve0 = reserve0_of(reserves)
+            let reserve1 = reserve1_of(reserves)
+            let first = token0
+            let second = token1
+            let balance0 = balance_of_token(first)
+            let balance1 = balance_of_token(second)
+            let liquidity = balance_of.get(key: ctx.address())
+            let fee_on = mint_fee(reserve0, reserve1)
+            let supply = total_supply
+            let amount0 = div(mul(liquidity, balance0), supply)
+            let amount1 = div(mul(liquidity, balance1), supply)
+            if amount0 == 0 || amount1 == 0 {
+                fail("INSUFFICIENT_LIQUIDITY_BURNED")
+            }
+            burn(from: ctx.address(), value: liquidity)
+            safe_transfer(token: first, to, value: amount0)
+            safe_transfer(token: second, to, value: amount1)
+            update(
+                balance_of_token(first),
+                balance_of_token(second),
+                reserve0,
+                reserve1,
+            )
+            if fee_on {
+                k_last = mul(reserve0_of(reserves), reserve1_of(reserves))
+            }
+            log.emit(Burn { sender: ctx.caller(), amount0, amount1, to })
+            unlocked = 1
+            (amount0, amount1)
+        }
+
+        Swap { amount0_out, amount1_out, to, data }
+        uses (
+            ctx,
+            mut call,
+            mut log,
+            token0,
+            token1,
+            mut reserves,
+            mut price0_cumulative_last,
+            mut price1_cumulative_last,
+            mut unlocked,
+        )
+        {
+            lock()
+            if amount0_out == 0 && amount1_out == 0 {
+                fail("INSUFFICIENT_OUTPUT_AMOUNT")
+            }
+            let reserve0 = reserve0_of(reserves)
+            let reserve1 = reserve1_of(reserves)
+            if amount0_out >= reserve0 || amount1_out >= reserve1 {
+                fail("INSUFFICIENT_LIQUIDITY")
+            }
+            let first = token0
+            let second = token1
+            if to == first || to == second {
+                fail("INVALID_TO")
+            }
+            if amount0_out > 0 {
+                safe_transfer(token: first, to, value: amount0_out)
+            }
+            if amount1_out > 0 {
+                safe_transfer(token: second, to, value: amount1_out)
+            }
+            if data.len() > 0 {
+                callee(
+                    to,
+                    message: CalleeMsg::UniswapV2Call {
+                        sender: ctx.caller(),
+                        amount0: amount0_out,
+                        amount1: amount1_out,
+                        data,
+                    },
+                )
+            }
+            let balance0 = balance_of_token(first)
+            let balance1 = balance_of_token(second)
+            let amount0_in = amount_in(balance0, reserve: reserve0, out: amount0_out)
+            let amount1_in = amount_in(balance1, reserve: reserve1, out: amount1_out)
+            if amount0_in == 0 && amount1_in == 0 {
+                fail("INSUFFICIENT_INPUT_AMOUNT")
+            }
+            let adjusted0 = sub(mul(balance0, 1000), mul(amount0_in, 3))
+            let adjusted1 = sub(mul(balance1, 1000), mul(amount1_in, 3))
+            if mul(adjusted0, adjusted1) < mul(mul(reserve0, reserve1), 1_000_000) {
+                fail("K")
+            }
+            update(balance0, balance1, reserve0, reserve1)
+            log.emit(
+                Swap { sender: ctx.caller(), amount0_in, amount1_in, amount0_out, amount1_out, to },
+            )
+            unlocked = 1
+        }
+
+        Skim { to } uses (ctx, mut call, mut log, token0, token1, reserves, mut unlocked) {
+            lock()
+            let first = token0
+            let second = token1
+            safe_transfer(
+                token: first,
+                to,
+                value: sub(balance_of_token(first), reserve0_of(reserves)),
+            )
+            safe_transfer(
+                token: second,
+                to,
+                value: sub(balance_of_token(second), reserve1_of(reserves)),
+            )
+            unlocked = 1
+        }
+
+        Sync uses (
+            ctx,
+            mut call,
+            mut log,
+            token0,
+            token1,
+            mut reserves,
+            mut price0_cumulative_last,
+            mut price1_cumulative_last,
+            mut unlocked,
+        ) {
+            lock()
+            let balance0 = balance_of_token(token0)
+            let balance1 = balance_of_token(token1)
+            update(
+                balance0,
+                balance1,
+                reserve0_of(reserves),
+                reserve1_of(reserves),
+            )
+            unlocked = 1
+        }
+    }
+}
+
+// The `lock` modifier's entry. Its exit, `unlocked = 1`, ends each function.
+fn lock() uses (unlocked: mut u256) {
+    if unlocked != 1 {
+        fail("LOCKED")
+    }
+    unlocked = 0
+}
+
+// Every UniswapV2 reason starts "UniswapV2: "; `code` is the rest.
+fn fail(_ code: String<31>) -> ! {
+    revert_error(Error { message: text("UniswapV2: ", code) })
+}
+
+fn math_fail(_ message: String<31>) -> ! {
+    revert_error(Error { message: text("", message) })
+}
+
+fn text(_ prefix: String<11>, _ rest: String<31>) -> DynString {
+    var message = DynString::zeroed(prefix.len() + rest.len())
+    for i in 0 .. prefix.len() {
+        message.span()[i] = prefix.byte_at(i)
+    }
+    for i in 0 .. rest.len() {
+        message.span()[prefix.len() + i] = rest.byte_at(i)
+    }
+    message
+}
+
+fn reserve0_of(_ reserves: u256) -> u256 {
+    reserves & UINT112_MAX
+}
+
+fn reserve1_of(_ reserves: u256) -> u256 {
+    (reserves >> 112) & UINT112_MAX
+}
+
+// SafeMath as UniswapV2 uses it: checked, with ds-math reasons.
+fn add(_ x: u256, _ y: u256) -> u256 {
+    let z = x.wrapping_add(y)
+    if z < x {
+        math_fail("ds-math-add-overflow")
+    }
+    z
+}
+
+fn sub(_ x: u256, _ y: u256) -> u256 {
+    if y > x {
+        math_fail("ds-math-sub-underflow")
+    }
+    x - y
+}
+
+fn mul(_ x: u256, _ y: u256) -> u256 {
+    if y == 0 { return 0 }
+    let z = x.wrapping_mul(y)
+    if z / y != x {
+        math_fail("ds-math-mul-overflow")
+    }
+    z
+}
+
+// solc 0.5 divides by zero with INVALID, which ends the call and burns all
+// its gas. Fe has no INVALID, so running out of gas stands in: the caller
+// sees the same exceptional halt, with no return data and no gas back.
+fn div(_ x: u256, _ y: u256) -> u256 {
+    if y == 0 {
+        // ponytail: memory grown until gas runs out stands in for INVALID.
+        var sink = MemBuffer::empty()
+        while true {
+            sink.push(0)
+        }
+    }
+    x / y
+}
+
+fn min(_ x: u256, _ y: u256) -> u256 {
+    if x < y { x } else { y }
+}
+
+// Babylonian square root, as UniswapV2's Math.sqrt.
+fn sqrt(_ y: u256) -> u256 {
+    if y > 3 {
+        var z = y
+        var x = y / 2 + 1
+        while x < z {
+            z = x
+            x = (y / x).wrapping_add(x) / 2
+        }
+        return z
+    }
+    if y != 0 { 1 } else { 0 }
+}
+
+fn amount_in(_ balance: u256, reserve: u256, out: u256) -> u256 {
+    let left = reserve.wrapping_sub(out)
+    if balance > left {
+        balance.wrapping_sub(left)
+    } else {
+        0
+    }
+}
+
+fn mint(to: Address, value: u256)
+uses (total_supply: mut u256, balance_of: mut StorageMap<Address, u256>, log: mut Log)
+{
+    total_supply = add(total_supply, value)
+    balance_of.set(key: to, value: add(balance_of.get(key: to), value))
+    log.emit(Transfer { from: Address::zero(), to, value })
+}
+
+fn burn(from: Address, value: u256)
+uses (total_supply: mut u256, balance_of: mut StorageMap<Address, u256>, log: mut Log)
+{
+    balance_of.set(key: from, value: sub(balance_of.get(key: from), value))
+    total_supply = sub(total_supply, value)
+    log.emit(Transfer { from, to: Address::zero(), value })
+}
+
+fn approve(owner: Address, spender: Address, value: u256)
+uses (allowance: mut StorageMap<Address, StorageMap<Address, u256>>, log: mut Log)
+{
+    allowance[owner][spender] = value
+    log.emit(Approval { owner, spender, value })
+}
+
+fn transfer(from: Address, to: Address, value: u256)
+uses (balance_of: mut StorageMap<Address, u256>, log: mut Log)
+{
+    balance_of.set(key: from, value: sub(balance_of.get(key: from), value))
+    balance_of.set(key: to, value: add(balance_of.get(key: to), value))
+    log.emit(Transfer { from, to, value })
+}
+
+// `_update`: store the balances as reserves, advance the price
+// accumulators (overflow intended) and log `Sync`.
+fn update(_ balance0: u256, _ balance1: u256, _ reserve0: u256, _ reserve1: u256)
+uses (
+    ctx: Ctx,
+    log: mut Log,
+    reserves: mut u256,
+    price0_cumulative_last: mut u256,
+    price1_cumulative_last: mut u256,
+)
+{
+    if balance0 > UINT112_MAX || balance1 > UINT112_MAX {
+        fail("OVERFLOW")
+    }
+    let now = ctx.timestamp().as_seconds() & UINT32_MAX
+    let elapsed = now.wrapping_sub(reserves >> 224) & UINT32_MAX
+    if elapsed > 0 && reserve0 != 0 && reserve1 != 0 {
+        price0_cumulative_last = price0_cumulative_last
+            .wrapping_add((reserve1 * Q112 / reserve0) * elapsed)
+        price1_cumulative_last = price1_cumulative_last
+            .wrapping_add((reserve0 * Q112 / reserve1) * elapsed)
+    }
+    reserves = balance0 | (balance1 << 112) | (now << 224)
+    let data = encode_abi_payload((balance0, balance1))
+    log.log1(data: data.span(), topic0: SYNC_TOPIC)
+}
+
+// `_mintFee`: with the factory's `feeTo` set, mint it a sixth of the growth
+// in sqrt(k) since the last liquidity event.
+fn mint_fee(_ reserve0: u256, _ reserve1: u256) -> bool
+uses (
+    ctx: Ctx,
+    call: mut Call,
+    log: mut Log,
+    factory: Address,
+    total_supply: mut u256,
+    balance_of: mut StorageMap<Address, u256>,
+    k_last: mut u256,
+)
+{
+    let fee_to = Address::new(
+        view_word(
+                factory,
+                args: encode_msg_calldata(FactoryMsg::FeeTo {}).span(),
+            )
+            & 0xffffffffffffffffffffffffffffffffffffffff,
+    )
+    let fee_on = fee_to != Address::zero()
+    let last = k_last
+    if fee_on {
+        if last != 0 {
+            let root_k = sqrt(mul(reserve0, reserve1))
+            let root_k_last = sqrt(last)
+            if root_k > root_k_last {
+                let numerator = mul(total_supply, sub(root_k, root_k_last))
+                let denominator = add(mul(root_k, 5), root_k_last)
+                let liquidity = numerator / denominator
+                if liquidity > 0 {
+                    mint(to: fee_to, value: liquidity)
+                }
+            }
+        }
+    } else if last != 0 { k_last = 0 }
+    fee_on
+}
+
+fn balance_of_token(_ token: Address) -> u256 uses (ctx: Ctx, call: mut Call) {
+    view_word(
+        token,
+        args: encode_msg_calldata(TokenMsg::BalanceOf { owner: ctx.address() }).span(),
+    )
+}
+
+// A Solidity 0.5 call to a `view` function returning one word: no code at
+// the address reverts, a failure bubbles its revert data, and fewer than 32
+// bytes back reverts.
+fn view_word(_ target: Address, args: MemSpan) -> u256
+uses (ctx: Ctx, call: mut Call)
+{
+    if ctx.extcodesize(target) == 0 {
+        revert_empty()
+    }
+    var ret = MemBuffer::empty()
+    if !call.raw_staticcall(addr: target, gas: ctx.gas(), args, ret: mut ret).success() {
+        bubble_last_revert()
+    }
+    let data = copy_returndata()
+    if data.len() < 32 {
+        revert_empty()
+    }
+    read_word(data.span())
+}
+
+// A Solidity 0.5 call to a function returning nothing.
+fn callee(_ target: Address, message: own CalleeMsg::UniswapV2Call)
+uses (ctx: Ctx, call: mut Call)
+{
+    if ctx.extcodesize(target) == 0 {
+        revert_empty()
+    }
+    let args = encode_msg_calldata(message)
+    var ret = MemBuffer::empty()
+    if !call.raw_call(
+        addr: target,
+        gas: ctx.gas(),
+        value: wei(0),
+        args: args.span(),
+        ret: mut ret,
+    )
+        .success() {
+        bubble_last_revert()
+    }
+}
+
+// `_safeTransfer`: a low-level call to `transfer` that accepts tokens
+// returning nothing as well as those returning true.
+fn safe_transfer(token: Address, to: Address, value: u256)
+uses (ctx: Ctx, call: mut Call)
+{
+    let args = encode_msg_calldata(TokenMsg::Transfer { to, value })
+    var ret = MemBuffer::empty()
+    if !call.raw_call(
+        addr: token,
+        gas: ctx.gas(),
+        value: wei(0),
+        args: args.span(),
+        ret: mut ret,
+    )
+        .success() {
+        fail("TRANSFER_FAILED")
+    }
+    let data = copy_returndata()
+    if data.len() == 0 { return }
+    // abi.decode(data, (bool)) reverts on fewer than 32 bytes.
+    if data.len() < 32 {
+        revert_empty()
+    }
+    if read_word(data.span()) == 0 {
+        fail("TRANSFER_FAILED")
+    }
+}
+
+// The first word of returndata at least 32 bytes long.
+fn read_word(_ data: MemSpan) -> u256 {
+    decode_returndata<u256>(data)
+}

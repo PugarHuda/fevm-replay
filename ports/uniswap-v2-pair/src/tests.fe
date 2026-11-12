@@ -1,0 +1,197 @@
+// Run with `fe test .` in ports/uniswap-v2-pair. Mainnet behavior is
+// checked by shadow replay (see the repository README); these cover a pair
+// from its first deposit, which mainnet traffic rarely shows.
+
+use ingot::{PairMsg, UniswapV2Pair}
+use std::abi::Bytes
+use std::evm::StorageMap
+
+msg TokenMsg {
+    #[selector = sol("balanceOf(address)")]
+    BalanceOf { owner: Address } -> u256,
+    #[selector = sol("transfer(address,uint256)")]
+    Transfer { to: Address, value: u256 } -> bool,
+}
+
+/// A minimal ERC-20: the deployer holds the whole supply.
+pub contract Token uses (ctx: Ctx) {
+    mut balances: StorageMap<Address, u256>,
+
+    init(supply: u256) uses (ctx, mut balances) { balances.set(key: ctx.caller(), value: supply) }
+
+    recv TokenMsg {
+        BalanceOf { owner } -> u256 uses (balances) {
+            balances.get(key: owner)
+        }
+
+        Transfer { to, value } -> bool uses (ctx, mut balances) {
+            let from = ctx.caller()
+            let held = balances.get(key: from)
+            assert!(held >= value)
+            balances.set(key: from, value: held - value)
+            balances.set(key: to, value: balances.get(key: to) + value)
+            true
+        }
+    }
+}
+
+msg FactoryMsg {
+    #[selector = sol("feeTo()")]
+    FeeTo -> Address,
+    #[selector = sol("createPair(address,address)")]
+    CreatePair { token0: Address, token1: Address } -> Address,
+}
+
+/// What a pair asks of its factory: `feeTo`, here unset, and deployment.
+pub contract Factory uses (create: mut Create, call: mut Call) {
+    recv FactoryMsg {
+        FeeTo -> Address {
+            Address::zero()
+        }
+
+        CreatePair { token0, token1 } -> Address uses (mut create, mut call) {
+            let pair = create.create2<UniswapV2Pair>(value: Wei::zero(), args: (), salt: 0)
+            call.call(
+                addr: pair,
+                gas: 100000,
+                value: Wei::zero(),
+                message: PairMsg::Initialize { token0, token1 },
+            )
+            pair
+        }
+    }
+}
+
+const SUPPLY: u256 = 1_000_000_000_000_000_000_000_000
+
+fn give(_ token: Address, to: Address, value: u256) uses (evm: mut Evm) {
+    let ok: bool = evm
+        .call(
+            addr: token,
+            gas: 100000,
+            value: Wei::zero(),
+            message: TokenMsg::Transfer { to, value },
+        )
+    assert!(ok)
+}
+
+fn held(_ token: Address, _ owner: Address) -> u256 uses (evm: mut Evm) {
+    evm.call(
+        addr: token,
+        gas: 100000,
+        value: Wei::zero(),
+        message: TokenMsg::BalanceOf { owner },
+    )
+}
+
+// A pair of two fresh tokens, made by a factory.
+fn setup() -> (Address, Address, Address) uses (evm: mut Evm) {
+    let token0 = evm.create2<Token>(value: Wei::zero(), args: (SUPPLY,), salt: 0)
+    let token1 = evm.create2<Token>(value: Wei::zero(), args: (SUPPLY,), salt: 1)
+    let factory = evm.create2<Factory>(value: Wei::zero(), args: (), salt: 2)
+    let pair: Address = evm
+        .call(
+            addr: factory,
+            gas: 3000000,
+            value: Wei::zero(),
+            message: FactoryMsg::CreatePair { token0, token1 },
+        )
+    (pair, token0, token1)
+}
+
+// The first deposit mints sqrt(amount0 * amount1), less 1,000 locked
+// forever at address zero.
+fn first_deposit(_ pair: Address, _ token0: Address, _ token1: Address) -> u256
+uses (evm: mut Evm)
+{
+    give(token0, to: pair, value: 4_000_000)
+    give(token1, to: pair, value: 1_000_000)
+    evm.call(
+        addr: pair,
+        gas: 500000,
+        value: Wei::zero(),
+        message: PairMsg::Mint { to: evm.address() },
+    )
+}
+
+#[test]
+fn first_deposit_locks_minimum_liquidity() uses (evm: mut Evm) {
+    let (pair, token0, token1) = setup()
+    let liquidity = first_deposit(pair, token0, token1)
+    assert!(liquidity == 2_000_000 - 1000)
+    let supply: u256 = evm
+        .call(
+            addr: pair,
+            gas: 100000,
+            value: Wei::zero(),
+            message: PairMsg::TotalSupply {},
+        )
+    assert!(supply == 2_000_000)
+    let (reserve0, reserve1, _): (u256, u256, u256) = evm
+        .call(
+            addr: pair,
+            gas: 100000,
+            value: Wei::zero(),
+            message: PairMsg::GetReserves {},
+        )
+    assert!(reserve0 == 4_000_000 && reserve1 == 1_000_000)
+}
+
+// 0.3% fee: 10,000 in buys floor(9970000 * 1e6 / (4e9 + 9970000)) = 2,486.
+#[test]
+fn swap_pays_out_what_the_constant_product_allows() uses (evm: mut Evm) {
+    let (pair, token0, token1) = setup()
+    first_deposit(pair, token0, token1)
+    let me = evm.address()
+    let before = held(token1, me)
+    give(token0, to: pair, value: 10_000)
+    evm.call(
+        addr: pair,
+        gas: 500000,
+        value: Wei::zero(),
+        message: PairMsg::Swap { amount0_out: 0, amount1_out: 2_486, to: me, data: Bytes::empty() },
+    )
+    assert!(held(token1, me) == before + 2_486)
+}
+
+#[test(should_revert)]
+fn swap_taking_one_more_breaks_k() uses (evm: mut Evm) {
+    let (pair, token0, token1) = setup()
+    first_deposit(pair, token0, token1)
+    give(token0, to: pair, value: 10_000)
+    evm.call(
+        addr: pair,
+        gas: 500000,
+        value: Wei::zero(),
+        message: PairMsg::Swap {
+            amount0_out: 0,
+            amount1_out: 2_487,
+            to: evm.address(),
+            data: Bytes::empty(),
+        },
+    )
+}
+
+#[test]
+fn burn_returns_the_share_of_both_reserves() uses (evm: mut Evm) {
+    let (pair, token0, token1) = setup()
+    let liquidity = first_deposit(pair, token0, token1)
+    let me = evm.address()
+    let ok: bool = evm
+        .call(
+            addr: pair,
+            gas: 100000,
+            value: Wei::zero(),
+            message: PairMsg::Transfer { to: pair, value: liquidity },
+        )
+    assert!(ok)
+    let (amount0, amount1): (u256, u256) = evm
+        .call(
+            addr: pair,
+            gas: 500000,
+            value: Wei::zero(),
+            message: PairMsg::Burn { to: me },
+        )
+    // 1,999,000 of 2,000,000 shares.
+    assert!(amount0 == 3_998_000 && amount1 == 999_500)
+}
