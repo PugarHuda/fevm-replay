@@ -13,7 +13,6 @@ use std::evm::{
     encode_abi_payload,
     encode_msg_calldata,
     revert_empty,
-    revert_error,
     wei,
 }
 use std::evm::crypto::{ecrecover_raw, eip712_digest, keccak_words}
@@ -103,10 +102,6 @@ msg CalleeMsg {
     UniswapV2Call { sender: Address, amount0: u256, amount1: u256, data: Bytes },
 }
 
-/// Solidity's `require(condition, reason)`: `Error(string)`.
-#[error]
-struct Error { message: DynString }
-
 #[event]
 struct Approval {
     #[indexed]
@@ -181,7 +176,7 @@ const UINT32_MAX: u256 = 0xffffffff
 /// then the pair's `factory`, `token0`, `token1`, the packed `reserve0`
 /// (uint112), `reserve1` (uint112) and `blockTimestampLast` (uint32),
 /// `price0CumulativeLast`, `price1CumulativeLast`, `kLast` and `unlocked`.
-pub contract UniswapV2Pair uses (ctx: Ctx, call: mut Call, log: mut Log) {
+pub contract UniswapV2Pair uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Log) {
     mut total_supply: u256,
     mut balance_of: StorageMap<Address, u256>,
     mut allowance: StorageMap<Address, StorageMap<Address, u256>>,
@@ -197,7 +192,7 @@ pub contract UniswapV2Pair uses (ctx: Ctx, call: mut Call, log: mut Log) {
     mut unlocked: u256,
 
     init()
-    uses (ctx, mut factory, mut unlocked, mut domain_separator)
+    uses (evm, ctx, mut factory, mut unlocked, mut domain_separator)
     {
         factory = ctx.caller()
         unlocked = 1
@@ -219,19 +214,19 @@ pub contract UniswapV2Pair uses (ctx: Ctx, call: mut Call, log: mut Log) {
             18
         }
 
-        TotalSupply -> u256 uses (total_supply) {
+        TotalSupply -> u256 uses (evm, total_supply) {
             total_supply
         }
 
-        BalanceOf { owner } -> u256 uses (balance_of) {
+        BalanceOf { owner } -> u256 uses (evm, balance_of) {
             balance_of.get(key: owner)
         }
 
-        Allowance { owner, spender } -> u256 uses (allowance) {
+        Allowance { owner, spender } -> u256 uses (evm, allowance) {
             allowance[owner][spender]
         }
 
-        DomainSeparator -> u256 uses (domain_separator) {
+        DomainSeparator -> u256 uses (evm, domain_separator) {
             domain_separator
         }
 
@@ -239,21 +234,22 @@ pub contract UniswapV2Pair uses (ctx: Ctx, call: mut Call, log: mut Log) {
             PERMIT_TYPEHASH
         }
 
-        Nonces { owner } -> u256 uses (nonces) {
+        Nonces { owner } -> u256 uses (evm, nonces) {
             nonces.get(key: owner)
         }
 
-        Approve { spender, value } -> bool uses (ctx, mut allowance, mut log) {
+        Approve { spender, value } -> bool uses (evm, ctx, mut allowance, mut log) {
             approve(owner: ctx.caller(), spender, value)
             true
         }
 
-        Transfer { to, value } -> bool uses (ctx, mut balance_of, mut log) {
+        Transfer { to, value } -> bool uses (evm, ctx, mut balance_of, mut log) {
             transfer(from: ctx.caller(), to, value)
             true
         }
 
         TransferFrom { from, to, value } -> bool uses (
+            evm,
             ctx,
             mut balance_of,
             mut allowance,
@@ -269,10 +265,10 @@ pub contract UniswapV2Pair uses (ctx: Ctx, call: mut Call, log: mut Log) {
         }
 
         Permit { owner, spender, value, deadline, v, r, s }
-        uses (ctx, mut allowance, mut nonces, domain_separator, mut log)
+        uses (evm, ctx, mut allowance, mut nonces, domain_separator, mut log)
         {
             if deadline < ctx.timestamp().as_seconds() {
-                fail("EXPIRED")
+                fail(EXPIRED)
             }
             let nonce = nonces.get(key: owner)
             nonces.set(key: owner, value: nonce.wrapping_add(1))
@@ -293,7 +289,7 @@ pub contract UniswapV2Pair uses (ctx: Ctx, call: mut Call, log: mut Log) {
                 _ => 0,
             }
             if recovered == 0 || recovered != owner.word() {
-                fail("INVALID_SIGNATURE")
+                fail(INVALID_SIGNATURE)
             }
             approve(owner, spender, value)
         }
@@ -302,45 +298,46 @@ pub contract UniswapV2Pair uses (ctx: Ctx, call: mut Call, log: mut Log) {
             MINIMUM_LIQUIDITY
         }
 
-        Factory -> Address uses (factory) {
+        Factory -> Address uses (evm, factory) {
             factory
         }
 
-        Token0 -> Address uses (token0) {
+        Token0 -> Address uses (evm, token0) {
             token0
         }
 
-        Token1 -> Address uses (token1) {
+        Token1 -> Address uses (evm, token1) {
             token1
         }
 
-        GetReserves -> (u256, u256, u256) uses (reserves) {
+        GetReserves -> (u256, u256, u256) uses (evm, reserves) {
             (reserve0_of(reserves), reserve1_of(reserves), reserves >> 224)
         }
 
-        Price0CumulativeLast -> u256 uses (price0_cumulative_last) {
+        Price0CumulativeLast -> u256 uses (evm, price0_cumulative_last) {
             price0_cumulative_last
         }
 
-        Price1CumulativeLast -> u256 uses (price1_cumulative_last) {
+        Price1CumulativeLast -> u256 uses (evm, price1_cumulative_last) {
             price1_cumulative_last
         }
 
-        KLast -> u256 uses (k_last) {
+        KLast -> u256 uses (evm, k_last) {
             k_last
         }
 
         Initialize { token0: first, token1: second }
-        uses (ctx, factory, mut token0, mut token1)
+        uses (evm, ctx, factory, mut token0, mut token1)
         {
             if ctx.caller() != factory {
-                fail("FORBIDDEN")
+                fail(FORBIDDEN)
             }
             token0 = first
             token1 = second
         }
 
         Mint { to } -> u256 uses (
+            evm,
             ctx,
             mut call,
             mut log,
@@ -375,7 +372,7 @@ pub contract UniswapV2Pair uses (ctx: Ctx, call: mut Call, log: mut Log) {
                 )
             }
             if liquidity == 0 {
-                fail("INSUFFICIENT_LIQUIDITY_MINTED")
+                fail(INSUFFICIENT_LIQUIDITY_MINTED)
             }
             mint(to, value: liquidity)
             update(balance0, balance1, reserve0, reserve1)
@@ -388,6 +385,7 @@ pub contract UniswapV2Pair uses (ctx: Ctx, call: mut Call, log: mut Log) {
         }
 
         Burn { to } -> (u256, u256) uses (
+            evm,
             ctx,
             mut call,
             mut log,
@@ -415,7 +413,7 @@ pub contract UniswapV2Pair uses (ctx: Ctx, call: mut Call, log: mut Log) {
             let amount0 = div(mul(liquidity, balance0), supply)
             let amount1 = div(mul(liquidity, balance1), supply)
             if amount0 == 0 || amount1 == 0 {
-                fail("INSUFFICIENT_LIQUIDITY_BURNED")
+                fail(INSUFFICIENT_LIQUIDITY_BURNED)
             }
             burn(from: ctx.address(), value: liquidity)
             safe_transfer(token: first, to, value: amount0)
@@ -436,6 +434,7 @@ pub contract UniswapV2Pair uses (ctx: Ctx, call: mut Call, log: mut Log) {
 
         Swap { amount0_out, amount1_out, to, data }
         uses (
+            evm,
             ctx,
             mut call,
             mut log,
@@ -449,17 +448,17 @@ pub contract UniswapV2Pair uses (ctx: Ctx, call: mut Call, log: mut Log) {
         {
             lock()
             if amount0_out == 0 && amount1_out == 0 {
-                fail("INSUFFICIENT_OUTPUT_AMOUNT")
+                fail(INSUFFICIENT_OUTPUT_AMOUNT)
             }
             let reserve0 = reserve0_of(reserves)
             let reserve1 = reserve1_of(reserves)
             if amount0_out >= reserve0 || amount1_out >= reserve1 {
-                fail("INSUFFICIENT_LIQUIDITY")
+                fail(INSUFFICIENT_LIQUIDITY)
             }
             let first = token0
             let second = token1
             if to == first || to == second {
-                fail("INVALID_TO")
+                fail(INVALID_TO)
             }
             if amount0_out > 0 {
                 safe_transfer(token: first, to, value: amount0_out)
@@ -483,12 +482,12 @@ pub contract UniswapV2Pair uses (ctx: Ctx, call: mut Call, log: mut Log) {
             let amount0_in = amount_in(balance0, reserve: reserve0, out: amount0_out)
             let amount1_in = amount_in(balance1, reserve: reserve1, out: amount1_out)
             if amount0_in == 0 && amount1_in == 0 {
-                fail("INSUFFICIENT_INPUT_AMOUNT")
+                fail(INSUFFICIENT_INPUT_AMOUNT)
             }
             let adjusted0 = sub(mul(balance0, 1000), mul(amount0_in, 3))
             let adjusted1 = sub(mul(balance1, 1000), mul(amount1_in, 3))
             if mul(adjusted0, adjusted1) < mul(mul(reserve0, reserve1), 1_000_000) {
-                fail("K")
+                fail(K)
             }
             update(balance0, balance1, reserve0, reserve1)
             log.emit(
@@ -497,7 +496,7 @@ pub contract UniswapV2Pair uses (ctx: Ctx, call: mut Call, log: mut Log) {
             unlocked = 1
         }
 
-        Skim { to } uses (ctx, mut call, mut log, token0, token1, reserves, mut unlocked) {
+        Skim { to } uses (evm, ctx, mut call, mut log, token0, token1, reserves, mut unlocked) {
             lock()
             let first = token0
             let second = token1
@@ -515,6 +514,7 @@ pub contract UniswapV2Pair uses (ctx: Ctx, call: mut Call, log: mut Log) {
         }
 
         Sync uses (
+            evm,
             ctx,
             mut call,
             mut log,
@@ -540,31 +540,114 @@ pub contract UniswapV2Pair uses (ctx: Ctx, call: mut Call, log: mut Log) {
 }
 
 // The `lock` modifier's entry. Its exit, `unlocked = 1`, ends each function.
-fn lock() uses (unlocked: mut u256) {
+fn lock() uses (evm: Evm, unlocked: mut u256) {
     if unlocked != 1 {
-        fail("LOCKED")
+        fail(LOCKED)
     }
     unlocked = 0
 }
 
-// Every UniswapV2 reason starts "UniswapV2: "; `code` is the rest.
-fn fail(_ code: String<31>) -> ! {
-    revert_error(Error { message: text("UniswapV2: ", code) })
+/// A revert reason as Solidity's `require` gives it: its first 32 bytes,
+/// the next 32 (zero for a short one) and its length.
+struct Reason { hi: u256, lo: u256, len: u256 }
+
+impl Copy for Reason {}
+
+const DS_MATH_ADD_OVERFLOW: Reason = Reason {
+    hi: 0x64732d6d6174682d6164642d6f766572666c6f77000000000000000000000000,
+    lo: 0,
+    len: 20,
+}
+const DS_MATH_MUL_OVERFLOW: Reason = Reason {
+    hi: 0x64732d6d6174682d6d756c2d6f766572666c6f77000000000000000000000000,
+    lo: 0,
+    len: 20,
+}
+const DS_MATH_SUB_UNDERFLOW: Reason = Reason {
+    hi: 0x64732d6d6174682d7375622d756e646572666c6f770000000000000000000000,
+    lo: 0,
+    len: 21,
+}
+const EXPIRED: Reason = Reason {
+    hi: 0x556e697377617056323a20455850495245440000000000000000000000000000,
+    lo: 0,
+    len: 18,
+}
+const FORBIDDEN: Reason = Reason {
+    hi: 0x556e697377617056323a20464f5242494444454e000000000000000000000000,
+    lo: 0,
+    len: 20,
+}
+const INSUFFICIENT_INPUT_AMOUNT: Reason = Reason {
+    hi: 0x556e697377617056323a20494e53554646494349454e545f494e5055545f414d,
+    lo: 0x4f554e5400000000000000000000000000000000000000000000000000000000,
+    len: 36,
+}
+const INSUFFICIENT_LIQUIDITY: Reason = Reason {
+    hi: 0x556e697377617056323a20494e53554646494349454e545f4c49515549444954,
+    lo: 0x5900000000000000000000000000000000000000000000000000000000000000,
+    len: 33,
+}
+const INSUFFICIENT_LIQUIDITY_BURNED: Reason = Reason {
+    hi: 0x556e697377617056323a20494e53554646494349454e545f4c49515549444954,
+    lo: 0x595f4255524e4544000000000000000000000000000000000000000000000000,
+    len: 40,
+}
+const INSUFFICIENT_LIQUIDITY_MINTED: Reason = Reason {
+    hi: 0x556e697377617056323a20494e53554646494349454e545f4c49515549444954,
+    lo: 0x595f4d494e544544000000000000000000000000000000000000000000000000,
+    len: 40,
+}
+const INSUFFICIENT_OUTPUT_AMOUNT: Reason = Reason {
+    hi: 0x556e697377617056323a20494e53554646494349454e545f4f55545055545f41,
+    lo: 0x4d4f554e54000000000000000000000000000000000000000000000000000000,
+    len: 37,
+}
+const INVALID_SIGNATURE: Reason = Reason {
+    hi: 0x556e697377617056323a20494e56414c49445f5349474e415455524500000000,
+    lo: 0,
+    len: 28,
+}
+const INVALID_TO: Reason = Reason {
+    hi: 0x556e697377617056323a20494e56414c49445f544f0000000000000000000000,
+    lo: 0,
+    len: 21,
+}
+const K: Reason = Reason {
+    hi: 0x556e697377617056323a204b0000000000000000000000000000000000000000,
+    lo: 0,
+    len: 12,
+}
+const LOCKED: Reason = Reason {
+    hi: 0x556e697377617056323a204c4f434b4544000000000000000000000000000000,
+    lo: 0,
+    len: 17,
+}
+const OVERFLOW: Reason = Reason {
+    hi: 0x556e697377617056323a204f564552464c4f5700000000000000000000000000,
+    lo: 0,
+    len: 19,
+}
+const TRANSFER_FAILED: Reason = Reason {
+    hi: 0x556e697377617056323a205452414e534645525f4641494c4544000000000000,
+    lo: 0,
+    len: 26,
 }
 
-fn math_fail(_ message: String<31>) -> ! {
-    revert_error(Error { message: text("", message) })
-}
-
-fn text(_ prefix: String<11>, _ rest: String<31>) -> DynString {
-    var message = DynString::zeroed(prefix.len() + rest.len())
-    for i in 0 .. prefix.len() {
-        message.span()[i] = prefix.byte_at(i)
+// `Error(string)` written straight to memory and reverted with, as solc
+// does: a reason can be all a pair has gas left for, after a token call
+// took 63/64 of it.
+fn fail(_ reason: Reason) -> ! uses (evm: Evm) {
+    let size: usize = (if reason.len > 32 { 132 } else { 100 })
+    var data = MemBuffer::with_capacity(size)
+    data.write_word(offset: 0, value: 0x08c379a0 << 224)
+    data.write_word(offset: 4, value: 32)
+    data.write_word(offset: 36, value: reason.len)
+    data.write_word(offset: 68, value: reason.hi)
+    if reason.len > 32 {
+        data.write_word(offset: 100, value: reason.lo)
     }
-    for i in 0 .. rest.len() {
-        message.span()[prefix.len() + i] = rest.byte_at(i)
-    }
-    message
+    evm.revert(data: data.span())
 }
 
 fn reserve0_of(_ reserves: u256) -> u256 {
@@ -576,26 +659,26 @@ fn reserve1_of(_ reserves: u256) -> u256 {
 }
 
 // SafeMath as UniswapV2 uses it: checked, with ds-math reasons.
-fn add(_ x: u256, _ y: u256) -> u256 {
+fn add(_ x: u256, _ y: u256) -> u256 uses (evm: Evm) {
     let z = x.wrapping_add(y)
     if z < x {
-        math_fail("ds-math-add-overflow")
+        fail(DS_MATH_ADD_OVERFLOW)
     }
     z
 }
 
-fn sub(_ x: u256, _ y: u256) -> u256 {
+fn sub(_ x: u256, _ y: u256) -> u256 uses (evm: Evm) {
     if y > x {
-        math_fail("ds-math-sub-underflow")
+        fail(DS_MATH_SUB_UNDERFLOW)
     }
     x - y
 }
 
-fn mul(_ x: u256, _ y: u256) -> u256 {
+fn mul(_ x: u256, _ y: u256) -> u256 uses (evm: Evm) {
     if y == 0 { return 0 }
     let z = x.wrapping_mul(y)
     if z / y != x {
-        math_fail("ds-math-mul-overflow")
+        fail(DS_MATH_MUL_OVERFLOW)
     }
     z
 }
@@ -642,7 +725,7 @@ fn amount_in(_ balance: u256, reserve: u256, out: u256) -> u256 {
 }
 
 fn mint(to: Address, value: u256)
-uses (total_supply: mut u256, balance_of: mut StorageMap<Address, u256>, log: mut Log)
+uses (evm: Evm, total_supply: mut u256, balance_of: mut StorageMap<Address, u256>, log: mut Log)
 {
     total_supply = add(total_supply, value)
     balance_of.set(key: to, value: add(balance_of.get(key: to), value))
@@ -650,7 +733,7 @@ uses (total_supply: mut u256, balance_of: mut StorageMap<Address, u256>, log: mu
 }
 
 fn burn(from: Address, value: u256)
-uses (total_supply: mut u256, balance_of: mut StorageMap<Address, u256>, log: mut Log)
+uses (evm: Evm, total_supply: mut u256, balance_of: mut StorageMap<Address, u256>, log: mut Log)
 {
     balance_of.set(key: from, value: sub(balance_of.get(key: from), value))
     total_supply = sub(total_supply, value)
@@ -658,14 +741,14 @@ uses (total_supply: mut u256, balance_of: mut StorageMap<Address, u256>, log: mu
 }
 
 fn approve(owner: Address, spender: Address, value: u256)
-uses (allowance: mut StorageMap<Address, StorageMap<Address, u256>>, log: mut Log)
+uses (evm: Evm, allowance: mut StorageMap<Address, StorageMap<Address, u256>>, log: mut Log)
 {
     allowance[owner][spender] = value
     log.emit(Approval { owner, spender, value })
 }
 
 fn transfer(from: Address, to: Address, value: u256)
-uses (balance_of: mut StorageMap<Address, u256>, log: mut Log)
+uses (evm: Evm, balance_of: mut StorageMap<Address, u256>, log: mut Log)
 {
     balance_of.set(key: from, value: sub(balance_of.get(key: from), value))
     balance_of.set(key: to, value: add(balance_of.get(key: to), value))
@@ -676,6 +759,7 @@ uses (balance_of: mut StorageMap<Address, u256>, log: mut Log)
 // accumulators (overflow intended) and log `Sync`.
 fn update(_ balance0: u256, _ balance1: u256, _ reserve0: u256, _ reserve1: u256)
 uses (
+    evm: Evm,
     ctx: Ctx,
     log: mut Log,
     reserves: mut u256,
@@ -684,7 +768,7 @@ uses (
 )
 {
     if balance0 > UINT112_MAX || balance1 > UINT112_MAX {
-        fail("OVERFLOW")
+        fail(OVERFLOW)
     }
     let now = ctx.timestamp().as_seconds() & UINT32_MAX
     let elapsed = now.wrapping_sub(reserves >> 224) & UINT32_MAX
@@ -703,6 +787,7 @@ uses (
 // in sqrt(k) since the last liquidity event.
 fn mint_fee(_ reserve0: u256, _ reserve1: u256) -> bool
 uses (
+    evm: Evm,
     ctx: Ctx,
     call: mut Call,
     log: mut Log,
@@ -738,7 +823,9 @@ uses (
     fee_on
 }
 
-fn balance_of_token(_ token: Address) -> u256 uses (ctx: Ctx, call: mut Call) {
+fn balance_of_token(_ token: Address) -> u256
+uses (evm: Evm, ctx: Ctx, call: mut Call)
+{
     view_word(
         token,
         args: encode_msg_calldata(TokenMsg::BalanceOf { owner: ctx.address() }).span(),
@@ -749,7 +836,7 @@ fn balance_of_token(_ token: Address) -> u256 uses (ctx: Ctx, call: mut Call) {
 // the address reverts, a failure bubbles its revert data, and fewer than 32
 // bytes back reverts.
 fn view_word(_ target: Address, args: MemSpan) -> u256
-uses (ctx: Ctx, call: mut Call)
+uses (evm: Evm, ctx: Ctx, call: mut Call)
 {
     if ctx.extcodesize(target) == 0 {
         revert_empty()
@@ -767,7 +854,7 @@ uses (ctx: Ctx, call: mut Call)
 
 // A Solidity 0.5 call to a function returning nothing.
 fn callee(_ target: Address, message: own CalleeMsg::UniswapV2Call)
-uses (ctx: Ctx, call: mut Call)
+uses (evm: Evm, ctx: Ctx, call: mut Call)
 {
     if ctx.extcodesize(target) == 0 {
         revert_empty()
@@ -789,7 +876,7 @@ uses (ctx: Ctx, call: mut Call)
 // `_safeTransfer`: a low-level call to `transfer` that accepts tokens
 // returning nothing as well as those returning true.
 fn safe_transfer(token: Address, to: Address, value: u256)
-uses (ctx: Ctx, call: mut Call)
+uses (evm: Evm, ctx: Ctx, call: mut Call)
 {
     let args = encode_msg_calldata(TokenMsg::Transfer { to, value })
     var ret = MemBuffer::empty()
@@ -801,7 +888,7 @@ uses (ctx: Ctx, call: mut Call)
         ret: mut ret,
     )
         .success() {
-        fail("TRANSFER_FAILED")
+        fail(TRANSFER_FAILED)
     }
     let data = copy_returndata()
     if data.len() == 0 { return }
@@ -810,7 +897,7 @@ uses (ctx: Ctx, call: mut Call)
         revert_empty()
     }
     if read_word(data.span()) == 0 {
-        fail("TRANSFER_FAILED")
+        fail(TRANSFER_FAILED)
     }
 }
 
