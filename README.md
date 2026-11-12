@@ -8,11 +8,14 @@ that each one ends exactly as it did on chain: status, gas, logs and every
 balance, nonce, code and storage slot.
 
 ```
-$ fevm-replay fetch-block 0x192bc04 blocks/26393604
-saved block 0x192bc04 in blocks/26393604
-$ fevm-replay block blocks/26393604
-block 0x192bc04: 248/248 transactions MATCH (100.0%)
+$ fevm-replay range 26394000 20 blocks
+block 0x192bd90: 267/267 transactions MATCH (100.0%)
+...
+block 0x192bda3: 320/320 transactions MATCH (100.0%)
+20 blocks: 5129/5129 transactions MATCH (100.0%)
 ```
+
+Replaying is fast: those 5,129 transactions take 5.9 seconds once fetched.
 
 ## The problem
 
@@ -164,7 +167,7 @@ Other Fe pieces doing real work:
 | `src/replay.fe` | `replay_tx`: load, `transact`, compare. No host capabilities |
 | `src/compare.fe` | applies the chain's diff, then compares worlds, receipts and logs |
 | `src/watch.fe` | `GasWatch`, a tracer that records reads of the gas left after shadow code ran, and `BLOCKHASH` |
-| `src/lib.fe` | the CLI: `fetch`, `fetch-block`, `block`, replaying fixture files |
+| `src/lib.fe` | the CLI: `fetch`, `fetch-block`, `block`, `range`, replaying fixture files |
 | `src/tests.fe` | unit tests for the helpers |
 | `ports/weth9` | WETH9 in Fe, for shadow replay |
 
@@ -206,6 +209,11 @@ the free `https://eth.drpc.org`; pass another URL as the last argument.
 # Shadow replay: the same block with Fe WETH9 in place of mainnet WETH
 (cd ports/weth9 && fe build -O 2 --out-dir ../../out/weth9 .)
 ./out/fevm_replay block blocks/26394000 0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2 out/weth9/WETH9.runtime.bin
+
+# Many blocks: fetches what is missing (four calls a block), replays, totals.
+# Run it again to resume; saved blocks are not fetched twice.
+./out/fevm_replay range 26394000 20 blocks
+./out/fevm_replay range 26394000 20 blocks 0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2 out/weth9/WETH9.runtime.bin
 ```
 
 ## Limitations

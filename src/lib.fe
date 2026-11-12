@@ -3,7 +3,7 @@
 
 use core::MemBuffer
 use std::env::{Arg, Args}
-use std::io::Stdout
+use std::io::{Display, Stdout}
 use json::{Value, parse}
 
 pub use compare::{Mismatches, apply_diff, compare}
@@ -45,7 +45,12 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         println!(
             "       fevm-replay fetch-block <0x-number> <dir> [rpc-url]",
         )
-        println!("       fevm-replay block <dir>")
+        println!(
+            "       fevm-replay block <dir> [<shadow-address> <runtime.bin>]",
+        )
+        println!(
+            "       fevm-replay range <first-block> <count> <dir> [<shadow-address> <runtime.bin>]",
+        )
         return 2
     }
     // "fetch-block"
@@ -54,6 +59,10 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         [0x66, 0x65, 0x74, 0x63, 0x68, 0x2d, 0x62, 0x6c, 0x6f, 0x63, 0x6b],
     ) {
         return fetch_block_command()
+    }
+    // "range"
+    if is_word(args.get(1), [0x72, 0x61, 0x6e, 0x67, 0x65]) {
+        return range_command()
     }
     // "block"
     if is_word(args.get(1), [0x62, 0x6c, 0x6f, 0x63, 0x6b]) {
@@ -153,7 +162,7 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
 
 // The `result` of the JSON-RPC response saved in `dir/name`.
 #[cfg(target_family = "unix")]
-fn load_response(_ dir: Arg, _ name: String<16>) -> Option<json::Value>
+fn load_response<D: Display>(_ dir: D, _ name: String<16>) -> Option<json::Value>
 uses (fs: std::fs::Fs, out: mut Stdout)
 {
     let path = fetch::join(dir, name)
@@ -172,41 +181,120 @@ uses (fs: std::fs::Fs, out: mut Stdout)
     Option::Some(doc)
 }
 
-#[cfg(target_family = "unix")]
-fn block_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
-    if args.count() != 3 && args.count() != 5 {
-        println!(
-            "usage: fevm-replay block <dir> [<shadow-address> <runtime.bin>]",
-        )
-        return 2
-    }
-    let dir = args.get(2)
-    // Shadow replay: run the hex runtime code in `runtime.bin` in place of
-    // the code at `shadow-address`.
-    var shadow_address: u256 = 0
-    var shadow_code = MemBuffer::empty()
-    if args.count() == 5 {
-        shadow_address = core::text::parse_hex_uint(args.get(3).span()).unwrap_or(default: 0)
-        let Result::Ok(hex) = fs.read(args.get(4)) else {
-            println!("ERROR ", args.get(4), ": cannot read")
-            return 1
+/// What a run of blocks found.
+pub struct Totals {
+    pub blocks: u64,
+    pub transactions: u64,
+    pub matched: u64,
+    /// Differences in transactions that ran BLOCKHASH.
+    pub old_hashes: u64,
+    pub shadowed: u64,
+    /// Shadowed transactions that differ where code read the gas left.
+    pub gas_sensitive: u64,
+    /// Shadowed transactions that differ without reading the gas left.
+    pub behavior: u64,
+    pub chain_gas: u64,
+    pub shadow_gas: u64,
+}
+
+impl Totals {
+    pub fn new() -> Self {
+        Totals {
+            blocks: 0,
+            transactions: 0,
+            matched: 0,
+            old_hashes: 0,
+            shadowed: 0,
+            gas_sensitive: 0,
+            behavior: 0,
+            chain_gas: 0,
+            shadow_gas: 0,
         }
-        shadow_code = hex_bytes(hex.span())
     }
+}
+
+fn print_share(_ matched: u64, _ total: u64) uses (out: mut Stdout) {
+    let permille = if total == 0 {
+        1000
+    } else {
+        matched * 1000 / total
+    }
+    println!(
+        matched,
+        "/",
+        total,
+        " transactions MATCH (",
+        permille / 10,
+        ".",
+        permille % 10,
+        "%)",
+    )
+}
+
+// `0x` and the hex digits of `value`, without leading zeros.
+fn quantity(_ value: u256) -> MemBuffer {
+    var digits = MemBuffer::empty()
+    var rest = value
+    if rest == 0 {
+        digits.push(0x30)
+    }
+    while rest > 0 {
+        let nibble: u8 = (rest & 0xf).downcast_truncate()
+        digits.push(if nibble < 10 {
+                    0x30 + nibble
+                } else {
+                    0x57 + nibble
+                })
+        rest = rest >> 4
+    }
+    var text = MemBuffer::empty()
+    "0x".fmt(mut text)
+    var i = digits.len()
+    while i > 0 {
+        i -= 1
+        text.push(digits.span()[i])
+    }
+    text
+}
+
+// The shadow runtime code in the hex file `path`.
+#[cfg(target_family = "unix")]
+fn read_shadow(_ path: Arg) -> Option<MemBuffer>
+uses (fs: std::fs::Fs, out: mut Stdout)
+{
+    let Result::Ok(hex) = fs.read(path) else {
+        println!("ERROR ", path, ": cannot read")
+        return Option::None
+    }
+    Option::Some(hex_bytes(hex.span()))
+}
+
+/// Replays every transaction of the block saved in `dir`, printing each
+/// difference and the block's share of matches, and adds to `totals`.
+/// False if the saved answers cannot be used.
+#[cfg(target_family = "unix")]
+fn replay_block<D: Display>(
+    _ dir: D,
+    shadow_address: u256,
+    shadow_code: MemSpan,
+    _ totals: mut Totals,
+) -> bool
+uses (fs: std::fs::Fs, out: mut Stdout)
+{
     let Option::Some(chain) = load_response(dir, "chain.json") else {
-        return 1
+        return false
     }
     let Option::Some(block) = load_response(dir, "block.json") else {
-        return 1
+        return false
     }
     let Option::Some(receipts) = load_response(dir, "receipts.json") else {
-        return 1
+        return false
     }
     let Option::Some(prestates) = load_response(dir, "prestate.json") else {
-        return 1
+        return false
     }
     let Option::Some(diffs) = load_response(dir, "diff.json") else {
-        return 1
+        return false
     }
     let header = ref block["result"]
     // A load-balanced endpoint may answer the four calls from nodes at
@@ -218,7 +306,7 @@ fn block_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
             dir,
             ": the receipts belong to another block than the header; fetch again",
         )
-        return 1
+        return false
     }
     let env = load_block(
         header,
@@ -230,12 +318,6 @@ fn block_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
     )
     let txs = header["transactions"].items()
     var matched: u64 = 0
-    var shadowed: u64 = 0
-    var gas_sensitive: u64 = 0
-    var behavior: u64 = 0
-    var old_hashes: u64 = 0
-    var chain_gas: u64 = 0
-    var fevm_gas: u64 = 0
     for index in 0 .. txs.len() {
         var text = MemBuffer::empty()
         let found = with (mut text) {
@@ -248,18 +330,20 @@ fn block_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
                 prestates["result"][index]["result"],
                 diffs["result"][index]["result"],
                 shadow_address,
-                shadow_code: shadow_code.span(),
+                shadow_code,
             )
         }
         if found.shadowed {
-            shadowed += 1
-            chain_gas += found.chain_gas
-            fevm_gas += found.fevm_gas
+            totals.shadowed += 1
+            totals.chain_gas += found.chain_gas
+            totals.shadow_gas += found.fevm_gas
         }
         if found.total() == 0 {
             matched += 1
-        } else if found.shadowed && found.gas_observed {
-            gas_sensitive += 1
+            continue
+        }
+        if found.shadowed && found.gas_observed {
+            totals.gas_sensitive += 1
             println!(
                 "DIFF  tx ",
                 index,
@@ -267,9 +351,8 @@ fn block_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
                 txs[index]["hash"].text(),
                 " (reads gas after the shadow code ran)",
             )
-            print!(text)
         } else if found.read_blockhash {
-            old_hashes += 1
+            totals.old_hashes += 1
             println!(
                 "DIFF  tx ",
                 index,
@@ -277,56 +360,162 @@ fn block_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
                 txs[index]["hash"].text(),
                 " (ran BLOCKHASH; a hash before the parent's is not in the node's traces)",
             )
-            print!(text)
         } else {
             if found.shadowed {
-                behavior += 1
+                totals.behavior += 1
             }
             println!("DIFF  tx ", index, " ", txs[index]["hash"].text())
-            print!(text)
         }
+        print!(text)
     }
     let total: u64 = txs.len().downcast_unchecked()
-    let permille = if total == 0 {
-        1000
-    } else {
-        matched * 1000 / total
-    }
-    println!(
-        "block ",
-        header["number"].text(),
-        ": ",
-        matched,
-        "/",
-        total,
-        " transactions MATCH (",
-        permille / 10,
-        ".",
-        permille % 10,
-        "%)",
-    )
-    if old_hashes > 0 {
+    totals.blocks += 1
+    totals.transactions += total
+    totals.matched += matched
+    print!("block ", header["number"].text(), ": ")
+    print_share(matched, total)
+    true
+}
+
+#[cfg(target_family = "unix")]
+fn print_totals(_ totals: Totals, shadowing: bool) uses (out: mut Stdout) {
+    print!(totals.blocks, " blocks: ")
+    print_share(totals.matched, totals.transactions)
+    if totals.old_hashes > 0 {
         println!(
             "  of the differences, ",
-            old_hashes,
+            totals.old_hashes,
             " ran BLOCKHASH (see `blockHashes` in the README)",
         )
     }
-    if shadow_address != 0 {
+    if shadowing {
         println!(
             "shadow: ",
-            shadowed,
+            totals.shadowed,
             " transactions ran the shadow code, ",
-            shadowed - gas_sensitive - behavior,
+            totals.shadowed - totals.gas_sensitive - totals.behavior,
             " identical, ",
-            gas_sensitive,
+            totals.gas_sensitive,
             " differ where code reads the gas left, ",
-            behavior,
+            totals.behavior,
             " behave differently; gas used chain ",
-            chain_gas,
+            totals.chain_gas,
             ", shadow ",
-            fevm_gas,
+            totals.shadow_gas,
         )
     }
-    if matched == total { 0 } else { 1 }
+}
+
+#[cfg(target_family = "unix")]
+fn block_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
+    if args.count() != 3 && args.count() != 5 {
+        println!(
+            "usage: fevm-replay block <dir> [<shadow-address> <runtime.bin>]",
+        )
+        return 2
+    }
+    // Shadow replay: run the hex runtime code in `runtime.bin` in place of
+    // the code at `shadow-address`.
+    var shadow_address: u256 = 0
+    var shadow_code = MemBuffer::empty()
+    if args.count() == 5 {
+        shadow_address = core::text::parse_hex_uint(args.get(3).span()).unwrap_or(default: 0)
+        let Option::Some(code) = read_shadow(args.get(4)) else {
+            return 1
+        }
+        shadow_code = code
+    }
+    var totals = Totals::new()
+    if !replay_block(
+        args.get(2),
+        shadow_address,
+        shadow_code: shadow_code.span(),
+        mut totals,
+    ) {
+        return 1
+    }
+    if shadow_address != 0 {
+        print_totals(totals, shadowing: true)
+    }
+    if totals.matched == totals.transactions {
+        0
+    } else {
+        1
+    }
+}
+
+/// `range <first> <count> <dir> [<shadow-address> <runtime.bin>]`: fetches
+/// (unless already saved) and replays `count` blocks from `first` (decimal
+/// or `0x`), each in `dir/<number>`, then prints the totals.
+#[cfg(target_family = "unix")]
+fn range_command() -> i32
+uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut Stdout)
+{
+    if args.count() != 5 && args.count() != 7 {
+        println!(
+            "usage: fevm-replay range <first-block> <count> <dir> [<shadow-address> <runtime.bin>]",
+        )
+        return 2
+    }
+    let first_arg = args.get(2).span()
+    let first = if first_arg.len() > 1 && first_arg[1] == 0x78 {
+        core::text::parse_hex_uint(first_arg).unwrap_or(default: 0)
+    } else {
+        core::text::parse_uint(first_arg).unwrap_or(default: 0)
+    }
+    let count = core::text::parse_uint(args.get(3).span()).unwrap_or(default: 0)
+    var shadow_address: u256 = 0
+    var shadow_code = MemBuffer::empty()
+    if args.count() == 7 {
+        shadow_address = core::text::parse_hex_uint(args.get(5).span()).unwrap_or(default: 0)
+        let Option::Some(code) = read_shadow(args.get(6)) else {
+            return 1
+        }
+        shadow_code = code
+    }
+    var totals = Totals::new()
+    var unusable: u64 = 0
+    var n = first
+    while n < first + count {
+        let number = quantity(n)
+        var dir = MemBuffer::empty()
+        args.get(4).fmt(mut dir)
+        "/".fmt(mut dir)
+        number.span().fmt(mut dir)
+        let saved = match fs.metadata(fetch::join(dir.span(), "diff.json")) {
+            Result::Ok(_) => true,
+            Result::Err(_) => false,
+        }
+        if !saved {
+            let Result::Ok(_) = fs.create_dir_all(dir.span()) else {
+                println!("ERROR ", dir, ": cannot create")
+                return 1
+            }
+            if !fetch::fetch_block(DEFAULT_RPC, number.span(), dir.span()) {
+                println!("ERROR block ", number, ": the node did not answer")
+            }
+        }
+        if !replay_block(
+            dir.span(),
+            shadow_address,
+            shadow_code: shadow_code.span(),
+            mut totals,
+        ) {
+            unusable += 1
+        }
+        n += 1
+    }
+    print_totals(totals, shadowing: shadow_address != 0)
+    if unusable > 0 {
+        println!(
+            "  ",
+            unusable,
+            " blocks could not be used; run the same command again to fetch them",
+        )
+    }
+    if totals.matched == totals.transactions && unusable == 0 {
+        0
+    } else {
+        1
+    }
 }
