@@ -161,3 +161,42 @@ pub fn load_tx(_ tx: Value) -> TxRequest {
     }
     request
 }
+
+/// The account an EIP-7702 delegation designator (`0xef0100` and an
+/// address) points to, or zero for any other code.
+pub fn delegation_target(_ code: MemSpan) -> u256 {
+    if code.len() != 23 || code[0] != 0xef || code[1] != 0x01 || code[2] != 0x00 {
+        return 0
+    }
+    var target: u256 = 0
+    for i in 3 .. 23 {
+        target = (target << 8) | code[i] as u256
+    }
+    target
+}
+
+/// The node's answers that are not state but that a replay needs, from an
+/// object that may hold them: `blockHashes` (numbers to hashes, for
+/// BLOCKHASH) and `delegates` (addresses to code). The prestate tracer
+/// leaves out the account an EIP-7702 delegation points to, although running
+/// the delegated account runs its code; `fetch` adds it as a delegate.
+pub fn add_extras(_ world: mut WorldState, _ extras: Value) {
+    if extras.has("blockHashes") {
+        for ref entry in extras["blockHashes"].members() {
+            world
+                .set_block_hash(
+                    parse_hex_uint(entry.key.span()).unwrap_or(default: 0),
+                    hex_word(entry.value),
+                )
+        }
+    }
+    if extras.has("delegates") {
+        for ref entry in extras["delegates"].members() {
+            let address = parse_hex_uint(entry.key.span()).unwrap_or(default: 0)
+            if !world.exists(address) {
+                let code = hex_bytes(entry.value.text())
+                world.set_code(address: address, code: code.span())
+            }
+        }
+    }
+}

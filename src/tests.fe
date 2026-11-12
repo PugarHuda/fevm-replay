@@ -44,3 +44,45 @@ fn blob_base_fee_matches_the_node() {
         ingot::fetch::blob_base_fee(excess: 0, fraction: 11684671) == 1,
     )
 }
+
+#[cfg(target_family = "unix")]
+#[test]
+fn delegation_targets_missing_from_the_prestate_are_collected() {
+    // An EIP-7702 transaction whose authorization delegates to 0x...490a, and
+    // a prestate holding another account already delegated to 0x...beef, but
+    // neither target: the prestate tracer leaves them out.
+    let tx = parse(
+        "{\"authorizationList\":[{\"address\":\"0x000000000000000000000000000000000000490a\"}]}"
+            .span(),
+    )
+        .unwrap()
+    let prestate = parse(
+        "{\"0x00000000000000000000000000000000000000aa\":{\"balance\":\"0x0\",\"code\":\"0xef0100000000000000000000000000000000000000beef\"}}"
+            .span(),
+    )
+        .unwrap()
+    var targets: core::MemVec<u256> = core::MemVec::new()
+    ingot::fetch::collect_delegates(tx, prestate, mut targets)
+    assert!(targets.len() == 2)
+    assert!(targets[0] == 0x490a && targets[1] == 0xbeef)
+
+    // A target the prestate already holds is not fetched again.
+    let held = parse(
+        "{\"0x000000000000000000000000000000000000490a\":{\"balance\":\"0x0\"}}".span(),
+    )
+        .unwrap()
+    var again: core::MemVec<u256> = core::MemVec::new()
+    ingot::fetch::collect_delegates(tx, held, mut again)
+    assert!(again.len() == 0)
+}
+
+#[test]
+fn delegation_designators_are_recognized() {
+    let designator = hex_bytes("0xef0100490aac77c960b0569c8e446ac7e12490bd44ca1d".span())
+    assert!(
+        ingot::load::delegation_target(designator.span())
+            == 0x490aac77c960b0569c8e446ac7e12490bd44ca1d,
+    )
+    let plain = hex_bytes("0x6080604052".span())
+    assert!(ingot::load::delegation_target(plain.span()) == 0)
+}

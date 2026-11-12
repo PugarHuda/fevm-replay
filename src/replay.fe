@@ -11,13 +11,14 @@ use core::MemBuffer
 use json::Value
 use fevm::{BlockEnv, Buffers, Config, WorldState, transact}
 use ingot::compare::{Mismatches, apply_diff, compare}
-use core::text::parse_hex_uint
-use ingot::load::{field, hex_word, load_block, load_tx, load_world}
+use ingot::load::{add_extras, field, load_block, load_tx, load_world}
 use ingot::watch::GasWatch
 
 /// Replays transaction `tx` in fevm against its `prestate`, in the block
 /// `block` whose parent's hash is `parent_hash`, and compares the outcome
 /// with the chain's `receipt` and `diff`, writing a line per difference.
+/// `extras` holds what the node knows but its traces leave out (see
+/// `load::add_extras`).
 /// Nothing here touches the host: the verdict depends on the node's answers
 /// alone.
 ///
@@ -30,7 +31,7 @@ use ingot::watch::GasWatch
 pub fn replay_tx(
     _ block: BlockEnv,
     parent_hash: u256,
-    older_hashes: Value,
+    _ extras: Value,
     _ tx: Value,
     _ receipt: Value,
     _ prestate: Value,
@@ -41,6 +42,7 @@ pub fn replay_tx(
 uses (text: mut MemBuffer)
 {
     var expected = load_world(prestate)
+    add_extras(mut expected, extras)
     apply_diff(mut expected, diff)
     let shadowed = shadow_address != 0 && expected.exists(shadow_address)
     if shadowed {
@@ -50,7 +52,7 @@ uses (text: mut MemBuffer)
         prestate,
         block,
         parent_hash,
-        older_hashes,
+        extras,
         shadow_address,
         shadow_code,
     )
@@ -108,7 +110,7 @@ uses (text: mut MemBuffer)
                 prestate,
                 block,
                 parent_hash,
-                older_hashes,
+                extras,
                 shadow_address,
                 shadow_code,
             ),
@@ -124,12 +126,12 @@ uses (text: mut MemBuffer)
 }
 
 // The prestate as an fevm world, with the shadow code (if the transaction
-// touches its address) and the block hashes the replay knows.
+// touches its address) and what the node knows beyond its traces.
 fn build_world(
     _ prestate: Value,
     _ block: BlockEnv,
     _ parent_hash: u256,
-    _ older_hashes: Value,
+    _ extras: Value,
     _ shadow_address: u256,
     _ shadow_code: MemSpan,
 ) -> WorldState {
@@ -139,17 +141,9 @@ fn build_world(
     }
     // BLOCKHASH reads the client's block hashes, not state, so the prestate
     // tracer cannot see them. The parent's comes with the header; a fixture
-    // may bring older ones as `blockHashes`, numbers to hashes.
+    // may bring older ones as `blockHashes`.
     world.set_block_hash(block.number - 1, parent_hash)
-    if older_hashes.as_object().is_some() {
-        for ref entry in older_hashes.members() {
-            world
-                .set_block_hash(
-                    parse_hex_uint(entry.key.span()).unwrap_or(default: 0),
-                    hex_word(entry.value),
-                )
-        }
-    }
+    add_extras(mut world, extras)
     world
 }
 
@@ -176,18 +170,9 @@ fn settle_gas_difference(
     }
 }
 
-/// Replays a single-transaction fixture.
+/// Replays a single-transaction fixture, which may carry `blockHashes`
+/// and `delegates` as extras.
 pub fn replay(_ doc: Value) -> Mismatches uses (text: mut MemBuffer) {
-    if doc.has("blockHashes") {
-        replay_fixture(doc, hashes: doc["blockHashes"])
-    } else {
-        replay_fixture(doc, hashes: Value::object())
-    }
-}
-
-fn replay_fixture(_ doc: Value, hashes: Value) -> Mismatches
-uses (text: mut MemBuffer)
-{
     let block = load_block(
         doc["block"],
         chain_id: field(doc, "chainId"),
@@ -196,7 +181,7 @@ uses (text: mut MemBuffer)
     replay_tx(
         block,
         parent_hash: field(doc["block"], "parentHash"),
-        older_hashes: hashes,
+        doc,
         doc["tx"],
         doc["receipt"],
         doc["prestate"],
