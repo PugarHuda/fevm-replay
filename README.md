@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/PugarHuda/fevm-replay/actions/workflows/ci.yml/badge.svg)](https://github.com/PugarHuda/fevm-replay/actions/workflows/ci.yml)
 
-**Site and documentation:** https://pugarhuda.github.io/fevm-replay/
+**Site and documentation:** https://fevm-replay.vercel.app (mirror: https://pugarhuda.github.io/fevm-replay/)
 
 **Pitch:** Replay real Ethereum mainnet transactions inside
 [fevm](https://github.com/fe-lang/fevm), the EVM written in Fe, and prove
