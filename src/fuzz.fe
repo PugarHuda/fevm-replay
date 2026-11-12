@@ -10,7 +10,7 @@
 //! balance as the original does; what is compared is status, return data,
 //! logs and all state. Everything follows from the seed.
 
-use core::{MemBuffer, MemSpan}
+use core::{MemBuffer, MemSpan, MemVec}
 use fevm::{
     BlockEnv,
     Buffers,
@@ -46,6 +46,9 @@ pub struct Findings {
     /// Calls whose `Error(string)` reasons agree but whose padding after
     /// the reason does not: solc 0.5 pads with whatever memory held.
     pub dirty_padding: u64,
+    /// Identical well-formed calls that succeeded, per selector: what the
+    /// fuzzing reached beyond reverts.
+    pub succeeded: MemVec<SelectorCount>,
     /// The first difference: its seed, step and category, or `step` 0
     /// when there was none.
     pub first_seed: u64,
@@ -73,6 +76,7 @@ impl Findings {
             calls: [0, 0, 0],
             identical: [0, 0, 0],
             dirty_padding: 0,
+            succeeded: MemVec::new(),
             first_seed: 0,
             first_step: 0,
             first_category: 0,
@@ -88,6 +92,20 @@ impl Findings {
             first_port_output: MemBuffer::empty(),
         }
     }
+}
+
+pub struct SelectorCount { pub selector: u32, pub calls: u64 }
+
+impl Copy for SelectorCount {}
+
+fn count(_ counts: mut MemVec<SelectorCount>, _ selector: u32) {
+    for i in 0 .. counts.len() {
+        if counts[i].selector == selector {
+            counts[i].calls += 1
+            return
+        }
+    }
+    counts.push(SelectorCount { selector, calls: 1 })
 }
 
 // xorshift64*: small, fast and reproducible from its seed.
@@ -482,6 +500,16 @@ fn pair_amount(_ rng: mut Rng) -> u256 {
     }
 }
 
+// Amounts out of a swap, or of liquidity to burn: mostly small enough to
+// succeed.
+fn swap_amount(_ rng: mut Rng) -> u256 {
+    match rng.below(4) {
+        0 => 1 + rng.below(1000) as u256,
+        1 => (1 + rng.below(9)) as u256 * pow10(rng.below(19)),
+        _ => pair_amount(mut rng),
+    }
+}
+
 fn pow10(_ n: u64) -> u256 {
     var x: u256 = 1
     var i: u64 = 0
@@ -572,7 +600,7 @@ fn pair_call(_ rng: mut Rng, _ data: mut MemBuffer) -> Call {
     } else if op == 6 {
         // Liquidity tokens into the pair, ahead of a burn.
         push_word(mut data, address_word(PAIR, dirty, mut rng))
-        push_word(mut data, pair_amount(mut rng))
+        push_word(mut data, swap_amount(mut rng))
     } else if op == 4 || op == 5 || op == 7 || op == 11 || op == 13 || op == 16 {
         push_word(
             mut data,
@@ -637,8 +665,8 @@ fn pair_call(_ rng: mut Rng, _ data: mut MemBuffer) -> Call {
 // account or a callee, with flash-swap data now and then.
 fn swap_args(_ rng: mut Rng, _ data: mut MemBuffer, _ dirty: bool) {
     let side = rng.below(4)
-    push_word(mut data, if side == 1 { 0 } else { pair_amount(mut rng) })
-    push_word(mut data, if side == 0 { 0 } else { pair_amount(mut rng) })
+    push_word(mut data, if side == 1 { 0 } else { swap_amount(mut rng) })
+    push_word(mut data, if side == 0 { 0 } else { swap_amount(mut rng) })
     let flash = rng.below(3) == 0
     let to = if flash {
         if rng.below(2) == 0 {
@@ -914,6 +942,11 @@ pub fn fuzz(
             found.identical[call.category as usize] += 1
             if !same_bytes(ran_a.receipt.output.span(), ran_b.receipt.output.span()) {
                 found.dirty_padding += 1
+            }
+            if call.category == WELL_FORMED
+                && ran_a.receipt.invalid == 0
+                && ran_a.receipt.status == OK {
+                count(mut found.succeeded, call.selector)
             }
         }
         run += 1

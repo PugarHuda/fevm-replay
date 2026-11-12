@@ -531,7 +531,7 @@ fn print_totals(_ totals: Totals, shadowing: bool) uses (out: mut Stdout) {
 }
 
 // The name of a standard ERC-20 or WETH9 function, or nothing.
-fn function_name(_ selector: u32) -> String<16> {
+fn function_name(_ selector: u32) -> String<20> {
     match selector {
         0 => "fallback",
         0xd0e30db0 => "deposit",
@@ -545,6 +545,24 @@ fn function_name(_ selector: u32) -> String<16> {
         0x313ce567 => "decimals",
         0x06fdde03 => "name",
         0x95d89b41 => "symbol",
+        0x022c0d9f => "swap",
+        0x6a627842 => "mint",
+        0x89afcb44 => "burn",
+        0xbc25cf77 => "skim",
+        0xfff6cae9 => "sync",
+        0x0902f1ac => "getReserves",
+        0x0dfe1681 => "token0",
+        0xd21220a7 => "token1",
+        0xc45a0155 => "factory",
+        0xd505accf => "permit",
+        0x485cc955 => "initialize",
+        0x7ecebe00 => "nonces",
+        0x3644e515 => "DOMAIN_SEPARATOR",
+        0x30adf81f => "PERMIT_TYPEHASH",
+        0xba9a7a56 => "MINIMUM_LIQUIDITY",
+        0x5909c0d5 => "price0Cumulative",
+        0x5a3d5493 => "price1Cumulative",
+        0x7464fc3d => "kLast",
         _ => "",
     }
 }
@@ -837,6 +855,18 @@ uses (args: Args, fs: std::fs::Fs, out: mut Stdout)
     category_line("well-formed", found, 0)
     category_line("short calldata", found, 1)
     category_line("dirty address", found, 2)
+    if pair {
+        print!("  succeeded:")
+        for i in 0 .. found.succeeded.len() {
+            print!(
+                " ",
+                function_name(found.succeeded[i].selector),
+                " ",
+                found.succeeded[i].calls,
+            )
+        }
+        println!("")
+    }
     if found.dirty_padding > 0 {
         println!(
             "  ",
