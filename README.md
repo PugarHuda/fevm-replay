@@ -1,5 +1,7 @@
 # fevm-replay
 
+[![CI](https://github.com/PugarHuda/fevm-replay/actions/workflows/ci.yml/badge.svg)](https://github.com/PugarHuda/fevm-replay/actions/workflows/ci.yml)
+
 **Pitch:** Replay real Ethereum mainnet transactions inside
 [fevm](https://github.com/fe-lang/fevm), the EVM written in Fe, and prove
 that each one ends exactly as it did on chain: status, gas, logs and every
