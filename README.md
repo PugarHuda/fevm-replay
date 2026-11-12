@@ -52,17 +52,67 @@ Everything was built during the contest window; see the declaration below.
 | --- | ---: | ---: |
 | 6 hand-picked fixtures (`fixtures/mainnet`) | 6 | 6 |
 | Blocks 26,394,000 to 26,394,019 | 5,129 | 5,129 |
+| Blocks 26,394,100 to 26,394,199 (99 fetched) | 24,991 | 24,982 |
 
-The first block run found five transactions that did not match. All five
-read `BLOCKHASH` of the parent block. The prestate tracer can't report it,
-because block hashes are not state. One of them even deployed bytecode with
-the hash baked in, which showed up as code of the same size with different
-bytes. The parent's hash now comes from the header, and all 5,129 match.
+**No transaction exposed a bug in fevm.** Every difference had a cause
+outside the interpreter, and fevm-replay now names each cause itself:
+
+- **`BLOCKHASH` of the parent block** (5 in the first run): the prestate
+  tracer can't report block hashes, because they are not state. One of these
+  transactions even deployed bytecode with the hash baked in, which showed up
+  as code of the same size with different bytes. The parent's hash now comes
+  from the header.
+- **`BLOCKHASH` of an older block** (5): a transaction that differs is run a
+  second time under a tracer. If it runs `BLOCKHASH`, it is labeled. Given
+  the 256 previous hashes (the `blockHashes` field of a fixture), the one
+  checked by hand matches.
+- **Answers from different nodes** (3): blocks fetched right at the chain
+  head through a load-balanced endpoint. Fetched again, the same block
+  matches 391/391. `block` now refuses data whose receipts name another
+  block hash than the header.
+- **A node tracer bug** (1): in transaction
+  `0xee56…e697`, a contract deployed with CREATE2 to an address that
+  already held ETH destroys itself in the same transaction (EIP-6780).
+  `debug_traceBlockByNumber` in `diffMode` reported the account as kept,
+  with nonce 1. `debug_traceTransaction` and the chain's own state at that
+  block (nonce 0, balance 0, no code) say it was deleted, which is what fevm
+  did.
 
 `fixtures/negative` holds seven copies of a real transaction, each with one
 fact about the chain's result changed: gas, status, a balance, a storage
 slot, log data, the log count, and an unexpected write. All seven are
 reported as DIFF, which shows the comparison can fail.
+
+## Shadow replay: is a Fe port a drop-in replacement?
+
+`fevm-replay block <dir> <address> <runtime.bin>` replaces the code at
+`address` with other runtime code in every transaction that touches it.
+For each such transaction it then requires the same logs, balances, nonces
+and storage as on chain. Gas may differ, so the sender's fee and the
+coinbase's tip are settled by the gas difference first.
+
+[`ports/weth9`](ports/weth9) is WETH9 written in Fe. It keeps the deployed
+contract's selectors, events, storage slots (it reads `name` and `symbol`
+from their Solidity short-string slots), payable fallback, empty revert
+data and 2,300 gas stipend. Shadowing mainnet WETH with it over 21 blocks:
+
+| Transactions that ran Fe WETH9 | Identical | Differ only where code reads the gas left | Behave differently |
+| ---: | ---: | ---: | ---: |
+| 446 | 418 | 28 | **0** |
+
+The Fe port used less gas than the deployed Solidity in every block, 0.3%
+over all 446 transactions (gas of the whole transactions, so the share
+WETH itself saved is larger).
+
+The 28 are MEV bots that size a builder payment from the gas they used, and
+ERC-4337 bundles whose `UserOperationEvent` records it. Cheaper code
+legitimately changes what they do. This is detected, not guessed: a
+`GasWatch` tracer records whether any other code ran `GAS` after the shadow
+code first ran. A difference without such a reading would be the port
+behaving differently, and there were none.
+
+As a control, shadowing WETH with its own deployed bytecode matches every
+transaction with identical gas.
 
 ## Fe highlight
 
@@ -73,8 +123,18 @@ capability like any other. Only `main` and the `fetch` module ask for
 verdict, asks only for a text buffer to write its report to:
 
 ```fe
-pub fn replay_tx(_ block: BlockEnv, parent_hash: u256, _ tx: Value, _ receipt: Value, _ prestate: Value,
-                 _ diff: Value) -> Mismatches uses (text: mut MemBuffer)
+pub fn replay_tx(
+    _ block: BlockEnv,
+    parent_hash: u256,
+    older_hashes: Value,
+    _ tx: Value,
+    _ receipt: Value,
+    _ prestate: Value,
+    _ diff: Value,
+    shadow_address: u256,
+    shadow_code: MemSpan,
+) -> Mismatches
+uses (text: mut MemBuffer)
 ```
 
 Calling `fetch` from inside it would be a type error. So the verdict
@@ -101,8 +161,10 @@ Other Fe pieces doing real work:
 | `src/load.fe` | JSON to fevm: `load_world`, `load_tx`, `load_block` |
 | `src/replay.fe` | `replay_tx`: load, `transact`, compare. No host capabilities |
 | `src/compare.fe` | applies the chain's diff, then compares worlds, receipts and logs |
+| `src/watch.fe` | `GasWatch`, a tracer that records reads of the gas left after shadow code ran, and `BLOCKHASH` |
 | `src/lib.fe` | the CLI: `fetch`, `fetch-block`, `block`, replaying fixture files |
 | `src/tests.fe` | unit tests for the helpers |
+| `ports/weth9` | WETH9 in Fe, for shadow replay |
 
 ## Build and test
 
@@ -117,7 +179,7 @@ fine for the contest.
 # Fe at the pinned commit (needs rustup and a C compiler)
 rustup toolchain install 1.99.0 --profile minimal
 cargo +1.99.0 install --locked --root ~/fe \
-  --git https://github.com/argotorg/fe --rev 4608e5fdfa3783ec78347f297ad0fced8928fcc7 fe
+  --git https://github.com/argotorg/fe --rev 4608e5fdfa3783ec78347f297ad0fced8928fcc7 --features cranelift fe
 export PATH="$HOME/fe/bin:$PATH"
 
 fe --version
@@ -138,19 +200,34 @@ the free `https://eth.drpc.org`; pass another URL as the last argument.
 ./out/fevm_replay usdt.json
 ./out/fevm_replay fetch-block 0x192bd90 blocks/26394000
 ./out/fevm_replay block blocks/26394000
+
+# Shadow replay: the same block with Fe WETH9 in place of mainnet WETH
+(cd ports/weth9 && fe build -O 2 --out-dir ../../out/weth9 .)
+./out/fevm_replay block blocks/26394000 0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2 out/weth9/WETH9.runtime.bin
 ```
 
 ## Limitations
 
-- **Block hashes:** only the parent's is loaded. A transaction that reads
-  an older one through `BLOCKHASH` sees zero and reports DIFF.
+- **Block hashes:** `fetch-block` loads only the parent's. A transaction that
+  reads an older one through `BLOCKHASH` sees zero, reports DIFF and is
+  labeled. A fixture can carry older ones in `blockHashes`. Fetching all 256
+  would cost 86 calls per block on a free endpoint that allows three
+  requests per batch.
 - **Each transaction runs alone**, on its own pre-state from the node.
   Block-level effects (system contracts, withdrawals, the coinbase reward)
   are not replayed.
 - **Osaka with mainnet's BPO2 blob schedule only.** Older blocks may follow
   other rules.
-- **The node is trusted.** Its traces are the reference, and a buggy node
-  would produce a false DIFF.
+- **The node is trusted.** Its traces are the reference, so a node bug shows
+  up as a DIFF. That happened once, and the chain's own state settled it (see
+  Results). Data fetched near the chain head through a load-balanced
+  endpoint can mix nodes. `block` rejects data whose receipts disagree with
+  the header, but fetching a few blocks behind the head is safer.
+- **Shadow replay sees gas-sensitive code.** Code that reads `GAS` after the
+  shadow code ran may legitimately act differently. Such transactions are
+  labeled rather than counted as port bugs.
+- **Fe WETH9 decodes calldata strictly** where Solidity 0.4 read missing
+  arguments as zero. No transaction in the replayed blocks relied on that.
 - **Double-counted cleared slots:** a slot the chain cleared and fevm kept
   is counted by both comparison passes. The verdict is correct, but its
   count is one too high.

@@ -77,6 +77,8 @@ pub struct Mismatches {
     /// (see `watch::GasWatch`), so that cheaper or dearer shadow code could
     /// change what it did.
     pub gas_observed: bool,
+    /// Whether the transaction ran BLOCKHASH (filled in for differences only).
+    pub read_blockhash: bool,
 }
 
 impl Mismatches {
@@ -287,6 +289,7 @@ uses (text: mut MemBuffer)
         fevm_gas: receipt.gas_used,
         shadowed: !gas_must_match,
         gas_observed: false,
+        read_blockhash: false,
     }
     let chain_ok = field(chain_receipt, "status") == 1
     let fevm_ok = receipt.invalid == 0 && receipt.status == OK

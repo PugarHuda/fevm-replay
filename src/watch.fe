@@ -5,6 +5,7 @@ use core::{MemSpan, MemVec}
 use fevm::trace::{CallEnd, CallStart, Step, Tracer}
 
 const OP_GAS: u8 = 0x5a
+const OP_BLOCKHASH: u8 = 0x40
 
 /// Watches a shadow replay for code other than the shadow code reading the
 /// gas left (the GAS opcode) after the shadow code first ran. Until the
@@ -17,16 +18,29 @@ pub struct GasWatch {
     frames: MemVec<u256>,
     shadow_ran: bool,
     pub observed: bool,
+    /// Whether any code ran BLOCKHASH. A replay holds the parent's hash
+    /// only, so a transaction that differs after reading another one most
+    /// likely read a hash the node's traces do not carry.
+    pub read_blockhash: bool,
 }
 
 impl GasWatch {
     pub fn new(shadow: u256) -> Self {
-        GasWatch { shadow, frames: MemVec::new(), shadow_ran: false, observed: false }
+        GasWatch {
+            shadow,
+            frames: MemVec::new(),
+            shadow_ran: false,
+            observed: false,
+            read_blockhash: false,
+        }
     }
 }
 
 impl Tracer for GasWatch {
     fn step(mut self, _ step: Step) {
+        if step.op == OP_BLOCKHASH {
+            self.read_blockhash = true
+        }
         if step.op == OP_GAS && self.shadow_ran {
             match self.frames.last() {
                 Option::Some(ref code) => {

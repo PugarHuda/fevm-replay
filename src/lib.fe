@@ -4,7 +4,7 @@
 use core::MemBuffer
 use std::env::{Arg, Args}
 use std::io::Stdout
-use json::parse
+use json::{Value, parse}
 
 pub use compare::{Mismatches, apply_diff, compare}
 pub use load::{field, hex_bytes, hex_word, load_block, load_tx, load_world}
@@ -209,6 +209,17 @@ fn block_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
         return 1
     }
     let header = ref block["result"]
+    // A load-balanced endpoint may answer the four calls from nodes at
+    // different heights; around a reorg they can describe different blocks.
+    let first = receipts["result"].items()
+    if first.len() > 0 && field(first[0], "blockHash") != field(header, "hash") {
+        println!(
+            "ERROR ",
+            dir,
+            ": the receipts belong to another block than the header; fetch again",
+        )
+        return 1
+    }
     let env = load_block(
         header,
         chain_id: field(chain, "result"),
@@ -222,6 +233,7 @@ fn block_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
     var shadowed: u64 = 0
     var gas_sensitive: u64 = 0
     var behavior: u64 = 0
+    var old_hashes: u64 = 0
     var chain_gas: u64 = 0
     var fevm_gas: u64 = 0
     for index in 0 .. txs.len() {
@@ -230,6 +242,7 @@ fn block_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
             replay_tx(
                 env,
                 parent_hash: field(header, "parentHash"),
+                older_hashes: Value::object(),
                 txs[index],
                 receipts["result"][index],
                 prestates["result"][index]["result"],
@@ -253,6 +266,16 @@ fn block_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
                 " ",
                 txs[index]["hash"].text(),
                 " (reads gas after the shadow code ran)",
+            )
+            print!(text)
+        } else if found.read_blockhash {
+            old_hashes += 1
+            println!(
+                "DIFF  tx ",
+                index,
+                " ",
+                txs[index]["hash"].text(),
+                " (ran BLOCKHASH; a hash before the parent's is not in the node's traces)",
             )
             print!(text)
         } else {
@@ -282,6 +305,13 @@ fn block_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
         permille % 10,
         "%)",
     )
+    if old_hashes > 0 {
+        println!(
+            "  of the differences, ",
+            old_hashes,
+            " ran BLOCKHASH (see `blockHashes` in the README)",
+        )
+    }
     if shadow_address != 0 {
         println!(
             "shadow: ",

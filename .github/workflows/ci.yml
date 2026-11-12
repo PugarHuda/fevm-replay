@@ -24,14 +24,17 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/fe
-          key: fe-${{ runner.os }}-${{ env.FE_REVISION }}-${{ env.RUST_VERSION }}
+          key: fe-${{ runner.os }}-${{ env.FE_REVISION }}-${{ env.RUST_VERSION }}-cranelift
 
       - name: Build the Fe compiler
         if: steps.fe-cache.outputs.cache-hit != 'true'
+        # Fe's build generates its tree-sitter grammar, which needs the
+        # tree-sitter CLI and node; `cranelift` is the native backend.
         run: |
+          npm install -g tree-sitter-cli@0.24.7
           rustup toolchain install "$RUST_VERSION" --profile minimal
           cargo "+$RUST_VERSION" install --locked --root ~/fe \
-            --git https://github.com/argotorg/fe --rev "$FE_REVISION" fe
+            --git https://github.com/argotorg/fe --rev "$FE_REVISION" --features cranelift fe
 
       - run: echo "$HOME/fe/bin" >> "$GITHUB_PATH"
       - run: fe --version
