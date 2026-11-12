@@ -68,6 +68,15 @@ pub struct Mismatches {
     pub logs: u64,
     pub accounts: u64,
     pub storage: u64,
+    /// Gas used on chain and in fevm, whether or not they had to agree.
+    pub chain_gas: u64,
+    pub fevm_gas: u64,
+    /// Whether the transaction ran shadow code (see `replay::replay_tx`).
+    pub shadowed: bool,
+    /// Whether other code read the gas left after the shadow code ran
+    /// (see `watch::GasWatch`), so that cheaper or dearer shadow code could
+    /// change what it did.
+    pub gas_observed: bool,
 }
 
 impl Mismatches {
@@ -256,15 +265,29 @@ uses (text: mut MemBuffer)
 
 /// Compares fevm's `receipt` and `world` with the chain's receipt and the
 /// expected world, writing one line per difference.
+/// With `gas_must_match` false a gas difference is recorded but not counted:
+/// shadow code is expected to cost different gas.
 pub fn compare(
     _ receipt: Receipt,
     _ world: WorldState,
     _ chain_receipt: Value,
     _ expected: WorldState,
+    gas_must_match: bool,
 ) -> Mismatches
 uses (text: mut MemBuffer)
 {
-    var found = Mismatches { status: 0, gas: 0, logs: 0, accounts: 0, storage: 0 }
+    let chain_gas = field(chain_receipt, "gasUsed")
+    var found = Mismatches {
+        status: 0,
+        gas: 0,
+        logs: 0,
+        accounts: 0,
+        storage: 0,
+        chain_gas: chain_gas.downcast_truncate(),
+        fevm_gas: receipt.gas_used,
+        shadowed: !gas_must_match,
+        gas_observed: false,
+    }
     let chain_ok = field(chain_receipt, "status") == 1
     let fevm_ok = receipt.invalid == 0 && receipt.status == OK
     if chain_ok != fevm_ok {
@@ -279,8 +302,7 @@ uses (text: mut MemBuffer)
         "\n".fmt(mut text)
         found.status = 1
     }
-    let chain_gas = field(chain_receipt, "gasUsed")
-    if chain_gas != receipt.gas_used as u256 {
+    if gas_must_match && chain_gas != receipt.gas_used as u256 {
         "  gas used: chain ".fmt(mut text)
         decimal(chain_gas).fmt(mut text)
         ", fevm ".fmt(mut text)

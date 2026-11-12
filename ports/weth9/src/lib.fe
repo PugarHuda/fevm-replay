@@ -1,0 +1,205 @@
+//! WETH9 (mainnet 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2) in Fe, built to
+//! drop in for the deployed Solidity code: same selectors, events, storage
+//! slots, fallback, revert data and ETH transfer stipend. fevm-replay checks
+//! that claim against real mainnet traffic (`fevm-replay block <dir>
+//! 0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2 out/WETH9.runtime.bin`).
+
+use std::abi::DynString
+use std::evm::{StorageMap, revert_empty, wei}
+
+msg Weth9Msg {
+    #[selector = sol("name()")]
+    Name -> DynString,
+    #[selector = sol("symbol()")]
+    Symbol -> DynString,
+    #[selector = sol("decimals()")]
+    Decimals -> u8,
+    #[selector = sol("totalSupply()")]
+    TotalSupply -> u256,
+    #[selector = sol("balanceOf(address)")]
+    BalanceOf { owner: Address } -> u256,
+    #[selector = sol("allowance(address,address)")]
+    Allowance { owner: Address, spender: Address } -> u256,
+    #[selector = sol("deposit()")]
+    Deposit,
+    #[selector = sol("withdraw(uint256)")]
+    Withdraw { wad: u256 },
+    #[selector = sol("approve(address,uint256)")]
+    Approve { guy: Address, wad: u256 } -> bool,
+    #[selector = sol("transfer(address,uint256)")]
+    Transfer { dst: Address, wad: u256 } -> bool,
+    #[selector = sol("transferFrom(address,address,uint256)")]
+    TransferFrom { src: Address, dst: Address, wad: u256 } -> bool,
+}
+
+#[event]
+struct Approval {
+    #[indexed]
+    src: Address,
+    #[indexed]
+    guy: Address,
+    wad: u256,
+}
+
+#[event]
+struct Transfer {
+    #[indexed]
+    src: Address,
+    #[indexed]
+    dst: Address,
+    wad: u256,
+}
+
+#[event]
+struct Deposit {
+    #[indexed]
+    dst: Address,
+    wad: u256,
+}
+
+#[event]
+struct Withdrawal {
+    #[indexed]
+    src: Address,
+    wad: u256,
+}
+
+// "Wrapped Ether" and "WETH" as Solidity stores short strings.
+const NAME: u256 = 0x577261707065642045746865720000000000000000000000000000000000001a
+const SYMBOL: u256 = 0x5745544800000000000000000000000000000000000000000000000000000008
+
+/// A Solidity `string` of at most 31 bytes, stored in one slot: the bytes
+/// left-aligned, twice the length in the lowest byte.
+fn short_string(_ word: u256) -> DynString {
+    DynString::from_word_prefix(word: word, len: ((word & 0xff) / 2).downcast_truncate())
+}
+
+/// The state of the deployed contract, slot for slot: `string name`,
+/// `string symbol`, `uint8 decimals`, `mapping(address => uint) balanceOf`,
+/// `mapping(address => mapping(address => uint)) allowance`. The first three
+/// are read whole and decoded; nothing but `init` writes them.
+pub contract WETH9 uses (ctx: Ctx, call: mut Call, log: mut Log) {
+    mut name: u256,
+    mut symbol: u256,
+    mut decimals: u256,
+    mut balance_of: StorageMap<Address, u256>,
+    mut allowance: StorageMap<Address, StorageMap<Address, u256>>,
+
+    // The values the mainnet deployment holds, for fresh deployments in tests.
+    init()
+    uses (mut name, mut symbol, mut decimals)
+    {
+        name = NAME
+        symbol = SYMBOL
+        decimals = 18
+    }
+
+    recv Weth9Msg {
+        Name -> DynString uses (name) {
+            short_string(name)
+        }
+
+        Symbol -> DynString uses (symbol) {
+            short_string(symbol)
+        }
+
+        Decimals -> u8 uses (decimals) {
+            (decimals & 0xff).downcast_truncate()
+        }
+
+        // The ETH the contract holds: every wei of it backs one WETH.
+        TotalSupply -> u256 uses (ctx) {
+            ctx.balance(ctx.address()).as_wei()
+        }
+
+        BalanceOf { owner } -> u256 uses (balance_of) {
+            balance_of.get(key: owner)
+        }
+
+        Allowance { owner, spender } -> u256 uses (allowance) {
+            allowance[owner][spender]
+        }
+
+        #[payable]
+        Deposit uses (ctx, mut balance_of, mut log) {
+            deposit()
+        }
+
+        // `msg.sender.transfer(wad)`: a call with the 2,300 gas stipend that
+        // reverts the withdrawal if the recipient rejects the ETH.
+        Withdraw { wad } uses (ctx, mut call, mut balance_of, mut log) {
+            let src = ctx.caller()
+            let balance = balance_of.get(key: src)
+            if balance < wad {
+                revert_empty()
+            }
+            balance_of.set(key: src, value: balance - wad)
+            if !call.send_value(addr: src, gas: 0, value: wei(wad)).success() {
+                revert_empty()
+            }
+            log.emit(Withdrawal { src, wad })
+        }
+
+        Approve { guy, wad } -> bool uses (ctx, mut allowance, mut log) {
+            let src = ctx.caller()
+            allowance[src][guy] = wad
+            log.emit(Approval { src, guy, wad })
+            true
+        }
+
+        Transfer { dst, wad } -> bool uses (ctx, mut balance_of, mut allowance, mut log) {
+            transfer_from(src: ctx.caller(), dst, wad)
+        }
+
+        TransferFrom { src, dst, wad } -> bool uses (ctx, mut balance_of, mut allowance, mut log) {
+            transfer_from(src, dst, wad)
+        }
+    }
+
+    // Solidity's payable fallback: any other call is a deposit.
+    recv {
+        #[payable]
+        _ uses (ctx, mut balance_of, mut log) {
+            deposit()
+        }
+    }
+}
+
+fn deposit()
+uses (ctx: Ctx, balance_of: mut StorageMap<Address, u256>, log: mut Log)
+{
+    let dst = ctx.caller()
+    let wad = ctx.value().as_wei()
+    balance_of.set(key: dst, value: balance_of.get(key: dst) + wad)
+    log.emit(Deposit { dst, wad })
+}
+
+// WETH9 reverts with no data where it `require`s, and an allowance of
+// `uint(-1)` is never spent.
+fn transfer_from(src: Address, dst: Address, wad: u256) -> bool
+uses (
+    ctx: Ctx,
+    balance_of: mut StorageMap<Address, u256>,
+    allowance: mut StorageMap<Address, StorageMap<Address, u256>>,
+    log: mut Log,
+)
+{
+    let src_balance = balance_of.get(key: src)
+    if src_balance < wad {
+        revert_empty()
+    }
+    let spender = ctx.caller()
+    if src != spender {
+        let allowed = allowance[src][spender]
+        if allowed != u256::max() {
+            if allowed < wad {
+                revert_empty()
+            }
+            allowance[src][spender] = allowed - wad
+        }
+    }
+    balance_of.set(key: src, value: src_balance - wad)
+    balance_of.set(key: dst, value: balance_of.get(key: dst) + wad)
+    log.emit(Transfer { src, dst, wad })
+    true
+}

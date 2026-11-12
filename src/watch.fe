@@ -1,0 +1,52 @@
+//! A tracer that tells whether a shadow run could have changed behavior just
+//! by costing different gas.
+
+use core::{MemSpan, MemVec}
+use fevm::trace::{CallEnd, CallStart, Step, Tracer}
+
+const OP_GAS: u8 = 0x5a
+
+/// Watches a shadow replay for code other than the shadow code reading the
+/// gas left (the GAS opcode) after the shadow code first ran. Until the
+/// shadow code runs, both executions have the same gas, so only later
+/// readings can differ. A transaction that reads none of them and still
+/// differs points at the shadow code's behavior, not its cost.
+pub struct GasWatch {
+    shadow: u256,
+    // The code address of each open frame, innermost last.
+    frames: MemVec<u256>,
+    shadow_ran: bool,
+    pub observed: bool,
+}
+
+impl GasWatch {
+    pub fn new(shadow: u256) -> Self {
+        GasWatch { shadow, frames: MemVec::new(), shadow_ran: false, observed: false }
+    }
+}
+
+impl Tracer for GasWatch {
+    fn step(mut self, _ step: Step) {
+        if step.op == OP_GAS && self.shadow_ran {
+            match self.frames.last() {
+                Option::Some(ref code) => {
+                    if code != self.shadow {
+                        self.observed = true
+                    }
+                },
+                Option::None => {},
+            }
+        }
+    }
+
+    fn enter(mut self, _ call: CallStart, input: MemSpan) {
+        if call.to == self.shadow {
+            self.shadow_ran = true
+        }
+        self.frames.push(call.to)
+    }
+
+    fn leave(mut self, _ call: CallEnd, output: MemSpan) {
+        self.frames.pop()
+    }
+}

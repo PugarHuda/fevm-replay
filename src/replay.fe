@@ -9,14 +9,23 @@
 
 use core::MemBuffer
 use json::Value
-use fevm::{BlockEnv, Buffers, Config, transact}
+use fevm::{BlockEnv, Buffers, Config, WorldState, transact}
 use ingot::compare::{Mismatches, apply_diff, compare}
 use ingot::load::{field, load_block, load_tx, load_world}
+use ingot::watch::GasWatch
 
 /// Replays transaction `tx` in fevm against its `prestate`, in the block
 /// `block` whose parent's hash is `parent_hash`, and compares the outcome
-/// with the chain's `receipt` and `diff`, writing a line per difference. Nothing here touches the host: the verdict depends on the
-/// node's answers alone.
+/// with the chain's `receipt` and `diff`, writing a line per difference.
+/// Nothing here touches the host: the verdict depends on the node's answers
+/// alone.
+///
+/// Shadow replay: when `shadow_address` is nonzero and the transaction
+/// touches it, its code is replaced by `shadow_code` (in both worlds), such
+/// as a Fe port of the Solidity contract deployed there. The port must then
+/// leave every log, balance, nonce and slot as the original did. Only gas may
+/// differ, and with it what the sender paid and the coinbase earned, so
+/// those two balances are adjusted by the gas difference before comparing.
 pub fn replay_tx(
     _ block: BlockEnv,
     parent_hash: u256,
@@ -24,26 +33,89 @@ pub fn replay_tx(
     _ receipt: Value,
     _ prestate: Value,
     _ diff: Value,
+    shadow_address: u256,
+    shadow_code: MemSpan,
 ) -> Mismatches
 uses (text: mut MemBuffer)
 {
     var expected = load_world(prestate)
     apply_diff(mut expected, diff)
-    var buffers = Buffers::new()
-    var tracer = ()
     var world = load_world(prestate)
+    let shadowed = shadow_address != 0 && world.exists(shadow_address)
+    if shadowed {
+        world.set_code(address: shadow_address, code: shadow_code)
+        expected.set_code(address: shadow_address, code: shadow_code)
+    }
     // BLOCKHASH reads the client's block hashes, not state, so the prestate
     // tracer cannot see them; the parent's comes with the header.
     world.set_block_hash(block.number - 1, parent_hash)
-    let applied = transact(
-        world,
-        load_tx(tx),
-        block,
-        Config::osaka(),
-        mut buffers,
-        mut tracer,
+    var buffers = Buffers::new()
+    // A plain replay passes `()`, which compiles to an interpreter without
+    // tracing hooks; a shadow replay watches for code reading the gas left.
+    var watch = GasWatch::new(shadow: shadow_address)
+    let applied = if shadowed {
+        transact(
+            world,
+            load_tx(tx),
+            block,
+            Config::osaka(),
+            mut buffers,
+            mut watch,
+        )
+    } else {
+        var tracer = ()
+        transact(
+            world,
+            load_tx(tx),
+            block,
+            Config::osaka(),
+            mut buffers,
+            mut tracer,
+        )
+    }
+    if shadowed {
+        settle_gas_difference(
+            mut expected,
+            sender: field(tx, "from"),
+            coinbase: block.coinbase,
+            price: field(receipt, "effectiveGasPrice"),
+            basefee: block.basefee,
+            chain_gas: field(receipt, "gasUsed"),
+            fevm_gas: applied.receipt.gas_used as u256,
+        )
+    }
+    var found = compare(
+        applied.receipt,
+        applied.state,
+        receipt,
+        expected,
+        gas_must_match: !shadowed,
     )
-    compare(applied.receipt, applied.state, receipt, expected)
+    found.gas_observed = watch.observed
+    found
+}
+
+// Moves the fee for the gas fevm used instead of the chain's: the sender pays
+// `price` per unit and the coinbase earns the tip above `basefee`.
+fn settle_gas_difference(
+    _ expected: mut WorldState,
+    sender: u256,
+    coinbase: u256,
+    price: u256,
+    basefee: u256,
+    chain_gas: u256,
+    fevm_gas: u256,
+) {
+    let tip = if price > basefee { price - basefee } else { 0 }
+    if fevm_gas > chain_gas {
+        let more = fevm_gas - chain_gas
+        expected.set_balance(sender, expected.balance(sender) - more * price)
+        expected.set_balance(coinbase, expected.balance(coinbase) + more * tip)
+    } else {
+        let less = chain_gas - fevm_gas
+        expected.set_balance(sender, expected.balance(sender) + less * price)
+        expected.set_balance(coinbase, expected.balance(coinbase) - less * tip)
+    }
 }
 
 /// Replays a single-transaction fixture.
@@ -60,5 +132,7 @@ pub fn replay(_ doc: Value) -> Mismatches uses (text: mut MemBuffer) {
         doc["receipt"],
         doc["prestate"],
         doc["diff"],
+        shadow_address: 0,
+        shadow_code: MemBuffer::empty().span(),
     )
 }

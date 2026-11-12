@@ -174,11 +174,25 @@ uses (fs: std::fs::Fs, out: mut Stdout)
 
 #[cfg(target_family = "unix")]
 fn block_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
-    if args.count() != 3 {
-        println!("usage: fevm-replay block <dir>")
+    if args.count() != 3 && args.count() != 5 {
+        println!(
+            "usage: fevm-replay block <dir> [<shadow-address> <runtime.bin>]",
+        )
         return 2
     }
     let dir = args.get(2)
+    // Shadow replay: run the hex runtime code in `runtime.bin` in place of
+    // the code at `shadow-address`.
+    var shadow_address: u256 = 0
+    var shadow_code = MemBuffer::empty()
+    if args.count() == 5 {
+        shadow_address = core::text::parse_hex_uint(args.get(3).span()).unwrap_or(default: 0)
+        let Result::Ok(hex) = fs.read(args.get(4)) else {
+            println!("ERROR ", args.get(4), ": cannot read")
+            return 1
+        }
+        shadow_code = hex_bytes(hex.span())
+    }
     let Option::Some(chain) = load_response(dir, "chain.json") else {
         return 1
     }
@@ -205,6 +219,11 @@ fn block_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
     )
     let txs = header["transactions"].items()
     var matched: u64 = 0
+    var shadowed: u64 = 0
+    var gas_sensitive: u64 = 0
+    var behavior: u64 = 0
+    var chain_gas: u64 = 0
+    var fevm_gas: u64 = 0
     for index in 0 .. txs.len() {
         var text = MemBuffer::empty()
         let found = with (mut text) {
@@ -215,11 +234,31 @@ fn block_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
                 receipts["result"][index],
                 prestates["result"][index]["result"],
                 diffs["result"][index]["result"],
+                shadow_address,
+                shadow_code: shadow_code.span(),
             )
+        }
+        if found.shadowed {
+            shadowed += 1
+            chain_gas += found.chain_gas
+            fevm_gas += found.fevm_gas
         }
         if found.total() == 0 {
             matched += 1
+        } else if found.shadowed && found.gas_observed {
+            gas_sensitive += 1
+            println!(
+                "DIFF  tx ",
+                index,
+                " ",
+                txs[index]["hash"].text(),
+                " (reads gas after the shadow code ran)",
+            )
+            print!(text)
         } else {
+            if found.shadowed {
+                behavior += 1
+            }
             println!("DIFF  tx ", index, " ", txs[index]["hash"].text())
             print!(text)
         }
@@ -243,5 +282,21 @@ fn block_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
         permille % 10,
         "%)",
     )
+    if shadow_address != 0 {
+        println!(
+            "shadow: ",
+            shadowed,
+            " transactions ran the shadow code, ",
+            shadowed - gas_sensitive - behavior,
+            " identical, ",
+            gas_sensitive,
+            " differ where code reads the gas left, ",
+            behavior,
+            " behave differently; gas used chain ",
+            chain_gas,
+            ", shadow ",
+            fevm_gas,
+        )
+    }
     if matched == total { 0 } else { 1 }
 }
