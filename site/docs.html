@@ -36,6 +36,7 @@
       <li><a href="#shadow">Shadow replay</a></li>
       <li><a href="#fuzz">Shadow fuzzing</a></li>
       <li><a href="#like">Shadowing every copy</a></li>
+      <li><a href="#mainnet-fuzz">Fuzzing from mainnet</a></li>
       <li><a href="#ports">Writing a port</a></li>
       <li><a href="#architecture">Architecture</a></li>
       <li><a href="#limits">Limitations</a></li>
@@ -73,7 +74,9 @@ fe build --backend native -O 2 --emit executable --out-dir out .
         <tr><td><code>fevm_replay fetch-code &lt;address&gt; &lt;file&gt; [rpc]</code></td><td>Saves the code deployed at an address, as hex.</td></tr>
         <tr><td><code>fevm_replay fuzz &lt;deployed.hex&gt; &lt;port.bin&gt; [runs] [steps] [seed]</code></td><td>Random calls against the deployed code and a port, compared after each. Exits 1 if a well-formed call differs.</td></tr>
         <tr><td><code>fevm_replay fuzz-pair &lt;deployed.hex&gt; &lt;port.bin&gt; &lt;token.hex&gt; [runs] [steps] [seed]</code></td><td>The same for a Uniswap V2 pair between two tokens running <code>token.hex</code>, with a factory and flash-swap callees.</td></tr>
-        <tr><td><code>fevm_replay range &lt;first&gt; &lt;count&gt; &lt;dir&gt; [&lt;address&gt;|&lt;deployed.hex&gt; &lt;runtime.bin&gt;]</code></td><td>Fetches the blocks not yet saved under <code>dir</code>, replays them and prints totals. Run it again to resume.</td></tr>
+        <tr><td><code>fevm_replay range &lt;first&gt; &lt;count&gt; &lt;dir&gt; [&lt;address&gt;|&lt;deployed.hex&gt; &lt;runtime.bin&gt;] [rpc]</code></td><td>Fetches the blocks not yet saved under <code>dir</code>, replays them and prints totals. Run it again to resume. A block whose transactions read an older block's hash gets the 256 hashes before it and replays again.</td></tr>
+        <tr><td><code>fevm_replay fetch-hashes &lt;dir&gt; [rpc]</code></td><td>Adds the 256 block hashes before a saved block to its <code>delegates.json</code>, for transactions that read an older block's hash.</td></tr>
+        <tr><td><code>fevm_replay fuzz-block &lt;dir&gt;... &lt;deployed.hex&gt; &lt;port.bin&gt; [mutations] [seed]</code></td><td>Mainnet-seeded fuzzing: mutates every transaction of the saved blocks that touches the deployed code and runs it on its own pre-state with the deployed code and with the port. Exits 1 on a difference.</td></tr>
       </tbody>
     </table>
     <p>The node needs the <code>debug</code> namespace. The default is the free <code>https://eth.drpc.org</code>; pass another URL as the last argument of <code>fetch</code> or <code>fetch-block</code>. Fetch blocks a few minutes behind the head: near the head, a load-balanced endpoint can answer from nodes that disagree.</p>
@@ -127,6 +130,7 @@ fe build --backend native -O 2 --emit executable --out-dir out .
 ./out/fevm_replay fuzz weth9.hex out/weth9/WETH9.runtime.bin 20000 60 1000</code></pre>
     <p>Calls are counted in three groups: well-formed, calldata shorter than its arguments, and address arguments with dirty upper bits. Fe's ABI decoder rejects the last two where solc 0.4 lets them through, so only a well-formed difference fails the run. The first difference is printed with its sender, target, value, calldata and the outcome on each side, and the seed and call number replay it.</p>
     <p><code>fuzz-pair</code> does the same for a Uniswap V2 pair: two tokens running WETH9's code, a factory whose <code>feeTo</code> is unset or set, and flash-swap callees that accept or call back into the pair. It prints how many calls of each function succeeded, so you can see what the run reached beyond reverts. Exceptional halts compare as one outcome, and <code>Error(string)</code> reasons that differ only in their padding are counted apart: solc 0.5 pads them with whatever memory held.</p>
+    <p>A difference is shrunk: its run is regenerated from the seed and every call it does not need is dropped, so the report ends with the shortest sequence that still differs. A pair run also checks the port against Uniswap V2's invariants after every call: the lock is released, <code>k</code> never falls in a successful swap, and the supply is zero or at least the 1,000 locked at the first deposit.</p>
 <pre><code>./out/fevm_replay fuzz-pair pair.hex out/pair/UniswapV2Pair.runtime.bin weth9.hex 20000 60 1000</code></pre>
     <p class="note">The call generators target WETH9's and UniswapV2Pair's interfaces. Another contract needs its own in <code>src/fuzz.fe</code>.</p>
 
@@ -135,6 +139,16 @@ fe build --backend native -O 2 --emit executable --out-dir out .
 <pre><code>./out/fevm_replay fetch-code 0xb4e16d0168e52d35cacd2c6185b44281ec28c9dc pair.hex
 ./out/fevm_replay range 26400000 127 blocks pair.hex out/pair/UniswapV2Pair.runtime.bin</code></pre>
     <p class="note">A contract that checks <code>EXTCODEHASH</code> of what it calls sees the port as other code. Transactions where other code ran <code>EXTCODEHASH</code> or <code>EXTCODECOPY</code> are labeled, like those that read the gas left.</p>
+
+    <h2 id="mainnet-fuzz">Fuzzing from mainnet</h2>
+    <p><code>fuzz-block</code> starts from real transactions. For each one in the saved blocks whose pre-state holds the deployed code, it runs mutations on that pre-state twice, once with the deployed code and once with the port, with gas free so only behavior can differ. A mutation changes either:</p>
+    <ul>
+      <li>the transaction's own calldata, which exercises whatever router or bot sent it; or</li>
+      <li>one of the calls the shadowed contract really received, <em>in flight</em>. Its account runs a small proxy that patches one calldata word and <code>DELEGATECALL</code>s the real code at another address. The transaction itself runs unchanged, so a changed swap lands with its input tokens already in the pair and the real router as <code>msg.sender</code>.</li>
+    </ul>
+<pre><code>./out/fevm_replay fuzz-block blocks/* pair.hex out/pair/UniswapV2Pair.runtime.bin 50 7</code></pre>
+    <p>In flight, the changed call's own outcome decides: if its status or output differs, the port behaved differently, whatever its callers do with gas. Differences where other code read the gas left or code hashes are counted apart, and so are those where a mutation gave upper bits to a word shaped like an address. The first difference prints both outputs and the call, in the order calls ended, where the two runs part.</p>
+    <p class="note">Accounts and slots the original transaction did not touch are absent from its pre-state and read as empty in both runs, so a mutation that wanders off is compared fairly but not realistically.</p>
 
     <h2 id="ports">Writing a port</h2>
     <p><a href="https://github.com/PugarHuda/fevm-replay/tree/main/ports/weth9"><code>ports/weth9</code></a> is the worked example. A port is only a drop-in replacement if it keeps the deployed contract's:</p>
@@ -164,7 +178,8 @@ fe build --backend native -O 2 --emit executable --out-dir out .
     <ul>
       <li>Each transaction runs alone on its own pre-state. Block-level effects such as system contracts and withdrawals are not replayed.</li>
       <li>Osaka rules and mainnet's BPO2 blob schedule only.</li>
-      <li><code>fetch-block</code> loads only the parent's block hash. Fetching all 256 costs 86 calls on a free endpoint that allows three requests per batch.</li>
+      <li><code>fetch-block</code> loads only the parent's block hash. <code>fetch-hashes</code> (or <code>range</code>, for blocks that need them) adds the 256 before it at 86 calls a block.</li>
+      <li>Code-hash readings are detected by opcode, not by target: fevm's tracer does not expose the stack, so a label can be broader than its cause.</li>
       <li>The node's traces are the reference, so a node bug shows up as a difference. That has happened, and the chain's own state settled it.</li>
     </ul>
   </main>

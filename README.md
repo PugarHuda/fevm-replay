@@ -221,31 +221,36 @@ shadow **every account running that code** in each transaction:
 ```sh
 ./out/fevm_replay fetch-code 0xb4e16d0168e52d35cacd2c6185b44281ec28c9dc pair.hex
 (cd ports/uniswap-v2-pair && fe build -O 2 --out-dir ../../out/pair .)
-./out/fevm_replay range 26400000 127 blocks pair.hex out/pair/UniswapV2Pair.runtime.bin
+./out/fevm_replay range 26400000 200 blocks pair.hex out/pair/UniswapV2Pair.runtime.bin
 ```
 
-| Fe UniswapV2Pair in place of every V2 pair (blocks 26,400,000 to 26,400,126) | Transactions |
+| Fe UniswapV2Pair in place of every V2 pair (blocks 26,400,000 to 26,400,199, 69,643 transactions) | Transactions |
 | --- | ---: |
-| Ran the Fe pair | 471 |
-| Identical logs and state | 438 |
-| Differ only where code reads the gas left | 31 |
-| Differ only where code reads code hashes | 2 |
+| Ran the Fe pair | 856 |
+| Identical logs and state | 806 |
+| Differ only where code reads the gas left | 47 |
+| Differ only where code reads code hashes | 3 |
 | **Differed in behavior** | **0** |
 
-The two code-hash cases are a MEV bot that checks `EXTCODEHASH` of the
+These figures were measured with the port as of commit `4b6e3a2`, before
+the revert fix described below, which touches only the path where a pair
+reverts with a reason.
+
+The code-hash cases are a MEV bot that checks `EXTCODEHASH` of the
 pairs it trades through. The port is other code, so its hash differs and the
 bot refuses it. Like gas readings, this is detected (other code ran
 `EXTCODEHASH` or `EXTCODECOPY`), not guessed.
 
 | Function | Calls | Deployed Solidity | Fe pair | Change |
 | --- | ---: | ---: | ---: | ---: |
-| `swap` | 482 | 57,400 | 56,895 | −0.9% |
-| `getReserves` | 445 | 2,139 | 2,042 | −4.5% |
-| `token0` | 33 | 2,138 | 2,065 | −3.4% |
-| `token1` | 17 | 2,004 | 1,931 | −3.6% |
-| `factory` | 14 | 2,402 | 2,329 | −3.0% |
+| `swap` | 873 | 58,307 | 57,819 | −0.8% |
+| `getReserves` | 803 | 2,185 | 2,088 | −4.4% |
+| `token0` | 49 | 2,136 | 2,063 | −3.4% |
+| `factory` | 43 | 2,402 | 2,329 | −3.0% |
+| `token1` | 26 | 2,049 | 1,976 | −3.6% |
+| `sync` | 7 | 33,498 | 33,852 | +1.1% |
 
-Whole transactions that ran the Fe pair used 0.58% less gas. A first version
+Whole transactions that ran the Fe pair used 0.52% less gas. A first version
 of the port used 28% more on `swap`: it read and wrote ABI words a byte at a
 time. Shadow replay's per-function gas pointed straight at it.
 
@@ -277,6 +282,60 @@ not shown:
   with a stray `0x80` left in memory by the callback's calldata. The port
   pads with zeros. The reasons are equal, so such calls are counted apart
   (300 in this run), not as differences.
+
+A difference is shrunk: the run is regenerated from its seed and every call
+it does not need is dropped, down to the shortest sequence that still
+differs. Pair runs also check the port against Uniswap V2's invariants
+after every call (the lock is released, `k` never falls in a successful
+swap, the supply is zero or at least the 1,000 locked); none broke.
+
+### Fuzzing from mainnet
+
+Random calls in a made-up world miss what real traffic does at the edge.
+`fuzz-block` starts from real transactions instead: each one that touches
+the deployed code runs, mutated, on its own mainnet pre-state, once with the
+deployed code and once with the port, gas free so only behavior can differ.
+A mutation changes either the transaction's calldata (exercising the router
+or bot that sent it) or, **in flight**, one call the pair really received:
+the pair's account runs a small proxy that patches one calldata word and
+`DELEGATECALL`s the real code, while the transaction runs unchanged. So a
+swap's output is changed with its input tokens already in the pair, the real
+router as `msg.sender`, and real tokens (fee-on-transfer, USDT, rebasing)
+on the other side.
+
+```sh
+./out/fevm_replay fuzz-block blocks/* pair.hex out/pair/UniswapV2Pair.runtime.bin 50 7
+```
+
+In flight, the changed call's own status and output decide: callers that
+react to gas cannot hide a real difference. Two checks that the oracle
+works:
+
+| Ten blocks, 200 mutations per transaction (10,600 runs) | Differ |
+| --- | ---: |
+| The deployed code against itself | 0 |
+| The Fe pair | 0 |
+| The Fe pair with a planted bug (0.2% fee instead of 0.3% on one side) | 23 |
+
+Random fuzzing missed the planted bug in 2,000 runs; mainnet's own swaps,
+computed by routers right at the 0.3% boundary, find it.
+
+It also found a real bug in the port. In block 26,400,014 a swap pays a
+token that burns all the gas it is given, 63/64 of what the pair had. The
+deployed pair still reverts with `UniswapV2: TRANSFER_FAILED`; the port ran
+out of gas building the same reason through `DynString` and the ABI encoder.
+The report pointed at it:
+
+```
+  deployed returned 0x08c379a0...556e697377617056323a205452414e534645525f4641494c4544...
+  port returned     0x
+  runs part at the call to 0x0000000000000000000000000000000000fe11ed selector 0x022c0d9f: deployed revert, port out_of_gas
+```
+
+The port now writes its reasons straight to memory as constant words and
+reverts with them, as solc does. The first run over 200 blocks (42,800
+runs) found 32 differences; this one is fixed and that block now has none.
+Re-running all 200 blocks after the fix is still to do.
 
 ## Fe highlight
 
@@ -327,8 +386,9 @@ Other Fe pieces doing real work:
 | `src/check.fe` | checks the shape of the node's answers before anything reads them |
 | `src/compare.fe` | applies the chain's diff, then compares worlds, receipts and logs |
 | `src/fuzz.fe` | shadow fuzzing of WETH9 and of a Uniswap V2 pair: random calls against deployed code and its port, compared after each |
-| `src/watch.fe` | `GasWatch`, a tracer that records reads of the gas left after shadow code ran, of code hashes, and `BLOCKHASH` |
-| `src/lib.fe` | the CLI: `fetch`, `fetch-block`, `fetch-code`, `block`, `range`, `fuzz`, `fuzz-pair`, replaying fixture files |
+| `src/mutate.fe` | mainnet-seeded fuzzing: real transactions mutated on their own pre-state, calls changed in flight through a proxy |
+| `src/watch.fe` | `GasWatch`, a tracer that records every call, reads of the gas left after shadow code ran, of code hashes, and `BLOCKHASH`; where two runs part |
+| `src/lib.fe` | the CLI: `fetch`, `fetch-block`, `fetch-code`, `fetch-hashes`, `block`, `range`, `fuzz`, `fuzz-pair`, `fuzz-block`, replaying fixture files |
 | `src/tests.fe` | unit tests for the helpers |
 | `ports/weth9` | WETH9 in Fe, for shadow replay |
 | `ports/uniswap-v2-pair` | UniswapV2Pair in Fe, for shadow replay of every V2 pair |
@@ -385,11 +445,10 @@ svg-term. The same steps by hand:
 
 ## Limitations
 
-- **Block hashes:** `fetch-block` loads only the parent's. A transaction that
-  reads an older one through `BLOCKHASH` sees zero, reports DIFF and is
-  labeled. A fixture can carry older ones in `blockHashes`. Fetching all 256
-  would cost 86 calls per block on a free endpoint that allows three
-  requests per batch.
+- **Block hashes:** `fetch-block` loads only the parent's. `fetch-hashes`
+  adds the 256 before a block (86 calls at three a batch), and `range` does
+  it by itself for a block whose transactions read one: block 26,400,001
+  goes from 446/447 to 447/447.
 - **Each transaction runs alone**, on its own pre-state from the node.
   Block-level effects (system contracts, withdrawals, the coinbase reward)
   are not replayed.
@@ -412,8 +471,12 @@ svg-term. The same steps by hand:
 - **The Fe pair halts on division by zero by running out of gas**, where
   solc 0.5 runs `INVALID`. Both burn all the call's gas; a tracer sees a
   different reason.
-- **The V2 pair run covers 127 blocks** (471 transactions through a pair),
-  fewer than the WETH9 run's 300.
+- **Mainnet fuzzing reads untouched state as empty.** Accounts and slots
+  the original transaction did not touch are not in its pre-state; a
+  mutation that wanders off sees them empty in both runs, which is fair
+  but not realistic.
+- **Code-hash labels are by opcode, not target.** fevm's tracer does not
+  expose the stack, so a label can be broader than its cause.
 - **Delegates come from the parent block's state.** A delegation target
   whose code changed within the block would be fetched as it was before.
 - **Double-counted cleared slots:** a slot the chain cleared and fevm kept
