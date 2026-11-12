@@ -6,6 +6,7 @@ use std::env::{Arg, Args}
 use std::io::{Display, Stdout}
 use json::{Value, parse}
 
+pub use check::{fixture_ok, transaction_ok}
 pub use compare::{Mismatches, apply_diff, compare}
 pub use load::{field, hex_bytes, hex_word, load_block, load_tx, load_world}
 pub use replay::{replay, replay_tx}
@@ -118,6 +119,12 @@ fn replay_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
             failed += 1
             continue
         }
+        var problem = MemBuffer::empty()
+        if !fixture_ok(doc, mut problem) {
+            println!("ERROR ", path, ": ", problem)
+            failed += 1
+            continue
+        }
         var text = MemBuffer::empty()
         let found = with (mut text) {
             replay(doc)
@@ -158,6 +165,14 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     }
     println!("saved block ", args.get(2), " in ", args.get(3))
     0
+}
+
+// Whether `list` is a JSON array of `count` entries.
+fn same_length(_ list: Value, _ count: usize) -> bool {
+    match list.as_array() {
+        Option::Some(ref items) => items.len() == count,
+        Option::None => false,
+    }
 }
 
 // The JSON document saved in `dir/name`.
@@ -282,6 +297,28 @@ uses (fs: std::fs::Fs, out: mut Stdout)
         return false
     }
     let header = ref block["result"]
+    var problem = MemBuffer::empty()
+    if !check::header_ok(header, mut problem) || !header["transactions"].as_array().is_some() {
+        println!(
+            "ERROR ",
+            dir,
+            "/block.json: ",
+            problem,
+            " (or no transaction list)",
+        )
+        return false
+    }
+    let count = header["transactions"].items().len()
+    if !same_length(receipts["result"], count)
+        || !same_length(prestates["result"], count)
+        || !same_length(diffs["result"], count) {
+        println!(
+            "ERROR ",
+            dir,
+            ": the receipts and traces do not list one entry per transaction; fetch again",
+        )
+        return false
+    }
     // A load-balanced endpoint may answer the calls from nodes at
     // different heights; around a reorg they can describe different blocks.
     let first = receipts["result"].items()
@@ -315,9 +352,32 @@ uses (fs: std::fs::Fs, out: mut Stdout)
     } else {
         Value::object()
     }
+    if !check::extras_ok(extras, mut problem) {
+        println!("ERROR ", dir, "/delegates.json: ", problem)
+        return false
+    }
     let txs = header["transactions"].items()
     var matched: u64 = 0
     for index in 0 .. txs.len() {
+        let trace_ok = prestates["result"][index].as_object().is_some()
+            && prestates["result"][index].has("result")
+            && diffs["result"][index].as_object().is_some()
+            && diffs["result"][index].has("result")
+        var bad = MemBuffer::empty()
+        if !trace_ok
+            || !transaction_ok(
+                txs[index],
+                receipts["result"][index],
+                prestates["result"][index]["result"],
+                diffs["result"][index]["result"],
+                mut bad,
+            ) {
+            if !trace_ok {
+                "a trace has no result".fmt(mut bad)
+            }
+            println!("ERROR tx ", index, " ", dir, ": ", bad)
+            continue
+        }
         var text = MemBuffer::empty()
         let found = with (mut text) {
             replay_tx(

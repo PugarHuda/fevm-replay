@@ -1,0 +1,164 @@
+//! Checks the shape of the node's answers before a replay reads them, so a
+//! truncated or hand-edited fixture is reported, not a crash: indexing a
+//! JSON member that is not there stops the program.
+
+use core::MemBuffer
+use json::Value
+
+fn is_object(_ value: Value) -> bool {
+    value.as_object().is_some()
+}
+
+fn is_array(_ value: Value) -> bool {
+    value.as_array().is_some()
+}
+
+fn is_string(_ value: Value) -> bool {
+    value.as_string().is_some()
+}
+
+// Writes `what` to `problem` and returns false.
+fn fail(_ what: String<31>, _ problem: mut MemBuffer) -> bool {
+    what.fmt(mut problem)
+    false
+}
+
+fn has_object(_ value: Value, _ key: String<31>) -> bool {
+    match value.get(key) {
+        Option::Some(ref member) => is_object(member),
+        Option::None => false,
+    }
+}
+
+fn has_array(_ value: Value, _ key: String<31>) -> bool {
+    match value.get(key) {
+        Option::Some(ref member) => is_array(member),
+        Option::None => false,
+    }
+}
+
+fn has_string(_ value: Value, _ key: String<31>) -> bool {
+    match value.get(key) {
+        Option::Some(ref member) => is_string(member),
+        Option::None => false,
+    }
+}
+
+// Accounts as the prestate tracer writes them: an object per address, whose
+// `code` is a string and whose `storage` is an object, when present.
+fn accounts_ok(_ accounts: Value) -> bool {
+    if !is_object(accounts) {
+        return false
+    }
+    for ref member in accounts.members() {
+        let account = ref member.value
+        if !is_object(account) {
+            return false
+        }
+        if account.has("code") && !has_string(account, "code") {
+            return false
+        }
+        if account.has("storage") && !has_object(account, "storage") {
+            return false
+        }
+    }
+    true
+}
+
+/// Whether one transaction's answers have the shape the replay reads,
+/// writing what is wrong to `problem` if not.
+pub fn transaction_ok(
+    _ tx: Value,
+    _ receipt: Value,
+    _ prestate: Value,
+    _ diff: Value,
+    _ problem: mut MemBuffer,
+) -> bool {
+    if !is_object(tx) {
+        return fail("tx is not an object", mut problem)
+    }
+    if !has_string(tx, "from") {
+        return fail("tx has no from", mut problem)
+    }
+    if !has_string(tx, "input") {
+        return fail("tx has no input", mut problem)
+    }
+    if tx.has("accessList") && !has_array(tx, "accessList") {
+        return fail("tx accessList is not a list", mut problem)
+    }
+    if tx.has("authorizationList") && !has_array(tx, "authorizationList") {
+        return fail("tx authorizations not a list", mut problem)
+    }
+    if !is_object(receipt) {
+        return fail("receipt is not an object", mut problem)
+    }
+    if !receipt.has("status") || !receipt.has("gasUsed") {
+        return fail("receipt lacks status or gas", mut problem)
+    }
+    if !has_array(receipt, "logs") {
+        return fail("receipt has no logs list", mut problem)
+    }
+    for ref log in receipt["logs"].items() {
+        if !is_object(log)
+            || !has_string(log, "address")
+            || !has_array(log, "topics")
+            || !has_string(log, "data") {
+            return fail("a receipt log is malformed", mut problem)
+        }
+    }
+    if !accounts_ok(prestate) {
+        return fail("prestate is malformed", mut problem)
+    }
+    if !is_object(diff) || !diff.has("pre") || !diff.has("post") {
+        return fail("diff lacks pre or post", mut problem)
+    }
+    if !accounts_ok(diff["pre"]) || !accounts_ok(diff["post"]) {
+        return fail("diff is malformed", mut problem)
+    }
+    true
+}
+
+/// Whether a block header has the fields the replay reads.
+pub fn header_ok(_ header: Value, _ problem: mut MemBuffer) -> bool {
+    if !is_object(header) {
+        return fail("block is not an object", mut problem)
+    }
+    if !header.has("number") || !header.has("parentHash") {
+        return fail("block lacks number or parent", mut problem)
+    }
+    true
+}
+
+/// Whether `extras` (a fixture or a block's delegates.json) holds its
+/// optional `blockHashes` and `delegates` as objects.
+pub fn extras_ok(_ extras: Value, _ problem: mut MemBuffer) -> bool {
+    if extras.has("blockHashes") && !has_object(extras, "blockHashes") {
+        return fail("blockHashes is not an object", mut problem)
+    }
+    if extras.has("delegates") && !has_object(extras, "delegates") {
+        return fail("delegates is not an object", mut problem)
+    }
+    true
+}
+
+/// Whether a single-transaction fixture has every part a replay reads.
+pub fn fixture_ok(_ doc: Value, _ problem: mut MemBuffer) -> bool {
+    if !is_object(doc) {
+        return fail("not a JSON object", mut problem)
+    }
+    if !doc.has("block") || !doc.has("tx") || !doc.has("receipt") {
+        return fail("lacks block, tx or receipt", mut problem)
+    }
+    if !doc.has("prestate") || !doc.has("diff") {
+        return fail("lacks prestate or diff", mut problem)
+    }
+    header_ok(doc["block"], mut problem)
+        && extras_ok(doc, mut problem)
+        && transaction_ok(
+            doc["tx"],
+            doc["receipt"],
+            doc["prestate"],
+            doc["diff"],
+            mut problem,
+        )
+}

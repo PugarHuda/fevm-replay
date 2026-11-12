@@ -105,6 +105,12 @@ fact about the chain's result changed: gas, status, a balance, a storage
 slot, log data, the log count, and an unexpected write. All seven are
 reported as DIFF, which shows the comparison can fail.
 
+`fixtures/malformed` holds twelve broken fixtures (a missing diff, logs that
+are not a list, code that is not a string, and so on). Each one is reported
+as `ERROR <file>: <what is wrong>`, not a crash. In a block, a transaction
+whose trace the node failed (`execution timeout` on a heavy block) is
+reported, and the rest still replay.
+
 ## Shadow replay: is a Fe port a drop-in replacement?
 
 `fevm-replay block <dir> <address> <runtime.bin>` replaces the code at
@@ -198,6 +204,7 @@ Other Fe pieces doing real work:
 | `src/fetch.fe` | JSON-RPC through curl (`Spawn`), fixtures and block directories, EIP-4844 blob base fee |
 | `src/load.fe` | JSON to fevm: `load_world`, `load_tx`, `load_block` |
 | `src/replay.fe` | `replay_tx`: load, `transact`, compare. No host capabilities |
+| `src/check.fe` | checks the shape of the node's answers before anything reads them |
 | `src/compare.fe` | applies the chain's diff, then compares worlds, receipts and logs |
 | `src/watch.fe` | `GasWatch`, a tracer that records reads of the gas left after shadow code ran, and `BLOCKHASH` |
 | `src/lib.fe` | the CLI: `fetch`, `fetch-block`, `block`, `range`, replaying fixture files |

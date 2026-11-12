@@ -54,6 +54,14 @@ jobs:
       - name: Mainnet fixtures replay exactly
         run: ./out/fevm_replay fixtures/mainnet/*.json
 
+      - name: Every malformed fixture is reported, not a crash
+        run: |
+          for f in fixtures/malformed/*.json; do
+            set +e; out=$(./out/fevm_replay "$f"); code=$?; set -e
+            echo "$out"
+            if [ "$code" != 1 ] || [ "${out#ERROR}" = "$out" ]; then echo "not reported: $f (exit $code)"; exit 1; fi
+          done
+
       - name: Every negative fixture is caught
         run: |
           for f in fixtures/negative/*.json; do
