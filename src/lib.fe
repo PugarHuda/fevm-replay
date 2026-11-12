@@ -8,7 +8,7 @@ use json::parse
 
 pub use compare::{Mismatches, apply_diff, compare}
 pub use load::{field, hex_bytes, hex_word, load_block, load_tx, load_world}
-pub use replay::replay
+pub use replay::{replay, replay_tx}
 
 const DEFAULT_RPC: String<21> = "https://eth.drpc.org"
 
@@ -26,13 +26,26 @@ fn is_word<const N: usize>(_ arg: Arg, _ word: [u8; N]) -> bool {
 /// that did not match.
 /// `fevm-replay fetch <txhash> <fixture.json> [rpc-url]` writes the fixture
 /// for one mainnet transaction.
+/// `fevm-replay fetch-block <0x-number> <dir> [rpc-url]` saves the node's
+/// answers for a whole block, and `fevm-replay block <dir>` replays every
+/// transaction in it.
 // `std::fs` and `std::process` exist on Unix hosts only, as does fevm's native build.
 #[cfg(target_family = "unix")]
 pub fn main() -> i32 uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut Stdout) {
     if args.count() < 2 {
         println!("usage: fevm-replay <fixture.json>...")
         println!("       fevm-replay fetch <txhash> <fixture.json> [rpc-url]")
+        println!("       fevm-replay fetch-block <0x-number> <dir> [rpc-url]")
+        println!("       fevm-replay block <dir>")
         return 2
+    }
+    // "fetch-block"
+    if is_word(args.get(1), [0x66, 0x65, 0x74, 0x63, 0x68, 0x2d, 0x62, 0x6c, 0x6f, 0x63, 0x6b]) {
+        return fetch_block_command()
+    }
+    // "block"
+    if is_word(args.get(1), [0x62, 0x6c, 0x6f, 0x63, 0x6b]) {
+        return block_command()
     }
     // "fetch"
     if is_word(args.get(1), [0x66, 0x65, 0x74, 0x63, 0x68]) {
@@ -91,4 +104,84 @@ fn replay_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
         }
     }
     failed
+}
+
+#[cfg(target_family = "unix")]
+fn fetch_block_command() -> i32 uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut Stdout) {
+    if args.count() != 4 && args.count() != 5 {
+        println!("usage: fevm-replay fetch-block <0x-number> <dir> [rpc-url]")
+        return 2
+    }
+    let Result::Ok(_) = fs.create_dir_all(args.get(3)) else {
+        println!("ERROR ", args.get(3), ": cannot create")
+        return 1
+    }
+    let fetched = if args.count() == 5 {
+        fetch::fetch_block(args.get(4), args.get(2), args.get(3))
+    } else {
+        fetch::fetch_block(DEFAULT_RPC, args.get(2), args.get(3))
+    }
+    if !fetched {
+        println!("ERROR block ", args.get(2), ": the node did not answer")
+        return 1
+    }
+    println!("saved block ", args.get(2), " in ", args.get(3))
+    0
+}
+
+// The `result` of the JSON-RPC response saved in `dir/name`.
+#[cfg(target_family = "unix")]
+fn load_response(_ dir: Arg, _ name: String<16>) -> Option<json::Value> uses (fs: std::fs::Fs, out: mut Stdout) {
+    let path = fetch::join(dir, name)
+    let Result::Ok(bytes) = fs.read(path) else {
+        println!("ERROR ", path, ": cannot read")
+        return Option::None
+    }
+    let Result::Ok(doc) = parse(bytes.span()) else {
+        println!("ERROR ", path, ": not JSON")
+        return Option::None
+    }
+    if !doc.has("result") {
+        println!("ERROR ", path, ": no result")
+        return Option::None
+    }
+    Option::Some(doc)
+}
+
+#[cfg(target_family = "unix")]
+fn block_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
+    if args.count() != 3 {
+        println!("usage: fevm-replay block <dir>")
+        return 2
+    }
+    let dir = args.get(2)
+    let Option::Some(chain) = load_response(dir, "chain.json") else { return 1 }
+    let Option::Some(block) = load_response(dir, "block.json") else { return 1 }
+    let Option::Some(receipts) = load_response(dir, "receipts.json") else { return 1 }
+    let Option::Some(prestates) = load_response(dir, "prestate.json") else { return 1 }
+    let Option::Some(diffs) = load_response(dir, "diff.json") else { return 1 }
+    let header = ref block["result"]
+    let env = load_block(header, chain_id: field(chain, "result"),
+                         blobbasefee: fetch::blob_base_fee(excess: field(header, "excessBlobGas"),
+                                                           fraction: fetch::BPO2_UPDATE_FRACTION))
+    let txs = header["transactions"].items()
+    var matched: u64 = 0
+    for index in 0..txs.len() {
+        var text = MemBuffer::empty()
+        let found = with (mut text) {
+            replay_tx(env, parent_hash: field(header, "parentHash"), txs[index], receipts["result"][index], prestates["result"][index]["result"],
+                      diffs["result"][index]["result"])
+        }
+        if found.total() == 0 {
+            matched += 1
+        } else {
+            println!("DIFF  tx ", index, " ", txs[index]["hash"].text())
+            print!(text)
+        }
+    }
+    let total: u64 = txs.len().downcast_unchecked()
+    let permille = if total == 0 { 1000 } else { matched * 1000 / total }
+    println!("block ", header["number"].text(), ": ", matched, "/", total, " transactions MATCH (",
+             permille / 10, ".", permille % 10, "%)")
+    if matched == total { 0 } else { 1 }
 }

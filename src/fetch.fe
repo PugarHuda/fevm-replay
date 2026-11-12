@@ -95,3 +95,61 @@ pub fn fetch<U: Display, H: Display>(_ url: U, _ hash: H, _ out: mut MemBuffer) 
     "}\n".fmt(mut out)
     true
 }
+
+// `dir/name` as a path.
+pub fn join<D: Display>(_ dir: D, _ name: String<16>) -> MemBuffer {
+    var path = MemBuffer::empty()
+    dir.fmt(mut path)
+    "/".fmt(mut path)
+    name.fmt(mut path)
+    path
+}
+
+/// One JSON-RPC call whose whole response goes to the file `path`. Block
+/// traces run to tens of megabytes, which curl writes straight to disk.
+fn call_to_file<U: Display, M: Display, P: Display>(_ url: U, _ method: M, _ params: P, _ path: MemBuffer) -> bool
+    uses (proc: mut Spawn)
+{
+    var body = MemBuffer::empty()
+    "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"".fmt(mut body)
+    method.fmt(mut body)
+    "\",\"params\":".fmt(mut body)
+    params.fmt(mut body)
+    "}".fmt(mut body)
+    let command = Command::new("curl")
+        .arg("-sS").arg("--fail").arg("--retry").arg("8").arg("--retry-all-errors").arg("--retry-delay").arg("2")
+        .arg("--max-time").arg("600")
+        .arg("-H").arg("content-type: application/json")
+        .arg("--data-binary").arg(body)
+        .arg("-o").arg(path)
+        .arg(url)
+    let Result::Ok(output) = proc.output(command) else { return false }
+    output.status.success()
+}
+
+/// Saves the node's answers about every transaction of block `number` (a
+/// `0x` quantity) in `dir`: the block with its transactions, the receipts,
+/// both prestate traces and the chain ID. Four calls cover the whole block.
+pub fn fetch_block<U: Display, N: Display, D: Display>(_ url: U, _ number: N, _ dir: D) -> bool uses (proc: mut Spawn) {
+    var at = MemBuffer::empty()
+    "[\"".fmt(mut at)
+    number.fmt(mut at)
+    "\"".fmt(mut at)
+    var block_params = MemBuffer::empty()
+    at.span().fmt(mut block_params)
+    ",true]".fmt(mut block_params)
+    var receipt_params = MemBuffer::empty()
+    at.span().fmt(mut receipt_params)
+    "]".fmt(mut receipt_params)
+    var pre_params = MemBuffer::empty()
+    at.span().fmt(mut pre_params)
+    ",{\"tracer\":\"prestateTracer\",\"timeout\":\"600s\"}]".fmt(mut pre_params)
+    var diff_params = MemBuffer::empty()
+    at.span().fmt(mut diff_params)
+    ",{\"tracer\":\"prestateTracer\",\"timeout\":\"600s\",\"tracerConfig\":{\"diffMode\":true}}]".fmt(mut diff_params)
+    call_to_file(url, "eth_chainId", "[]", join(dir, "chain.json"))
+        && call_to_file(url, "eth_getBlockByNumber", block_params, join(dir, "block.json"))
+        && call_to_file(url, "eth_getBlockReceipts", receipt_params, join(dir, "receipts.json"))
+        && call_to_file(url, "debug_traceBlockByNumber", pre_params, join(dir, "prestate.json"))
+        && call_to_file(url, "debug_traceBlockByNumber", diff_params, join(dir, "diff.json"))
+}
