@@ -200,6 +200,11 @@ the free `https://eth.drpc.org`; pass another URL as the last argument.
 
 ## Demo
 
+![fevm-replay fetching and replaying a mainnet transaction, a negative fixture, a whole block and a shadow replay of Fe WETH9](demo/demo.svg)
+
+The recording is [`demo/demo.sh`](demo/demo.sh), made with asciinema and
+svg-term. The same steps by hand:
+
 ```sh
 ./out/fevm_replay fetch 0x9a0970fbbf5df6a17277bc94bf2d96e117d504bd36e341a7ca5230998f916184 usdt.json
 ./out/fevm_replay usdt.json
