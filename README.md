@@ -205,6 +205,79 @@ first difference: seed 34, call 23, selector 0x2e1a7d4d withdraw (well-formed): 
   deployed success, port revert
 ```
 
+### Every Uniswap V2 pair at once
+
+[`ports/uniswap-v2-pair`](ports/uniswap-v2-pair) is UniswapV2Pair written in
+Fe: the same selectors, events, storage slots 0 to 12 (with `reserve0`,
+`reserve1` and `blockTimestampLast` packed in slot 8), revert reasons and
+external calls as the deployed solc 0.5.16 code, including its quirks
+(`ds-math-*` reasons, wrapping price accumulators, `transfer` that accepts
+tokens returning nothing).
+
+Every Uniswap V2 pair on mainnet runs the same 11,293 bytes. So `block` and
+`range` also take a file of deployed code in place of an address, and
+shadow **every account running that code** in each transaction:
+
+```sh
+./out/fevm_replay fetch-code 0xb4e16d0168e52d35cacd2c6185b44281ec28c9dc pair.hex
+(cd ports/uniswap-v2-pair && fe build -O 2 --out-dir ../../out/pair .)
+./out/fevm_replay range 26400000 127 blocks pair.hex out/pair/UniswapV2Pair.runtime.bin
+```
+
+| Fe UniswapV2Pair in place of every V2 pair (blocks 26,400,000 to 26,400,126) | Transactions |
+| --- | ---: |
+| Ran the Fe pair | 471 |
+| Identical logs and state | 438 |
+| Differ only where code reads the gas left | 31 |
+| Differ only where code reads code hashes | 2 |
+| **Differed in behavior** | **0** |
+
+The two code-hash cases are a MEV bot that checks `EXTCODEHASH` of the
+pairs it trades through. The port is other code, so its hash differs and the
+bot refuses it. Like gas readings, this is detected (other code ran
+`EXTCODEHASH` or `EXTCODECOPY`), not guessed.
+
+| Function | Calls | Deployed Solidity | Fe pair | Change |
+| --- | ---: | ---: | ---: | ---: |
+| `swap` | 482 | 57,400 | 56,895 | −0.9% |
+| `getReserves` | 445 | 2,139 | 2,042 | −4.5% |
+| `token0` | 33 | 2,138 | 2,065 | −3.4% |
+| `token1` | 17 | 2,004 | 1,931 | −3.6% |
+| `factory` | 14 | 2,402 | 2,329 | −3.0% |
+
+Whole transactions that ran the Fe pair used 0.58% less gas. A first version
+of the port used 28% more on `swap`: it read and wrote ABI words a byte at a
+time. Shadow replay's per-function gas pointed straight at it.
+
+Mainnet rarely shows a pair's first deposit, a burn of the whole supply or a
+reentrant callee, so `fuzz-pair` builds a pair between two tokens running
+WETH9's code, a factory with `feeTo` unset or set, and flash-swap callees
+that accept or call back into the pair:
+
+```sh
+./out/fevm_replay fuzz-pair pair.hex out/pair/UniswapV2Pair.runtime.bin weth9.hex 20000 60 1000
+```
+
+| Calls (20,000 runs, 29 s) | Calls | Differ |
+| --- | ---: | ---: |
+| Well-formed | 260,738 | 0 |
+| Calldata shorter than the arguments | 23,840 | 0 |
+| Address arguments with dirty upper bits | 31,668 | 19,594 |
+
+Of the well-formed calls, 2,029 mints, 582 swaps and 109 burns succeeded;
+the rest of the run covers the reverts. Fuzzing found two things mainnet had
+not shown:
+
+- **Division by zero.** solc 0.5 divides with `INVALID`, which ends the call
+  and burns all its gas. The port's first stand-in reverted instead, which a
+  caller can tell apart. Fe has no `INVALID`, so the port now grows memory
+  until it runs out of gas: the same exceptional halt.
+- **solc 0.5 leaks memory into revert reasons.** After a flash swap, the
+  deployed pair reverts with `UniswapV2: INSUFFICIENT_INPUT_AMOUNT` padded
+  with a stray `0x80` left in memory by the callback's calldata. The port
+  pads with zeros. The reasons are equal, so such calls are counted apart
+  (300 in this run), not as differences.
+
 ## Fe highlight
 
 **The compiler proves the replay cannot touch the network or the disk.**
@@ -253,11 +326,12 @@ Other Fe pieces doing real work:
 | `src/replay.fe` | `replay_tx`: load, `transact`, compare. No host capabilities |
 | `src/check.fe` | checks the shape of the node's answers before anything reads them |
 | `src/compare.fe` | applies the chain's diff, then compares worlds, receipts and logs |
-| `src/fuzz.fe` | shadow fuzzing: random calls against deployed code and its port, compared after each |
-| `src/watch.fe` | `GasWatch`, a tracer that records reads of the gas left after shadow code ran, and `BLOCKHASH` |
-| `src/lib.fe` | the CLI: `fetch`, `fetch-block`, `fetch-code`, `block`, `range`, `fuzz`, replaying fixture files |
+| `src/fuzz.fe` | shadow fuzzing of WETH9 and of a Uniswap V2 pair: random calls against deployed code and its port, compared after each |
+| `src/watch.fe` | `GasWatch`, a tracer that records reads of the gas left after shadow code ran, of code hashes, and `BLOCKHASH` |
+| `src/lib.fe` | the CLI: `fetch`, `fetch-block`, `fetch-code`, `block`, `range`, `fuzz`, `fuzz-pair`, replaying fixture files |
 | `src/tests.fe` | unit tests for the helpers |
 | `ports/weth9` | WETH9 in Fe, for shadow replay |
+| `ports/uniswap-v2-pair` | UniswapV2Pair in Fe, for shadow replay of every V2 pair |
 
 ## Build and test
 
@@ -328,9 +402,18 @@ svg-term. The same steps by hand:
   the header, but fetching a few blocks behind the head is safer.
 - **Shadow replay sees gas-sensitive code.** Code that reads `GAS` after the
   shadow code ran may legitimately act differently. Such transactions are
-  labeled rather than counted as port bugs.
-- **Fe WETH9 decodes calldata strictly** where Solidity 0.4 read missing
-  arguments as zero. No transaction in the replayed blocks relied on that.
+  labeled rather than counted as port bugs. So are transactions where other
+  code ran `EXTCODEHASH` or `EXTCODECOPY`, since a port is other code. The
+  opcode's target is not checked, so a label can be broader than the cause.
+- **The ports decode calldata strictly** where old solc did not: Fe WETH9
+  rejects missing arguments Solidity 0.4 read as zero, and both reject
+  address arguments with dirty upper bits that solc cleaned. No transaction
+  in the replayed blocks relied on either.
+- **The Fe pair halts on division by zero by running out of gas**, where
+  solc 0.5 runs `INVALID`. Both burn all the call's gas; a tracer sees a
+  different reason.
+- **The V2 pair run covers 127 blocks** (471 transactions through a pair),
+  fewer than the WETH9 run's 300.
 - **Delegates come from the parent block's state.** A delegation target
   whose code changed within the block would be fetched as it was before.
 - **Double-counted cleared slots:** a slot the chain cleared and fevm kept
