@@ -27,9 +27,51 @@ impl Copy for SelectorGas {}
 
 // An open call frame: the code it runs, and for calls into the watched
 // address, the function and the gas the frame started with.
-struct Frame { to: u256, selector: u32, gas: u64 }
+struct Frame { to: u256, selector: u32, gas: u64, record: usize }
 
 impl Copy for Frame {}
+
+/// One call a run made, in the order calls began: its depth, target,
+/// selector, a hash of its calldata, and once it ended, its status and a
+/// hash of its output. Two runs of one transaction can be compared call by
+/// call to find where they part.
+pub struct CallRecord {
+    pub depth: usize,
+    pub to: u256,
+    pub selector: u32,
+    pub input: u64,
+    pub status: i32,
+    pub output: u64,
+}
+
+impl Copy for CallRecord {}
+
+// FNV-1a: enough to tell two byte strings apart in a report.
+fn fingerprint(_ bytes: MemSpan) -> u64 {
+    var hash: u64 = 0xcbf29ce484222325
+    for i in 0 .. bytes.len() {
+        hash = (hash ^ bytes[i] as u64).wrapping_mul(0x100000001b3)
+    }
+    hash
+}
+
+/// The first call where `a` and `b` part: a different target, calldata,
+/// status or output. None if they agree as far as both go.
+pub fn first_parting(_ a: MemVec<CallRecord>, _ b: MemVec<CallRecord>) -> Option<usize> {
+    let shorter = if a.len() < b.len() { a.len() } else { b.len() }
+    for i in 0 .. shorter {
+        let x = a[i]
+        let y = b[i]
+        if x.to != y.to || x.input != y.input || x.status != y.status || x.output != y.output {
+            return Option::Some(i)
+        }
+    }
+    if a.len() != b.len() {
+        Option::Some(shorter)
+    } else {
+        Option::None
+    }
+}
 
 /// Adds the calls and gas of each function in `from` to `into`.
 pub fn add_profile(_ into: mut MemVec<SelectorGas>, _ from: MemVec<SelectorGas>) {
@@ -76,6 +118,8 @@ pub struct GasWatch {
     pub focused: bool,
     pub focus_status: i32,
     pub focus_output: MemBuffer,
+    /// Every call of the run (see `CallRecord`).
+    pub calls: MemVec<CallRecord>,
     /// Gas used per function of the code at the watched address, whichever
     /// code runs there: the deployed contract or the shadow port.
     pub profile: MemVec<SelectorGas>,
@@ -98,6 +142,7 @@ impl GasWatch {
             focused: false,
             focus_status: 0,
             focus_output: MemBuffer::empty(),
+            calls: MemVec::new(),
             profile: MemVec::new(),
         }
     }
@@ -149,12 +194,26 @@ impl Tracer for GasWatch {
                 selector = (selector << 8) | input[i] as u32
             }
         }
-        self.frames.push(Frame { to: call.to, selector, gas: call.gas })
+        let record = self.calls.len()
+        self.calls
+            .push(
+                CallRecord {
+                    depth: call.depth,
+                    to: call.to,
+                    selector,
+                    input: fingerprint(input),
+                    status: -1,
+                    output: 0,
+                },
+            )
+        self.frames.push(Frame { to: call.to, selector, gas: call.gas, record })
     }
 
     fn leave(mut self, _ call: CallEnd, output: MemSpan) {
         match self.frames.pop() {
             Option::Some(frame) => {
+                self.calls[frame.record].status = call.status
+                self.calls[frame.record].output = fingerprint(output)
                 if self.focus != 0 && !self.focused && frame.to == self.focus {
                     self.focused = true
                     self.focus_status = call.status

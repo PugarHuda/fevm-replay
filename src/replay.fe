@@ -8,12 +8,14 @@
 //! transaction of a block (see `fetch::fetch_block`).
 
 use core::MemBuffer
+use std::io::Display
+use fevm::status::status_name
 use json::Value
 use fevm::{BlockEnv, Buffers, Config, WorldState, transact}
 use ingot::compare::{Mismatches, apply_diff, compare}
 use ingot::load::{add_extras, field, load_block, load_tx, load_world}
 use core::MemVec
-use ingot::watch::{GasWatch, SelectorGas, add_profile}
+use ingot::watch::{GasWatch, SelectorGas, add_profile, first_parting}
 
 /// Replays transaction `tx` in fevm against its `prestate`, in the block
 /// `block` whose parent's hash is `parent_hash`, and compares the outcome
@@ -104,6 +106,60 @@ uses (text: mut MemBuffer)
     found.gas_observed = watch.observed
     found.code_observed = watch.read_code
     found.read_blockhash = watch.read_blockhash
+    // A behavior difference: the same transaction on the deployed code,
+    // compared call by call, shows where the two runs part.
+    if shadowed && found.total() > 0 && !watch.observed && !watch.read_code {
+        var deployed = GasWatch::new(shadows: targets)
+        var again = Buffers::new()
+        transact(
+            build_world(
+                prestate,
+                block,
+                parent_hash,
+                extras,
+                MemVec::new(),
+                shadow_code,
+            ),
+            load_tx(tx),
+            block,
+            Config::osaka(),
+            mut again,
+            mut deployed,
+        )
+        match first_parting(deployed.calls, watch.calls) {
+            Option::Some(i) => {
+                "  runs part at call ".fmt(mut text)
+                i.fmt(mut text)
+                if i < deployed.calls.len() {
+                    let call = deployed.calls[i]
+                    " (depth ".fmt(mut text)
+                    call.depth.fmt(mut text)
+                    ", to 0x".fmt(mut text)
+                    core::text::hex(call.to, 20).fmt(mut text)
+                    ", selector 0x".fmt(mut text)
+                    core::text::hex(call.selector as u256, 4).fmt(mut text)
+                    "): deployed ".fmt(mut text)
+                    status_name(call.status).fmt(mut text)
+                }
+                if i >= watch.calls.len() {
+                    ", and the shadow run made no such call".fmt(mut text)
+                } else if i >= deployed.calls.len() {
+                    " (the deployed run made no such call)".fmt(mut text)
+                } else {
+                    ", shadow ".fmt(mut text)
+                    status_name(watch.calls[i].status).fmt(mut text)
+                    if i < deployed.calls.len() && watch.calls[i].input != deployed.calls[i].input {
+                        " (different calldata)".fmt(mut text)
+                    } else if i < deployed.calls.len()
+                        && watch.calls[i].output != deployed.calls[i].output {
+                        " (different output)".fmt(mut text)
+                    }
+                }
+                "\n".fmt(mut text)
+            },
+            Option::None => {},
+        }
+    }
     // The same transaction on the deployed code, for its gas per function.
     if shadowed && found.total() == 0 {
         var deployed = GasWatch::new(shadows: targets)

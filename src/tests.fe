@@ -116,3 +116,62 @@ fn fuzz_finds_a_difference_only_where_there_is_one() {
     )
     assert!(differ.first_step == 1 && differ.first_what == 1)
 }
+
+// Shadowing by code picks every account whose code is exactly the given
+// code, and no other.
+#[test]
+fn shadow_targets_are_every_copy_of_the_code() {
+    let pair = hex_bytes("0x6001600055".span())
+    let other = hex_bytes("0x6002600055".span())
+    var world = fevm::WorldState::empty()
+    world.set_code(address: 0xa1, code: pair.span())
+    world.set_code(address: 0xa2, code: other.span())
+    world.set_code(address: 0xa3, code: pair.span())
+    let targets = ingot::replay::shadow_targets(world, 0, pair.span())
+    assert!(targets.len() == 2)
+    assert!(
+        (targets[0] == 0xa1 && targets[1] == 0xa3) || (targets[0] == 0xa3 && targets[1] == 0xa1),
+    )
+}
+
+// Error(string) reasons agree up to their padding; a different reason does
+// not.
+#[test]
+fn reasons_compare_without_their_padding() {
+    let head = "0x08c379a000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000001"
+    var clean = hex_bytes(head.span())
+    var dirty = hex_bytes(head.span())
+    var other = hex_bytes(head.span())
+    clean.push(0x4b)
+    dirty.push(0x4b)
+    other.push(0x4c)
+    for i in 0 .. 31 {
+        clean.push(0)
+        other.push(0)
+        dirty.push(if i == 30 { 0x80 } else { 0 })
+    }
+    assert!(ingot::fuzz::same_reason(clean.span(), dirty.span()))
+    assert!(!ingot::fuzz::same_reason(clean.span(), other.span()))
+}
+
+// Two runs' call lists part at the first call whose output differs.
+#[test]
+fn runs_part_at_the_first_differing_call() {
+    var a: core::MemVec<ingot::watch::CallRecord> = core::MemVec::new()
+    var b: core::MemVec<ingot::watch::CallRecord> = core::MemVec::new()
+    for i in 0 .. 3 {
+        let call = ingot::watch::CallRecord {
+            depth: i,
+            to: 0xb0,
+            selector: 1,
+            input: 7,
+            status: 0,
+            output: 9,
+        }
+        a.push(call)
+        b.push(call)
+    }
+    assert!(ingot::watch::first_parting(a, b).is_none())
+    b[1].output = 10
+    assert!(ingot::watch::first_parting(a, b) == Option::Some(1))
+}
