@@ -62,6 +62,17 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     ) {
         return fetch_block_command()
     }
+    // "fuzz"
+    if is_word(args.get(1), [0x66, 0x75, 0x7a, 0x7a]) {
+        return fuzz_command()
+    }
+    // "fetch-code"
+    if is_word(
+        args.get(1),
+        [0x66, 0x65, 0x74, 0x63, 0x68, 0x2d, 0x63, 0x6f, 0x64, 0x65],
+    ) {
+        return fetch_code_command()
+    }
     // "range"
     if is_word(args.get(1), [0x72, 0x61, 0x6e, 0x67, 0x65]) {
         return range_command()
@@ -659,5 +670,158 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         0
     } else {
         1
+    }
+}
+
+#[cfg(target_family = "unix")]
+fn fetch_code_command() -> i32
+uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut Stdout)
+{
+    if args.count() != 4 && args.count() != 5 {
+        println!("usage: fevm-replay fetch-code <address> <file> [rpc-url]")
+        return 2
+    }
+    var text = MemBuffer::empty()
+    let fetched = if args.count() == 5 {
+        fetch::fetch_code(args.get(4), args.get(2), mut text)
+    } else {
+        fetch::fetch_code(DEFAULT_RPC, args.get(2), mut text)
+    }
+    if !fetched {
+        println!("ERROR ", args.get(2), ": the node did not answer")
+        return 1
+    }
+    let Result::Ok(_) = fs.write(args.get(3), text.span()) else {
+        println!("ERROR ", args.get(3), ": cannot write")
+        return 1
+    }
+    println!("wrote ", args.get(3))
+    0
+}
+
+// A decimal argument, or `default` when it is absent.
+fn number_arg(_ index: usize, default: u64) -> u64 uses (args: Args) {
+    if args.count() <= index {
+        return default
+    }
+    core::text::parse_uint(args.get(index).span())
+        .unwrap_or(default: default as u256)
+        .downcast_truncate()
+}
+
+fn category_line(_ name: String<16>, _ found: fuzz::Findings, _ category: usize)
+uses (out: mut Stdout)
+{
+    println!(
+        "  ",
+        name,
+        ": ",
+        found.calls[category],
+        " calls, ",
+        found.identical[category],
+        " identical, ",
+        found.calls[category] - found.identical[category],
+        " differ",
+    )
+}
+
+/// `fuzz <deployed.bin> <port.bin> [runs] [steps] [seed]`: random calls
+/// against the deployed code and its port in two copies of one world.
+#[cfg(target_family = "unix")]
+fn fuzz_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
+    if args.count() < 4 || args.count() > 7 {
+        println!(
+            "usage: fevm-replay fuzz <deployed.bin> <port.bin> [runs] [steps] [seed]",
+        )
+        return 2
+    }
+    let Option::Some(deployed) = read_shadow(args.get(2)) else {
+        return 1
+    }
+    let Option::Some(port) = read_shadow(args.get(3)) else {
+        return 1
+    }
+    let runs = number_arg(4, default: 200)
+    let steps = number_arg(5, default: 40)
+    let seed = number_arg(6, default: 1)
+    var found = fuzz::Findings::new()
+    fuzz::fuzz(deployed.span(), port.span(), runs, steps, seed, mut found)
+    println!(
+        "fuzzed ",
+        runs,
+        " runs of up to ",
+        steps,
+        " calls from seed ",
+        seed,
+    )
+    category_line("well-formed", found, 0)
+    category_line("short calldata", found, 1)
+    category_line("dirty address", found, 2)
+    if found.first_step == 0 {
+        println!("no differences")
+        return 0
+    }
+    println!(
+        "first difference: seed ",
+        found.first_seed,
+        ", call ",
+        found.first_step,
+        ", selector 0x",
+        core::text::hex(found.first_selector as u256, 4),
+        " ",
+        function_name(found.first_selector),
+        if found.first_category == 0 {
+            " (well-formed)"
+        } else if found.first_category == 1 {
+            " (short calldata)"
+        } else {
+            " (dirty address)"
+        },
+        if found.first_what == 1 {
+            ": status differs"
+        } else if found.first_what == 2 {
+            ": return data differs"
+        } else if found.first_what == 3 {
+            ": logs differ"
+        } else {
+            ": state differs"
+        },
+    )
+    println!(
+        "  from 0x",
+        core::text::hex(found.first_from, 20),
+        " to 0x",
+        core::text::hex(found.first_to, 20),
+        " value ",
+        found.first_value,
+    )
+    var data = MemBuffer::empty()
+    for i in 0 .. found.first_data.len() {
+        core::text::hex(found.first_data.span()[i] as u256, 1).fmt(mut data)
+    }
+    println!("  calldata 0x", data)
+    println!(
+        "  deployed ",
+        outcome(found.first_deployed),
+        ", port ",
+        outcome(found.first_port),
+    )
+    println!(
+        "replay it: fevm-replay fuzz <deployed.bin> <port.bin> 1 ",
+        found.first_step,
+        " ",
+        found.first_seed,
+    )
+    if found.calls[0] != found.identical[0] {
+        return 1
+    }
+    0
+}
+
+fn outcome(_ result: [i32; 2]) -> String<20> {
+    if result[0] != 0 {
+        fevm::status::invalid_name(result[0])
+    } else {
+        fevm::status::status_name(result[1])
     }
 }

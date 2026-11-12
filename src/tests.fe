@@ -86,3 +86,31 @@ fn delegation_designators_are_recognized() {
     let plain = hex_bytes("0x6080604052".span())
     assert!(ingot::load::delegation_target(plain.span()) == 0)
 }
+
+// Code fuzzed against itself never differs; code that reverts where the
+// other stops differs on the first call.
+#[test]
+fn fuzz_finds_a_difference_only_where_there_is_one() {
+    let stop = hex_bytes("0x00".span())
+    let revert = hex_bytes("0x60006000fd".span())
+    var same = ingot::fuzz::Findings::new()
+    ingot::fuzz::fuzz(
+        stop.span(),
+        stop.span(),
+        runs: 3,
+        steps: 5,
+        seed: 1,
+        mut same,
+    )
+    assert!(same.first_step == 0)
+    var differ = ingot::fuzz::Findings::new()
+    ingot::fuzz::fuzz(
+        stop.span(),
+        revert.span(),
+        runs: 3,
+        steps: 5,
+        seed: 1,
+        mut differ,
+    )
+    assert!(differ.first_step == 1 && differ.first_what == 1)
+}

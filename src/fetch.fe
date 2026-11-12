@@ -241,6 +241,23 @@ uses (proc: mut Spawn)
     true
 }
 
+/// The code deployed at `address` (a `0x` hex string), as hex text in `out`.
+pub fn fetch_code<U: Display, A: Display>(_ url: U, _ address: A, _ out: mut MemBuffer) -> bool
+uses (proc: mut Spawn)
+{
+    var params = MemBuffer::empty()
+    "[\"".fmt(mut params)
+    address.fmt(mut params)
+    "\",\"latest\"]".fmt(mut params)
+    let Option::Some(code) = call(url, "eth_getCode", params) else {
+        return false
+    }
+    code["result"].text().fmt(mut out)
+    "
+".fmt(mut out)
+    true
+}
+
 // `dir/name` as a path.
 pub fn join<D: Display>(_ dir: D, _ name: String<16>) -> MemBuffer {
     var path = MemBuffer::empty()

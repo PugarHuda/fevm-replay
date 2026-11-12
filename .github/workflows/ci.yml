@@ -51,6 +51,9 @@ jobs:
       - name: Build fevm-replay
         run: fe build --backend native -O 2 --emit executable --out-dir out .
 
+      - name: Fuzzed WETH9 port answers well-formed calls as mainnet WETH does
+        run: ./out/fevm_replay fuzz fixtures/code/weth9-mainnet.hex out/weth9/WETH9.runtime.bin 2000 40 1
+
       - name: Mainnet fixtures replay exactly
         run: ./out/fevm_replay fixtures/mainnet/*.json
 

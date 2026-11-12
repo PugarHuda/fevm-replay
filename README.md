@@ -174,6 +174,37 @@ behaving differently.
 As a control, shadowing WETH with its own deployed bytecode matches every
 transaction with identical gas.
 
+### Shadow fuzzing
+
+Mainnet only makes the calls it happens to make. `fuzz` makes the rest: random
+calls against two copies of one world, one running the deployed code and one
+running the port, compared after every call (status, return data, logs and
+all state). Callers include contracts that accept and reject ETH, so
+withdrawals into fallbacks are exercised. Everything follows from the seed.
+
+```sh
+./out/fevm_replay fetch-code 0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2 weth9.hex
+./out/fevm_replay fuzz weth9.hex out/weth9/WETH9.runtime.bin 20000 60 1000
+```
+
+| Calls (20,000 runs, 2.1 s) | Calls | Differ |
+| --- | ---: | ---: |
+| Well-formed | 245,415 | 0 |
+| Calldata shorter than the arguments | 26,858 | 10,273 |
+| Address arguments with dirty upper bits | 38,965 | 9,343 |
+
+The last two are expected: Fe's ABI decoder rejects what solc 0.4 lets
+through, and they are reported apart. Only a well-formed difference fails the
+run. Against the port from before the zero-withdrawal fix, `fuzz` finds that
+bug in 0.1 s and prints the call to reproduce it:
+
+```
+first difference: seed 34, call 23, selector 0x2e1a7d4d withdraw (well-formed): status differs
+  from 0x0000000000000000000000000000000000001000 to 0x0000000000000000000000000000000000002000 value 0
+  calldata 0x2e1a7d4d0000000000000000000000000000000000000000000000000000000000000000
+  deployed success, port revert
+```
+
 ## Fe highlight
 
 **The compiler proves the replay cannot touch the network or the disk.**
@@ -222,8 +253,9 @@ Other Fe pieces doing real work:
 | `src/replay.fe` | `replay_tx`: load, `transact`, compare. No host capabilities |
 | `src/check.fe` | checks the shape of the node's answers before anything reads them |
 | `src/compare.fe` | applies the chain's diff, then compares worlds, receipts and logs |
+| `src/fuzz.fe` | shadow fuzzing: random calls against deployed code and its port, compared after each |
 | `src/watch.fe` | `GasWatch`, a tracer that records reads of the gas left after shadow code ran, and `BLOCKHASH` |
-| `src/lib.fe` | the CLI: `fetch`, `fetch-block`, `block`, `range`, replaying fixture files |
+| `src/lib.fe` | the CLI: `fetch`, `fetch-block`, `fetch-code`, `block`, `range`, `fuzz`, replaying fixture files |
 | `src/tests.fe` | unit tests for the helpers |
 | `ports/weth9` | WETH9 in Fe, for shadow replay |
 

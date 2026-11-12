@@ -1,0 +1,502 @@
+//! Shadow fuzzing: random calls against two copies of one world, one running
+//! the deployed contract's code and one running its Fe port, compared after
+//! every call. Shadow replay covers the calls mainnet happened to make; this
+//! covers the ones it has not made yet.
+//!
+//! The calls target an ERC-20 wrapper with WETH9's interface. Actors are
+//! three accounts and two forwarder contracts, one accepting ETH and one
+//! rejecting it, so withdrawals into contract fallbacks are exercised. Gas
+//! is priced at zero, so a port that costs different gas leaves every
+//! balance as the original does; what is compared is status, return data,
+//! logs and all state. Everything follows from the seed.
+
+use core::{MemBuffer, MemSpan}
+use fevm::{
+    BlockEnv,
+    Buffers,
+    Config,
+    InputData,
+    LogBuffer,
+    OK,
+    TxEnv,
+    TxRequest,
+    WorldState,
+    transact,
+}
+
+/// Where the contract under test lives in the fuzzed world.
+pub const TARGET: u256 = 0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2
+
+const FORWARDER_ACCEPTS: u256 = 0x2000
+const FORWARDER_REJECTS: u256 = 0x2001
+const ETHER: u256 = 1_000_000_000_000_000_000
+
+// Categories of calls, reported apart: well-formed calls, calls whose
+// calldata ends before their arguments do, and calls whose address
+// arguments carry nonzero upper bits.
+pub const WELL_FORMED: u8 = 0
+pub const SHORT_CALLDATA: u8 = 1
+pub const DIRTY_ADDRESS: u8 = 2
+
+/// What a fuzzing session found, per category.
+pub struct Findings {
+    pub calls: [u64; 3],
+    pub identical: [u64; 3],
+    /// The first difference: its seed, step and category, or `step` 0
+    /// when there was none.
+    pub first_seed: u64,
+    pub first_step: u64,
+    pub first_category: u8,
+    pub first_selector: u32,
+    /// What differed first: 1 status, 2 return data, 3 logs, 4 state.
+    pub first_what: u8,
+    /// The transaction that showed it.
+    pub first_from: u256,
+    pub first_to: u256,
+    pub first_value: u256,
+    pub first_data: MemBuffer,
+    /// Its outcome on each side: `invalid`, then `status`, as fevm reports them.
+    pub first_deployed: [i32; 2],
+    pub first_port: [i32; 2],
+}
+
+impl Findings {
+    pub fn new() -> Self {
+        Findings {
+            calls: [0, 0, 0],
+            identical: [0, 0, 0],
+            first_seed: 0,
+            first_step: 0,
+            first_category: 0,
+            first_selector: 0,
+            first_what: 0,
+            first_from: 0,
+            first_to: 0,
+            first_value: 0,
+            first_data: MemBuffer::empty(),
+            first_deployed: [0, 0],
+            first_port: [0, 0],
+        }
+    }
+}
+
+// xorshift64*: small, fast and reproducible from its seed.
+struct Rng { state: u64 }
+
+impl Rng {
+    fn next(mut self) -> u64 {
+        var x = self.state
+        x ^= x >> 12
+        x ^= x << 25
+        x ^= x >> 27
+        self.state = x
+        x.wrapping_mul(0x2545f4914f6cdd1d)
+    }
+
+    fn below(mut self, _ n: u64) -> u64 {
+        self.next() % n
+    }
+}
+
+/// A contract that forwards its calldata and value to `target` and reverts
+/// if that call fails; when `target` itself calls it (a withdrawal paying
+/// out), it either accepts the ETH, spending one gas, or reverts.
+pub fn forwarder(_ target: u256, accepts: bool) -> MemBuffer {
+    var code = MemBuffer::empty()
+    // CALLER PUSH20 target EQ PUSH1 accept JUMPI
+    code.push(0x33)
+    push_address(mut code, target)
+    code.push(0x14)
+    code.push(0x60)
+    code.push(73)
+    code.push(0x57)
+    // CALLDATACOPY(0, 0, CALLDATASIZE)
+    code.push(0x36)
+    code.push(0x60)
+    code.push(0x00)
+    code.push(0x60)
+    code.push(0x00)
+    code.push(0x37)
+    // CALL(GAS, target, CALLVALUE, 0, CALLDATASIZE, 0, 0)
+    code.push(0x60)
+    code.push(0x00)
+    code.push(0x60)
+    code.push(0x00)
+    code.push(0x36)
+    code.push(0x60)
+    code.push(0x00)
+    code.push(0x34)
+    push_address(mut code, target)
+    code.push(0x5a)
+    code.push(0xf1)
+    // PUSH1 ok JUMPI REVERT(0, 0)
+    code.push(0x60)
+    code.push(71)
+    code.push(0x57)
+    code.push(0x60)
+    code.push(0x00)
+    code.push(0x60)
+    code.push(0x00)
+    code.push(0xfd)
+    // ok (71): JUMPDEST STOP
+    code.push(0x5b)
+    code.push(0x00)
+    // accept (73): JUMPDEST, then STOP or REVERT(0, 0)
+    code.push(0x5b)
+    if accepts {
+        code.push(0x00)
+    } else {
+        code.push(0x60)
+        code.push(0x00)
+        code.push(0x60)
+        code.push(0x00)
+        code.push(0xfd)
+    }
+    code
+}
+
+fn push_address(_ code: mut MemBuffer, _ address: u256) {
+    code.push(0x73)
+    var i: u256 = 20
+    while i > 0 {
+        i -= 1
+        code.push(((address >> (i * 8)) & 0xff).downcast_truncate())
+    }
+}
+
+fn push_word(_ data: mut MemBuffer, _ word: u256) {
+    var i: u256 = 32
+    while i > 0 {
+        i -= 1
+        data.push(((word >> (i * 8)) & 0xff).downcast_truncate())
+    }
+}
+
+fn push_selector(_ data: mut MemBuffer, _ selector: u32) {
+    data.push((selector >> 24).downcast_truncate())
+    data.push(((selector >> 16) & 0xff).downcast_truncate())
+    data.push(((selector >> 8) & 0xff).downcast_truncate())
+    data.push((selector & 0xff).downcast_truncate())
+}
+
+fn eoa(_ index: u64) -> u256 {
+    0x1000 + index as u256
+}
+
+/// The fuzzed world: the contract under test, the two forwarders and three
+/// funded accounts.
+pub fn genesis(_ code: MemSpan) -> WorldState {
+    var world = WorldState::empty()
+    world.set_code(address: TARGET, code: code)
+    let accepting = forwarder(TARGET, accepts: true)
+    let rejecting = forwarder(TARGET, accepts: false)
+    world.set_code(address: FORWARDER_ACCEPTS, code: accepting.span())
+    world.set_code(address: FORWARDER_REJECTS, code: rejecting.span())
+    world.set_balance(eoa(0), 1000 * ETHER)
+    world.set_balance(eoa(1), 1000 * ETHER)
+    world.set_balance(eoa(2), 1000 * ETHER)
+    world
+}
+
+fn amount(_ rng: mut Rng) -> u256 {
+    match rng.below(9) {
+        0 => 0,
+        1 => 1,
+        2 => 2,
+        3 => ETHER,
+        4 => ETHER / 2,
+        5 => 1 << 128,
+        6 => u256::max(),
+        7 => 3 * ETHER,
+        _ => rng.next() as u256,
+    }
+}
+
+fn actor(_ rng: mut Rng) -> u256 {
+    match rng.below(7) {
+        0 => eoa(0),
+        1 => eoa(1),
+        2 => eoa(2),
+        3 => FORWARDER_ACCEPTS,
+        4 => FORWARDER_REJECTS,
+        5 => TARGET,
+        _ => 0,
+    }
+}
+
+// An address argument, with garbage in its upper twelve bytes when `dirty`.
+fn address_word(_ address: u256, dirty: bool, _ rng: mut Rng) -> u256 {
+    if dirty {
+        address | ((rng.next() as u256 | 1) << 200)
+    } else {
+        address
+    }
+}
+
+// One random call: its calldata in `data`, its value, its category and
+// selector.
+struct Call { value: u256, category: u8, selector: u32 }
+
+impl Copy for Call {}
+
+fn random_call(_ rng: mut Rng, _ data: mut MemBuffer) -> Call {
+    let dirty = rng.below(8) == 0
+    let short = !dirty && rng.below(10) == 0
+    let category = if dirty {
+        DIRTY_ADDRESS
+    } else if short { SHORT_CALLDATA } else { WELL_FORMED }
+    // Value goes mostly with deposits; elsewhere it should be refused.
+    var value: u256 = if rng.below(6) == 0 {
+        amount(mut rng) % (5 * ETHER)
+    } else {
+        0
+    }
+    let op = rng.below(12)
+    let selector: u32 = match op {
+        0 => 0xd0e30db0,
+        1 => 0x2e1a7d4d,
+        2 => 0xa9059cbb,
+        3 => 0x23b872dd,
+        4 => 0x095ea7b3,
+        5 => 0x70a08231,
+        6 => 0xdd62ed3e,
+        7 => 0x18160ddd,
+        8 => 0x313ce567,
+        9 => 0,
+        10 => 0x06fdde03,
+        _ => 0x12345678,
+    }
+    if op == 0 || op == 9 {
+        value = amount(mut rng) % (5 * ETHER)
+    }
+    if selector != 0 {
+        push_selector(mut data, selector)
+    }
+    match op {
+        1 => push_word(mut data, amount(mut rng)),
+        2 => {
+            push_word(mut data, address_word(actor(mut rng), dirty, mut rng))
+            push_word(mut data, amount(mut rng))
+        },
+        3 => {
+            push_word(mut data, address_word(actor(mut rng), dirty, mut rng))
+            push_word(mut data, address_word(actor(mut rng), dirty, mut rng))
+            push_word(mut data, amount(mut rng))
+        },
+        4 => {
+            push_word(mut data, address_word(actor(mut rng), dirty, mut rng))
+            push_word(mut data, amount(mut rng))
+        },
+        5 => push_word(mut data, address_word(actor(mut rng), dirty, mut rng)),
+        6 => {
+            push_word(mut data, address_word(actor(mut rng), dirty, mut rng))
+            push_word(mut data, address_word(actor(mut rng), dirty, mut rng))
+        },
+        _ => {},
+    }
+    // Short calldata: cut into the last argument.
+    if short && data.len() > 4 {
+        let keep = 4 + rng.below((data.len() - 4).downcast_unchecked()).downcast_unchecked()
+        var cut = MemBuffer::empty()
+        for i in 0 .. keep {
+            cut.push(data.span()[i])
+        }
+        data = cut
+    }
+    Call { value, category, selector }
+}
+
+fn block() -> BlockEnv {
+    BlockEnv {
+        coinbase: 0xc0ffee,
+        timestamp: 1_800_000_000,
+        number: 26_400_000,
+        prevrandao: 0,
+        gaslimit: 60_000_000,
+        chainid: 1,
+        basefee: 0,
+        blobbasefee: 1,
+    }
+}
+
+// The transaction for `call` from `sender` to `to`, priced at zero gas.
+fn request(
+    _ world: WorldState,
+    sender: u256,
+    to: u256,
+    _ call: Call,
+    _ data: MemSpan,
+) -> TxRequest {
+    let env = TxEnv {
+        kind: 2,
+        chain_id: Option::Some(1),
+        sender,
+        to,
+        creates: false,
+        nonce: world.nonce(sender),
+        gas_limit: 2_000_000,
+        gas_price: 0,
+        max_priority_fee_per_gas: 0,
+        max_fee_per_blob_gas: 0,
+        value: call.value,
+    }
+    TxRequest::new(
+        env,
+        data: InputData::new(MemBuffer::from_span(data), status: OK),
+    )
+}
+
+fn same_bytes(_ a: MemSpan, _ b: MemSpan) -> bool {
+    if a.len() != b.len() {
+        return false
+    }
+    for i in 0 .. a.len() {
+        if a[i] != b[i] {
+            return false
+        }
+    }
+    true
+}
+
+fn same_logs(_ a: LogBuffer, _ b: LogBuffer) -> bool {
+    if a.len() != b.len() {
+        return false
+    }
+    var i: u64 = 0
+    while i < a.len() {
+        let x = a.entry(i)
+        let y = b.entry(i)
+        if x.address != y.address || x.topic_count != y.topic_count {
+            return false
+        }
+        for t in 0 .. 4 {
+            if x.topics[t] != y.topics[t] {
+                return false
+            }
+        }
+        if !same_bytes(a.payload(i), b.payload(i)) {
+            return false
+        }
+        i += 1
+    }
+    true
+}
+
+// Whether every balance, nonce, code (but the target's) and slot agrees.
+fn same_state(_ a: WorldState, _ b: WorldState) -> bool {
+    for position in 0 .. a.account_count() {
+        let address = a.account_at(position).address
+        if a.balance(address) != b.balance(address) || a.nonce(address) != b.nonce(address) {
+            return false
+        }
+        if address != TARGET && !same_bytes(a.code(address), b.code(address)) {
+            return false
+        }
+    }
+    for position in 0 .. b.account_count() {
+        let address = b.account_at(position).address
+        if a.balance(address) != b.balance(address) || a.nonce(address) != b.nonce(address) {
+            return false
+        }
+    }
+    for slot in 0 .. a.storage_slots() {
+        let entry = a.storage_at(slot)
+        if entry.occupied && b.storage_load(entry.address, entry.slot) != entry.value {
+            return false
+        }
+    }
+    for slot in 0 .. b.storage_slots() {
+        let entry = b.storage_at(slot)
+        if entry.occupied && a.storage_load(entry.address, entry.slot) != entry.value {
+            return false
+        }
+    }
+    true
+}
+
+/// Runs `runs` sessions of `steps` random calls each, from seeds `seed`,
+/// `seed + 1`, ..., against `deployed` and `port`. A session stops at its
+/// first difference, since the two worlds no longer agree after it.
+pub fn fuzz(
+    _ deployed: MemSpan,
+    _ port: MemSpan,
+    runs: u64,
+    steps: u64,
+    seed: u64,
+    _ found: mut Findings,
+) {
+    var run: u64 = 0
+    while run < runs {
+        var rng = Rng { state: (seed + run).wrapping_mul(0x9e3779b97f4a7c15) | 1 }
+        var a = genesis(deployed)
+        var b = genesis(port)
+        var step: u64 = 0
+        while step < steps {
+            step += 1
+            var data = MemBuffer::empty()
+            let call = random_call(mut rng, mut data)
+            // A forwarder makes the call when one is picked as the caller.
+            let pick = rng.below(5)
+            let sender = eoa(rng.below(3))
+            let to = if pick == 3 {
+                FORWARDER_ACCEPTS
+            } else if pick == 4 { FORWARDER_REJECTS } else { TARGET }
+            let tx_a = request(a, sender, to, call, data.span())
+            let tx_b = request(b, sender, to, call, data.span())
+            var buffers_a = Buffers::new()
+            var buffers_b = Buffers::new()
+            var none_a = ()
+            var none_b = ()
+            let ran_a = transact(
+                a,
+                tx_a,
+                block(),
+                Config::osaka(),
+                mut buffers_a,
+                mut none_a,
+            )
+            let ran_b = transact(
+                b,
+                tx_b,
+                block(),
+                Config::osaka(),
+                mut buffers_b,
+                mut none_b,
+            )
+            found.calls[call.category as usize] += 1
+            let what: u8 = if ran_a.receipt.invalid != ran_b.receipt.invalid
+                || ran_a.receipt.status != ran_b.receipt.status {
+                1
+            } else if !same_bytes(ran_a.receipt.output.span(), ran_b.receipt.output.span()) {
+                2
+            } else if !same_logs(ran_a.receipt.logs, ran_b.receipt.logs) {
+                3
+            } else if !same_state(ran_a.state, ran_b.state) {
+                4
+            } else {
+                0
+            }
+            a = ran_a.state
+            b = ran_b.state
+            if what != 0 {
+                if found.first_step == 0
+                    || (call.category == WELL_FORMED && found.first_category != WELL_FORMED) {
+                    found.first_seed = seed + run
+                    found.first_step = step
+                    found.first_category = call.category
+                    found.first_selector = call.selector
+                    found.first_what = what
+                    found.first_from = sender
+                    found.first_to = to
+                    found.first_value = call.value
+                    found.first_data = MemBuffer::from_span(data.span())
+                    found.first_deployed = [ran_a.receipt.invalid, ran_a.receipt.status]
+                    found.first_port = [ran_b.receipt.invalid, ran_b.receipt.status]
+                }
+                break
+            }
+            found.identical[call.category as usize] += 1
+        }
+        run += 1
+    }
+}
