@@ -49,6 +49,18 @@ pub struct Findings {
     /// Identical well-formed calls that succeeded, per selector: what the
     /// fuzzing reached beyond reverts.
     pub succeeded: MemVec<SelectorCount>,
+    /// The first difference's run cut down to the calls it needs, their
+    /// calldata in `shrunk_inputs`.
+    pub shrunk: MemVec<Sent>,
+    pub shrunk_inputs: MemBuffer,
+    /// Pair runs only: calls after which the port broke an invariant of
+    /// Uniswap V2 (see `check_invariants`), and the first: run seed, call
+    /// and which invariant (1 lock held, 2 k fell in a swap, 3 supply
+    /// below the minimum liquidity).
+    pub invariant_breaks: u64,
+    pub invariant_seed: u64,
+    pub invariant_step: u64,
+    pub invariant_kind: u8,
     /// The first difference: its seed, step and category, or `step` 0
     /// when there was none.
     pub first_seed: u64,
@@ -77,6 +89,12 @@ impl Findings {
             identical: [0, 0, 0],
             dirty_padding: 0,
             succeeded: MemVec::new(),
+            shrunk: MemVec::new(),
+            shrunk_inputs: MemBuffer::empty(),
+            invariant_breaks: 0,
+            invariant_seed: 0,
+            invariant_step: 0,
+            invariant_kind: 0,
             first_seed: 0,
             first_step: 0,
             first_category: 0,
@@ -900,6 +918,7 @@ pub fn fuzz(
             }
             let sender = eoa(rng.below(3))
             let to = call.to
+            let k_before = if pair { k_of(b) } else { 0 }
             let tx_a = request(a, sender, to, call, data.span())
             let tx_b = request(b, sender, to, call, data.span())
             var buffers_a = Buffers::new()
@@ -961,12 +980,207 @@ pub fn fuzz(
             if !same_bytes(ran_a.receipt.output.span(), ran_b.receipt.output.span()) {
                 found.dirty_padding += 1
             }
-            if call.category == WELL_FORMED
-                && ran_a.receipt.invalid == 0
-                && ran_a.receipt.status == OK {
+            let succeeded = ran_a.receipt.invalid == 0 && ran_a.receipt.status == OK
+            if call.category == WELL_FORMED && succeeded {
                 count(mut found.succeeded, call.selector)
+            }
+            if pair {
+                let broken = check_invariants(
+                    b,
+                    swapped: succeeded && call.selector == 0x022c0d9f,
+                    k_before,
+                )
+                if broken != 0 {
+                    found.invariant_breaks += 1
+                    if found.invariant_step == 0 {
+                        found.invariant_seed = seed + run
+                        found.invariant_step = step
+                        found.invariant_kind = broken
+                    }
+                }
             }
         }
         run += 1
     }
+    if found.first_step != 0 {
+        shrink(deployed, port, token, mut found)
+    }
+}
+
+// reserve0 * reserve1 of the pair in `world`.
+fn k_of(_ world: WorldState) -> u256 {
+    let reserves = world.storage_load(PAIR, 8)
+    let mask: u256 = (1 << 112) - 1
+    (reserves & mask) * ((reserves >> 112) & mask)
+}
+
+// Invariants of a Uniswap V2 pair after a top-level call: 1 if the lock is
+// still held, 2 if a successful swap left k lower than before it, 3 if the
+// supply is positive but below the 1,000 locked at the first deposit.
+fn check_invariants(_ world: WorldState, swapped: bool, _ k_before: u256) -> u8 {
+    if world.storage_load(PAIR, 12) != 1 {
+        return 1
+    }
+    if swapped && k_of(world) < k_before {
+        return 2
+    }
+    let supply = world.storage_load(PAIR, 0)
+    if supply != 0 && supply < 1000 {
+        return 3
+    }
+    0
+}
+
+/// One call of a fuzzing run: its sender, target, value, step number (for
+/// the block's timestamp) and where its calldata sits.
+pub struct Sent {
+    pub sender: u256,
+    pub to: u256,
+    pub value: u256,
+    pub step: u64,
+    pub start: usize,
+    pub len: usize,
+}
+
+impl Copy for Sent {}
+
+// The calls of the first difference's run, regenerated from its seed, then
+// cut down: each call but the last is dropped if the run still differs
+// without it, until no more can go.
+fn shrink(_ deployed: MemSpan, _ port: MemSpan, _ token: MemSpan, _ found: mut Findings) {
+    let pair = token.len() > 0
+    var rng = Rng { state: found.first_seed.wrapping_mul(0x9e3779b97f4a7c15) | 1 }
+    let fee_on = pair && rng.below(2) == 0
+    var calls: MemVec<Sent> = MemVec::new()
+    var inputs = MemBuffer::empty()
+    var step: u64 = 0
+    while step < found.first_step {
+        step += 1
+        var data = MemBuffer::empty()
+        let call = if pair {
+            pair_call(mut rng, mut data)
+        } else {
+            weth_call(mut rng, mut data)
+        }
+        let sender = eoa(rng.below(3))
+        let start = inputs.len()
+        for i in 0 .. data.len() {
+            inputs.push(data.span()[i])
+        }
+        calls.push(
+                Sent { sender, to: call.to, value: call.value, step, start, len: data.len() },
+            )
+    }
+    var keep: MemVec<bool> = MemVec::new()
+    for _ in 0 .. calls.len() {
+        keep.push(true)
+    }
+    var dropped = true
+    while dropped {
+        dropped = false
+        for i in 0 .. calls.len() - 1 {
+            if keep[i] {
+                keep[i] = false
+                if diverges(
+                    deployed,
+                    port,
+                    token,
+                    fee_on,
+                    calls,
+                    inputs.span(),
+                    keep,
+                ) {
+                    dropped = true
+                } else {
+                    keep[i] = true
+                }
+            }
+        }
+    }
+    for i in 0 .. calls.len() {
+        if keep[i] {
+            let call = calls[i]
+            let start = found.shrunk_inputs.len()
+            for j in 0 .. call.len {
+                found.shrunk_inputs.push(inputs.span()[call.start + j])
+            }
+            found
+                .shrunk
+                .push(
+                    Sent {
+                        sender: call.sender,
+                        to: call.to,
+                        value: call.value,
+                        step: call.step,
+                        start,
+                        len: call.len,
+                    },
+                )
+        }
+    }
+}
+
+// Whether running the kept `calls` from genesis on both codes makes them
+// differ at some call.
+fn diverges(
+    _ deployed: MemSpan,
+    _ port: MemSpan,
+    _ token: MemSpan,
+    _ fee_on: bool,
+    _ calls: MemVec<Sent>,
+    _ inputs: MemSpan,
+    _ keep: MemVec<bool>,
+) -> bool {
+    let pair = token.len() > 0
+    var a = if pair {
+        pair_genesis(deployed, token, fee_on)
+    } else {
+        genesis(deployed)
+    }
+    var b = if pair {
+        pair_genesis(port, token, fee_on)
+    } else {
+        genesis(port)
+    }
+    for i in 0 .. calls.len() {
+        if !keep[i] { continue }
+        let sent = calls[i]
+        var data = MemBuffer::empty()
+        for j in 0 .. sent.len {
+            data.push(inputs[sent.start + j])
+        }
+        let call = Call { to: sent.to, value: sent.value, category: WELL_FORMED, selector: 0 }
+        let tx_a = request(a, sender: sent.sender, to: sent.to, call, data.span())
+        let tx_b = request(b, sender: sent.sender, to: sent.to, call, data.span())
+        var buffers_a = Buffers::new()
+        var buffers_b = Buffers::new()
+        var none_a = ()
+        var none_b = ()
+        let ran_a = transact(
+            a,
+            tx_a,
+            block(sent.step),
+            Config::osaka(),
+            mut buffers_a,
+            mut none_a,
+        )
+        let ran_b = transact(
+            b,
+            tx_b,
+            block(sent.step),
+            Config::osaka(),
+            mut buffers_b,
+            mut none_b,
+        )
+        let differs = ran_a.receipt.invalid != ran_b.receipt.invalid
+            || !same_status(ran_a.receipt.status, ran_b.receipt.status)
+            || (!same_bytes(ran_a.receipt.output.span(), ran_b.receipt.output.span())
+                && !same_reason(ran_a.receipt.output.span(), ran_b.receipt.output.span()))
+            || !same_logs(ran_a.receipt.logs, ran_b.receipt.logs)
+            || !same_state(ran_a.state, ran_b.state)
+        if differs { return true }
+        a = ran_a.state
+        b = ran_b.state
+    }
+    false
 }

@@ -1,7 +1,7 @@
 //! A tracer that tells whether a shadow run could have changed behavior just
 //! by costing different gas.
 
-use core::{MemSpan, MemVec}
+use core::{MemBuffer, MemSpan, MemVec}
 use fevm::trace::{CallEnd, CallStart, Step, Tracer}
 
 const OP_GAS: u8 = 0x5a
@@ -70,6 +70,12 @@ pub struct GasWatch {
     /// what runs at an address (a bot verifying a pair's code hash, say)
     /// may refuse it.
     pub read_code: bool,
+    /// The outcome of the first call into `focus` (when nonzero): its
+    /// status and output, once `focused`.
+    pub focus: u256,
+    pub focused: bool,
+    pub focus_status: i32,
+    pub focus_output: MemBuffer,
     /// Gas used per function of the code at the watched address, whichever
     /// code runs there: the deployed contract or the shadow port.
     pub profile: MemVec<SelectorGas>,
@@ -88,6 +94,10 @@ impl GasWatch {
             observed: false,
             read_blockhash: false,
             read_code: false,
+            focus: 0,
+            focused: false,
+            focus_status: 0,
+            focus_output: MemBuffer::empty(),
             profile: MemVec::new(),
         }
     }
@@ -145,6 +155,11 @@ impl Tracer for GasWatch {
     fn leave(mut self, _ call: CallEnd, output: MemSpan) {
         match self.frames.pop() {
             Option::Some(frame) => {
+                if self.focus != 0 && !self.focused && frame.to == self.focus {
+                    self.focused = true
+                    self.focus_status = call.status
+                    self.focus_output = MemBuffer::from_span(output)
+                }
                 if is_shadow(self.shadows, frame.to) && frame.gas >= call.gas {
                     record(
                         mut self.profile,

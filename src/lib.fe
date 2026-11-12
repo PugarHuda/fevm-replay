@@ -881,9 +881,26 @@ uses (args: Args, fs: std::fs::Fs, out: mut Stdout)
             " identical but for the padding after an Error(string) reason",
         )
     }
+    if found.invariant_breaks > 0 {
+        println!(
+            "invariant broken ",
+            found.invariant_breaks,
+            " times, first: seed ",
+            found.invariant_seed,
+            ", call ",
+            found.invariant_step,
+            if found.invariant_kind == 1 {
+                " (lock still held)"
+            } else if found.invariant_kind == 2 {
+                " (k fell in a swap)"
+            } else {
+                " (supply below the minimum)"
+            },
+        )
+    }
     if found.first_step == 0 {
         println!("no differences")
-        return 0
+        return if found.invariant_breaks > 0 { 1 } else { 0 }
     }
     println!(
         "first difference: seed ",
@@ -946,7 +963,33 @@ uses (args: Args, fs: std::fs::Fs, out: mut Stdout)
         " ",
         found.first_seed,
     )
-    if found.calls[0] != found.identical[0] {
+    println!(
+        "shrunk to ",
+        found.shrunk.len(),
+        " of ",
+        found.first_step,
+        " calls:",
+    )
+    for i in 0 .. found.shrunk.len() {
+        let sent = found.shrunk[i]
+        var bytes = MemBuffer::empty()
+        for j in 0 .. sent.len {
+            bytes.push(found.shrunk_inputs.span()[sent.start + j])
+        }
+        println!(
+            "  call ",
+            sent.step,
+            " from 0x",
+            core::text::hex(sent.sender, 20),
+            " to 0x",
+            core::text::hex(sent.to, 20),
+            " value ",
+            sent.value,
+            " calldata 0x",
+            hex_text(bytes.span()),
+        )
+    }
+    if found.calls[0] != found.identical[0] || found.invariant_breaks > 0 {
         return 1
     }
     0
@@ -1082,7 +1125,9 @@ uses (args: Args, fs: std::fs::Fs, out: mut Stdout)
         found.tx_runs,
         " with their own calldata changed, ",
         found.direct_runs,
-        " as direct calls into the shadowed code)",
+        " changing a call into the shadowed code in flight, ",
+        found.flight_succeeded,
+        " of which succeeded)",
     )
     println!(
         "  ",
@@ -1091,7 +1136,9 @@ uses (args: Args, fs: std::fs::Fs, out: mut Stdout)
         found.identical,
         " identical, ",
         found.sensitive,
-        " differ where code reads the gas left or code hashes, ",
+        " differ where code reads the gas left or code hashes (",
+        found.code_sensitive,
+        " code hashes), ",
         found.dirtied,
         " differ after an address-shaped word got upper bits, ",
         found.differ,
@@ -1108,15 +1155,15 @@ uses (args: Args, fs: std::fs::Fs, out: mut Stdout)
         " ",
         first_hash,
         if found.first_direct {
-            " (direct call)"
+            " (a call into the shadowed code changed in flight)"
         } else {
             " (its calldata changed)"
         },
     )
     println!(
-        "  to 0x",
+        "  call to 0x",
         core::text::hex(found.first_to, 20),
-        " calldata 0x",
+        " with calldata 0x",
         hex_text(found.first_data.span()),
     )
     println!(

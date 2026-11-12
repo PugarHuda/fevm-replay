@@ -4,16 +4,20 @@
 //! covers what it nearly did, against real tokens, routers and bots.
 //!
 //! Each mutation either changes the transaction's own calldata, which
-//! exercises whatever router or bot sent it, or sends the shadowed contract
-//! one of the calls it really received in that transaction, changed, from
-//! the same sender. Gas is free (base fee and price zero), so the two runs
-//! differ only by what the code does. Accounts and slots the original
+//! exercises whatever router or bot sent it, or changes one of the calls the
+//! shadowed contract really received, in flight: the contract's account
+//! runs a small proxy that patches one word of its calldata and delegates
+//! to the real code (deployed or port) at another address. The transaction
+//! then runs unchanged, so the mutated call lands at the moment it did on
+//! chain, with the tokens a router sent ahead of a swap already there and
+//! the real caller as `msg.sender`. Gas is free (base fee and price zero),
+//! so the two runs differ only by what the code does. Accounts and slots the original
 //! transaction did not touch are absent from the pre-state and read as
 //! empty in both runs: a mutation that wanders off is still compared fairly.
 
 use core::{MemBuffer, MemSpan, MemVec}
 use json::Value
-use fevm::{BlockEnv, Buffers, Config, InputData, OK, TxEnv, TxRequest, WorldState, transact}
+use fevm::{BlockEnv, Buffers, Config, WorldState, transact}
 use fevm::trace::{CallEnd, CallStart, Tracer}
 use ingot::fuzz::{same_bytes, same_logs, same_reason, same_state_except, same_status}
 use ingot::load::{field, hex_bytes, load_tx_with, load_world}
@@ -28,12 +32,17 @@ pub struct Mutations {
     pub identical: u64,
     /// Runs that differ where other code read the gas left or code hashes.
     pub sensitive: u64,
+    /// Of those, the runs where code read code hashes.
+    pub code_sensitive: u64,
+    /// In-flight runs whose changed call succeeded on the deployed code:
+    /// how far the changes got past the contract's own checks.
+    pub flight_succeeded: u64,
     pub differ: u64,
     /// Runs that differ after a word shaped like an address (upper twelve
     /// bytes zero) got upper bits: Fe's decoder rejects what solc cleaned.
     pub dirtied: u64,
-    /// Runs of each kind: the transaction's calldata changed, or a direct
-    /// call into the shadowed contract.
+    /// Runs of each kind: the transaction's calldata changed, or a call
+    /// into the shadowed contract changed in flight.
     pub tx_runs: u64,
     pub direct_runs: u64,
     /// The first difference: the transaction's index plus one (0 for none),
@@ -54,6 +63,8 @@ impl Mutations {
             runs: 0,
             identical: 0,
             sensitive: 0,
+            code_sensitive: 0,
+            flight_succeeded: 0,
             differ: 0,
             dirtied: 0,
             tx_runs: 0,
@@ -156,6 +167,8 @@ pub fn mutate_tx(
     var free = block
     free.basefee = 0
     let original = hex_bytes(tx["input"].text())
+    var ported = copy_list(targets)
+    ported.push(IMPL)
     // The calls the shadowed accounts really received.
     var recorder = Recorder {
         targets: copy_list(targets),
@@ -185,13 +198,17 @@ pub fn mutate_tx(
         var data = MemBuffer::empty()
         var to: u256 = 0
         var dirtied = false
+        var patch = Patch { at: 0, word: 0, len: 0, replaces: false }
         if direct {
             let seen = recorder.seen[rng.index(recorder.seen.len())]
             to = seen.to
+            var received = MemBuffer::empty()
             for i in 0 .. seen.len {
-                data.push(recorder.inputs.span()[seen.start + i])
+                received.push(recorder.inputs.span()[seen.start + i])
             }
+            data = MemBuffer::from_span(received.span())
             dirtied = mutate(mut rng, mut data)
+            patch = patch_between(received.span(), data.span())
             found.direct_runs += 1
         } else {
             data = MemBuffer::from_span(original.span())
@@ -200,6 +217,12 @@ pub fn mutate_tx(
             }
             found.tx_runs += 1
         }
+        // In flight, the transaction itself runs unchanged.
+        let input = if direct {
+            MemBuffer::from_span(original.span())
+        } else {
+            MemBuffer::from_span(data.span())
+        }
         let what = compare_run(
             free,
             parent_hash,
@@ -207,10 +230,13 @@ pub fn mutate_tx(
             tx,
             prestate,
             targets,
+            ported,
+            deployed,
             port,
             direct,
             to,
-            data.span(),
+            patch,
+            input.span(),
             mut found,
         )
         found.runs += 1
@@ -244,34 +270,51 @@ fn compare_run(
     _ tx: Value,
     _ prestate: Value,
     _ targets: MemVec<u256>,
+    _ ported: MemVec<u256>,
+    _ deployed: MemSpan,
     _ port: MemSpan,
     _ direct: bool,
     _ to: u256,
+    _ patch: Patch,
     _ data: MemSpan,
     _ found: mut Mutations,
 ) -> u8 {
-    var watch_a = GasWatch::new(shadows: targets)
-    var watch_b = GasWatch::new(shadows: targets)
+    // The code under test runs at the targets, or behind a proxy at IMPL.
+    var watch_a = GasWatch::new(shadows: ported)
+    var watch_b = GasWatch::new(shadows: ported)
+    if direct {
+        watch_a.focus = to
+        watch_b.focus = to
+    }
     var buffers_a = Buffers::new()
     var buffers_b = Buffers::new()
+    var world_a = build_world(prestate, block, parent_hash, extras, MemVec::new(), port)
+    var world_b = build_world(
+        prestate,
+        block,
+        parent_hash,
+        extras,
+        copy_list(targets),
+        port,
+    )
+    if direct {
+        let wrapper = proxy(patch)
+        world_a.set_code(address: to, code: wrapper.span())
+        world_a.set_code(address: IMPL, code: deployed)
+        world_b.set_code(address: to, code: wrapper.span())
+        world_b.set_code(address: IMPL, code: port)
+    }
     let ran_a = transact(
-        build_world(prestate, block, parent_hash, extras, MemVec::new(), port),
-        request(tx, direct, to, data),
+        world_a,
+        load_tx_with(tx, input: data, priced: false),
         block,
         Config::osaka(),
         mut buffers_a,
         mut watch_a,
     )
     let ran_b = transact(
-        build_world(
-            prestate,
-            block,
-            parent_hash,
-            extras,
-            copy_list(targets),
-            port,
-        ),
-        request(tx, direct, to, data),
+        world_b,
+        load_tx_with(tx, input: data, priced: false),
         block,
         Config::osaka(),
         mut buffers_b,
@@ -285,13 +328,28 @@ fn compare_run(
         2
     } else if !same_logs(ran_a.receipt.logs, ran_b.receipt.logs) {
         3
-    } else if !same_state_except(ran_a.state, ran_b.state, copy_list(targets)) {
+    } else if !same_state_except(ran_a.state, ran_b.state, copy_list(ported)) {
         4
     } else {
         0
     }
+    if direct && watch_a.focused && watch_a.focus_status == 0 {
+        found.flight_succeeded += 1
+    }
     if what == 0 { return 0 }
-    if watch_b.observed || watch_a.read_code || watch_b.read_code {
+    // In flight, the changed call's own outcome decides: if it differs, the
+    // code under test behaved differently, whatever its callers read.
+    let call_differs = direct
+        && watch_a.focused
+        && watch_b.focused
+        && (!same_status(watch_a.focus_status, watch_b.focus_status)
+            || (!same_bytes(watch_a.focus_output.span(), watch_b.focus_output.span())
+                && !same_reason(watch_a.focus_output.span(), watch_b.focus_output.span())))
+    if !call_differs && (watch_a.read_code || watch_b.read_code) {
+        found.code_sensitive += 1
+        return what + 10
+    }
+    if !call_differs && watch_b.observed {
         return what + 10
     }
     if found.first_tx == 0 {
@@ -301,29 +359,76 @@ fn compare_run(
     what
 }
 
-// The transaction with `data` for calldata, or a direct call to `to` from
-// its sender; either way paying nothing for gas.
-fn request(_ tx: Value, _ direct: bool, _ to: u256, _ data: MemSpan) -> TxRequest {
-    if !direct {
-        return load_tx_with(tx, input: data, priced: false)
+// Where the code under test runs when a proxy stands in front of it.
+const IMPL: u256 = 0xfe11ed
+
+// A change to a call's calldata as a proxy applies it: `word` written at
+// `at` (when `replaces`), and `len` bytes passed on.
+struct Patch { at: usize, word: u256, len: usize, replaces: bool }
+
+impl Copy for Patch {}
+
+// The patch that turns `before` into `after`, which differ in one word or
+// in length (see `mutate`).
+fn patch_between(_ before: MemSpan, _ after: MemSpan) -> Patch {
+    let shorter = if before.len() < after.len() {
+        before.len()
+    } else {
+        after.len()
     }
-    let env = TxEnv {
-        kind: 2,
-        chain_id: Option::Some(1),
-        sender: field(tx, "from"),
-        to,
-        creates: false,
-        nonce: field(tx, "nonce"),
-        gas_limit: field(tx, "gas").downcast_truncate(),
-        gas_price: 0,
-        max_priority_fee_per_gas: 0,
-        max_fee_per_blob_gas: 0,
-        value: 0,
+    for i in 0 .. shorter {
+        if before[i] != after[i] && i >= 4 {
+            let at = 4 + (i - 4) / 32 * 32
+            if at + 32 <= after.len() {
+                return Patch { at, word: read_word(after, at), len: after.len(), replaces: true }
+            }
+        }
     }
-    TxRequest::new(
-        env,
-        data: InputData::new(MemBuffer::from_span(data), status: OK),
-    )
+    Patch { at: 0, word: 0, len: after.len(), replaces: false }
+}
+
+// Code that copies its calldata, applies `patch`, DELEGATECALLs `IMPL` with
+// all its gas and returns or reverts with what that returned. Storage,
+// caller and value stay the account's own.
+fn proxy(_ patch: Patch) -> MemBuffer {
+    var code = MemBuffer::empty()
+    // CALLDATACOPY(0, 0, CALLDATASIZE)
+    push_bytes(mut code, 0x366000600037, 6)
+    if patch.replaces {
+        // PUSH32 word PUSH2 at MSTORE
+        code.push(0x7f)
+        push_bytes(mut code, patch.word, 32)
+        code.push(0x61)
+        push_bytes(mut code, patch.at as u256, 2)
+        code.push(0x52)
+    }
+    // DELEGATECALL(GAS, IMPL, 0, len, 0, 0)
+    push_bytes(mut code, 0x60006000, 4)
+    code.push(0x61)
+    push_bytes(mut code, patch.len as u256, 2)
+    push_bytes(mut code, 0x6000, 2)
+    code.push(0x73)
+    push_bytes(mut code, IMPL, 20)
+    push_bytes(mut code, 0x5af4, 2)
+    // RETURNDATACOPY(0, 0, RETURNDATASIZE), then JUMPI on the call's result
+    push_bytes(mut code, 0x3d600060003e, 6)
+    let ok: u256 = (code.len() + 3 + 4) as u256
+    code.push(0x60)
+    push_bytes(mut code, ok, 1)
+    code.push(0x57)
+    // REVERT(0, RETURNDATASIZE); ok: RETURN(0, RETURNDATASIZE)
+    push_bytes(mut code, 0x3d6000fd, 4)
+    push_bytes(mut code, 0x5b3d6000f3, 5)
+    code
+}
+
+// The low `n` bytes of `value`, most significant first.
+fn push_bytes(_ code: mut MemBuffer, _ value: u256, _ n: usize) {
+    for i in 0 .. n {
+        code.push(
+            ((value >> ((n - 1 - i) * 8) as u256) & 0xff).downcast_truncate(),
+        )
+    }
 }
 
 // One change to calldata past its selector: an argument word set to an edge
