@@ -144,9 +144,25 @@ identical.
 | Differed in behavior: the zero-withdrawal bug above (now fixed) | 1 |
 | Differed in behavior: inconsistent block traces (match per transaction) | 3 |
 
-Fe WETH9 used 0.42% less gas than the deployed Solidity over those
-transactions. That is the gas of whole transactions, so the share WETH itself
-saved is larger.
+Shadow replay also measures gas per function. Each shadowed transaction runs
+a second time on the deployed code, and a tracer adds up the gas of every
+call into WETH by selector. Only transactions the port leaves identical are
+counted, so both sides served the same calls. Over blocks 26,394,000 to
+26,394,019 (1,631 calls):
+
+| Function | Calls | Deployed Solidity | Fe WETH9 | Change |
+| --- | ---: | ---: | ---: | ---: |
+| `balanceOf` | 720 | 934 | 806 | −13.7% |
+| `transfer` | 441 | 14,207 | 13,745 | −3.2% |
+| `transferFrom` | 162 | 11,544 | 11,105 | −3.8% |
+| `withdraw` | 140 | 9,619 | 9,360 | −2.6% |
+| `deposit` | 104 | 17,237 | 17,109 | −0.7% |
+| `approve` | 48 | 16,586 | 16,427 | −0.9% |
+| `allowance` | 10 | 2,317 | 2,121 | −8.4% |
+| fallback (no calldata) | 4 | 18,956 | 18,972 | +0.1% |
+
+Average gas per call, including the storage and calls each makes. Across the
+300-block run, whole transactions that ran Fe WETH9 used 0.42% less gas.
 
 The 454 are mostly MEV bots that size a builder payment from the gas they
 used, and ERC-4337 bundles whose `UserOperationEvent` records it. Cheaper

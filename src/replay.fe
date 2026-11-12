@@ -12,7 +12,8 @@ use json::Value
 use fevm::{BlockEnv, Buffers, Config, WorldState, transact}
 use ingot::compare::{Mismatches, apply_diff, compare}
 use ingot::load::{add_extras, field, load_block, load_tx, load_world}
-use ingot::watch::GasWatch
+use core::MemVec
+use ingot::watch::{GasWatch, SelectorGas, add_profile}
 
 /// Replays transaction `tx` in fevm against its `prestate`, in the block
 /// `block` whose parent's hash is `parent_hash`, and compares the outcome
@@ -28,6 +29,9 @@ use ingot::watch::GasWatch
 /// leave every log, balance, nonce and slot as the original did. Only gas may
 /// differ, and with it what the sender paid and the coinbase earned, so
 /// those two balances are adjusted by the gas difference before comparing.
+/// A shadowed transaction also runs once more on the deployed code, and when
+/// the port leaves it identical, the gas each function used under both is
+/// added to `deployed_gas` and `shadow_gas`.
 pub fn replay_tx(
     _ block: BlockEnv,
     parent_hash: u256,
@@ -38,6 +42,8 @@ pub fn replay_tx(
     _ diff: Value,
     shadow_address: u256,
     shadow_code: MemSpan,
+    deployed_gas: mut MemVec<SelectorGas>,
+    shadow_gas: mut MemVec<SelectorGas>,
 ) -> Mismatches
 uses (text: mut MemBuffer)
 {
@@ -100,6 +106,28 @@ uses (text: mut MemBuffer)
     )
     found.gas_observed = watch.observed
     found.read_blockhash = watch.read_blockhash
+    // The same transaction on the deployed code, for its gas per function.
+    if shadowed && found.total() == 0 {
+        var deployed = GasWatch::new(shadow: shadow_address)
+        var again = Buffers::new()
+        transact(
+            build_world(
+                prestate,
+                block,
+                parent_hash,
+                extras,
+                shadow_address: 0,
+                shadow_code,
+            ),
+            load_tx(tx),
+            block,
+            Config::osaka(),
+            mut again,
+            mut deployed,
+        )
+        add_profile(mut deployed_gas, deployed.profile)
+        add_profile(mut shadow_gas, watch.profile)
+    }
     // A plain replay that differs runs again under the watch, to tell
     // whether it read a block hash the replay does not hold.
     if !shadowed && found.total() > 0 {
@@ -173,6 +201,8 @@ fn settle_gas_difference(
 /// Replays a single-transaction fixture, which may carry `blockHashes`
 /// and `delegates` as extras.
 pub fn replay(_ doc: Value) -> Mismatches uses (text: mut MemBuffer) {
+    var unused_a: MemVec<SelectorGas> = MemVec::new()
+    var unused_b: MemVec<SelectorGas> = MemVec::new()
     let block = load_block(
         doc["block"],
         chain_id: field(doc, "chainId"),
@@ -188,5 +218,7 @@ pub fn replay(_ doc: Value) -> Mismatches uses (text: mut MemBuffer) {
         doc["diff"],
         shadow_address: 0,
         shadow_code: MemBuffer::empty().span(),
+        deployed_gas: mut unused_a,
+        shadow_gas: mut unused_b,
     )
 }

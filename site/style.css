@@ -186,3 +186,5 @@ p { max-width: var(--measure); }
 @media (prefers-reduced-motion: reduce) {
   .mosaic button { transition: none; }
 }
+
+.subhead { margin-top: 3rem; }

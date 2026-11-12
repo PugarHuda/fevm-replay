@@ -10,6 +10,7 @@ pub use check::{fixture_ok, transaction_ok}
 pub use compare::{Mismatches, apply_diff, compare}
 pub use load::{field, hex_bytes, hex_word, load_block, load_tx, load_world}
 pub use replay::{replay, replay_tx}
+pub use watch::{SelectorGas, add_profile}
 
 const DEFAULT_RPC: String<21> = "https://eth.drpc.org"
 
@@ -221,6 +222,10 @@ pub struct Totals {
     pub behavior: u64,
     pub chain_gas: u64,
     pub shadow_gas: u64,
+    /// Gas per function of the shadowed contract in identical transactions,
+    /// on the deployed code and on the shadow code.
+    pub deployed_profile: core::MemVec<SelectorGas>,
+    pub shadow_profile: core::MemVec<SelectorGas>,
 }
 
 impl Totals {
@@ -235,6 +240,8 @@ impl Totals {
             behavior: 0,
             chain_gas: 0,
             shadow_gas: 0,
+            deployed_profile: core::MemVec::new(),
+            shadow_profile: core::MemVec::new(),
         }
     }
 }
@@ -390,6 +397,8 @@ uses (fs: std::fs::Fs, out: mut Stdout)
                 diffs["result"][index]["result"],
                 shadow_address,
                 shadow_code,
+                deployed_gas: mut totals.deployed_profile,
+                shadow_gas: mut totals.shadow_profile,
             )
         }
         if found.shadowed {
@@ -461,6 +470,80 @@ fn print_totals(_ totals: Totals, shadowing: bool) uses (out: mut Stdout) {
             totals.chain_gas,
             ", shadow ",
             totals.shadow_gas,
+        )
+        print_profile(totals.deployed_profile, totals.shadow_profile)
+    }
+}
+
+// The name of a standard ERC-20 or WETH9 function, or nothing.
+fn function_name(_ selector: u32) -> String<16> {
+    match selector {
+        0 => "fallback",
+        0xd0e30db0 => "deposit",
+        0x2e1a7d4d => "withdraw",
+        0xa9059cbb => "transfer",
+        0x23b872dd => "transferFrom",
+        0x095ea7b3 => "approve",
+        0x70a08231 => "balanceOf",
+        0xdd62ed3e => "allowance",
+        0x18160ddd => "totalSupply",
+        0x313ce567 => "decimals",
+        0x06fdde03 => "name",
+        0x95d89b41 => "symbol",
+        _ => "",
+    }
+}
+
+// Average gas per call of each function, deployed against shadow, over the
+// transactions the shadow code left identical.
+#[cfg(target_family = "unix")]
+fn print_profile(_ deployed: core::MemVec<SelectorGas>, _ shadow: core::MemVec<SelectorGas>)
+uses (out: mut Stdout)
+{
+    if deployed.len() == 0 {
+        return
+    }
+    println!(
+        "gas per call in identical transactions (deployed -> shadow):",
+    )
+    for i in 0 .. deployed.len() {
+        let d = deployed[i]
+        var s_gas: u64 = 0
+        var s_calls: u64 = 0
+        for j in 0 .. shadow.len() {
+            if shadow[j].selector == d.selector {
+                s_gas = shadow[j].gas
+                s_calls = shadow[j].calls
+            }
+        }
+        if d.calls == 0 || s_calls == 0 {
+            continue
+        }
+        let before = d.gas / d.calls
+        let after = s_gas / s_calls
+        // Change in tenths of a percent, signed by hand.
+        let (sign, permille) = if after <= before {
+            ("-", (before - after) * 1000 / before)
+        } else {
+            ("+", (after - before) * 1000 / before)
+        }
+        println!(
+            "  0x",
+            core::text::hex(d.selector as u256, 4),
+            " ",
+            function_name(d.selector),
+            ": ",
+            d.calls,
+            " calls, ",
+            before,
+            " -> ",
+            after,
+            " (",
+            sign,
+            permille / 10,
+            ".",
+            permille % 10,
+            "%)",
         )
     }
 }

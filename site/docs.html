@@ -113,7 +113,7 @@ fe build --backend native -O 2 --emit executable --out-dir out .
 <pre><code>(cd ports/weth9 &amp;&amp; fe build -O 2 --out-dir ../../out/weth9 .)
 ./out/fevm_replay range 26394000 20 blocks \
   0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2 out/weth9/WETH9.runtime.bin</code></pre>
-    <p>Gas may differ, and with it what the sender paid and the coinbase earned, so those two balances are settled by the gas difference before comparing. The summary line counts transactions that ran the port, those identical, those that differ only where code read the gas left, and those that behaved differently, and totals the gas on chain and with the port.</p>
+    <p>Gas may differ, and with it what the sender paid and the coinbase earned, so those two balances are settled by the gas difference before comparing. The summary line counts transactions that ran the port, those identical, those that differ only where code read the gas left, and those that behaved differently, and totals the gas on chain and with the port. It then lists the average gas per call of each function of the shadowed contract, on the deployed code and on the port, over the transactions the port left identical (each runs a second time on the deployed code for this).</p>
     <p class="note">Code that reads the gas left can legitimately act differently when a port is cheaper: MEV bots that size a builder payment from gas used, and ERC-4337 bundles that record it. A <code>GasWatch</code> tracer detects this, so only a difference without such a reading counts against the port.</p>
 
     <h2 id="ports">Writing a port</h2>

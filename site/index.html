@@ -93,6 +93,19 @@
         <div role="row"><span role="cell">Gas, Fe against deployed Solidity</span><strong role="cell">0.42% less</strong></div>
       </div>
     </div>
+    <h3 class="subhead">Gas per call, measured on the same mainnet calls</h3>
+    <table class="numbers">
+      <thead><tr><th scope="col">Function</th><th scope="col" class="n">Calls</th><th scope="col" class="n">Solidity</th><th scope="col" class="n">Fe</th><th scope="col" class="n">Change</th></tr></thead>
+      <tbody>
+        <tr><td><code>balanceOf</code></td><td class="n">720</td><td class="n">934</td><td class="n">806</td><td class="n">−13.7%</td></tr>
+        <tr><td><code>transfer</code></td><td class="n">441</td><td class="n">14,207</td><td class="n">13,745</td><td class="n">−3.2%</td></tr>
+        <tr><td><code>transferFrom</code></td><td class="n">162</td><td class="n">11,544</td><td class="n">11,105</td><td class="n">−3.8%</td></tr>
+        <tr><td><code>withdraw</code></td><td class="n">140</td><td class="n">9,619</td><td class="n">9,360</td><td class="n">−2.6%</td></tr>
+        <tr><td><code>deposit</code></td><td class="n">104</td><td class="n">17,237</td><td class="n">17,109</td><td class="n">−0.7%</td></tr>
+        <tr><td><code>approve</code></td><td class="n">48</td><td class="n">16,586</td><td class="n">16,427</td><td class="n">−0.9%</td></tr>
+      </tbody>
+    </table>
+    <p class="intro">Blocks 26,394,000 to 26,394,019. Each transaction runs on both codes; only those the port leaves identical count.</p>
   </section>
 
   <section id="fe" class="wrap">

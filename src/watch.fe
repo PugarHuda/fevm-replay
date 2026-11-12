@@ -12,16 +12,59 @@ const OP_BLOCKHASH: u8 = 0x40
 /// shadow code runs, both executions have the same gas, so only later
 /// readings can differ. A transaction that reads none of them and still
 /// differs points at the shadow code's behavior, not its cost.
+/// The calls into one function of the watched contract: how many, and the
+/// gas they used in all (their frames' gas, calls they made included).
+pub struct SelectorGas {
+    /// The first four calldata bytes; a call with fewer (the fallback) is 0.
+    pub selector: u32,
+    pub calls: u64,
+    pub gas: u64,
+}
+
+impl Copy for SelectorGas {}
+
+// An open call frame: the code it runs, and for calls into the watched
+// address, the function and the gas the frame started with.
+struct Frame { to: u256, selector: u32, gas: u64 }
+
+impl Copy for Frame {}
+
+/// Adds the calls and gas of each function in `from` to `into`.
+pub fn add_profile(_ into: mut MemVec<SelectorGas>, _ from: MemVec<SelectorGas>) {
+    for i in 0 .. from.len() {
+        record(
+            mut into,
+            from[i].selector,
+            calls: from[i].calls,
+            gas: from[i].gas,
+        )
+    }
+}
+
+fn record(_ profile: mut MemVec<SelectorGas>, _ selector: u32, calls: u64, gas: u64) {
+    for i in 0 .. profile.len() {
+        if profile[i].selector == selector {
+            profile[i].calls += calls
+            profile[i].gas += gas
+            return
+        }
+    }
+    profile.push(SelectorGas { selector, calls, gas })
+}
+
 pub struct GasWatch {
     shadow: u256,
-    // The code address of each open frame, innermost last.
-    frames: MemVec<u256>,
+    // The open call frames, innermost last.
+    frames: MemVec<Frame>,
     shadow_ran: bool,
     pub observed: bool,
     /// Whether any code ran BLOCKHASH. A replay holds the parent's hash
     /// only, so a transaction that differs after reading another one most
     /// likely read a hash the node's traces do not carry.
     pub read_blockhash: bool,
+    /// Gas used per function of the code at the watched address, whichever
+    /// code runs there: the deployed contract or the shadow port.
+    pub profile: MemVec<SelectorGas>,
 }
 
 impl GasWatch {
@@ -32,6 +75,7 @@ impl GasWatch {
             shadow_ran: false,
             observed: false,
             read_blockhash: false,
+            profile: MemVec::new(),
         }
     }
 }
@@ -43,8 +87,8 @@ impl Tracer for GasWatch {
         }
         if step.op == OP_GAS && self.shadow_ran {
             match self.frames.last() {
-                Option::Some(ref code) => {
-                    if code != self.shadow {
+                Option::Some(ref frame) => {
+                    if frame.to != self.shadow {
                         self.observed = true
                     }
                 },
@@ -57,10 +101,28 @@ impl Tracer for GasWatch {
         if call.to == self.shadow {
             self.shadow_ran = true
         }
-        self.frames.push(call.to)
+        var selector: u32 = 0
+        if input.len() >= 4 {
+            for i in 0 .. 4 {
+                selector = (selector << 8) | input[i] as u32
+            }
+        }
+        self.frames.push(Frame { to: call.to, selector, gas: call.gas })
     }
 
     fn leave(mut self, _ call: CallEnd, output: MemSpan) {
-        self.frames.pop()
+        match self.frames.pop() {
+            Option::Some(frame) => {
+                if frame.to == self.shadow && frame.gas >= call.gas {
+                    record(
+                        mut self.profile,
+                        frame.selector,
+                        calls: 1,
+                        gas: frame.gas - call.gas,
+                    )
+                }
+            },
+            Option::None => {},
+        }
     }
 }
