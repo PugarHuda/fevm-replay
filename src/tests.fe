@@ -154,11 +154,12 @@ fn reasons_compare_without_their_padding() {
     assert!(!ingot::fuzz::same_reason(clean.span(), other.span()))
 }
 
-// Two runs' call lists part at the first call whose output differs.
+// Two runs part at the first call, in the order calls ended, whose output
+// differs.
 #[test]
 fn runs_part_at_the_first_differing_call() {
-    var a: core::MemVec<ingot::watch::CallRecord> = core::MemVec::new()
-    var b: core::MemVec<ingot::watch::CallRecord> = core::MemVec::new()
+    var a = ingot::watch::GasWatch::new(shadows: core::MemVec::new())
+    var b = ingot::watch::GasWatch::new(shadows: core::MemVec::new())
     for i in 0 .. 3 {
         let call = ingot::watch::CallRecord {
             depth: i,
@@ -168,10 +169,12 @@ fn runs_part_at_the_first_differing_call() {
             status: 0,
             output: 9,
         }
-        a.push(call)
-        b.push(call)
+        a.calls.push(call)
+        b.calls.push(call)
+        a.ended.push(2 - i)
+        b.ended.push(2 - i)
     }
     assert!(ingot::watch::first_parting(a, b).is_none())
-    b[1].output = 10
+    b.calls[1].output = 10
     assert!(ingot::watch::first_parting(a, b) == Option::Some(1))
 }

@@ -55,18 +55,24 @@ fn fingerprint(_ bytes: MemSpan) -> u64 {
     hash
 }
 
-/// The first call where `a` and `b` part: a different target, calldata,
-/// status or output. None if they agree as far as both go.
-pub fn first_parting(_ a: MemVec<CallRecord>, _ b: MemVec<CallRecord>) -> Option<usize> {
-    let shorter = if a.len() < b.len() { a.len() } else { b.len() }
-    for i in 0 .. shorter {
-        let x = a[i]
-        let y = b[i]
+/// Where two runs part: the first call, in the order calls ended, with a
+/// different target, calldata, status or output. Calls that enclose it end
+/// later, so this is the innermost cause. The result indexes `a.ended` and
+/// `b.ended`; None if the runs agree as far as both go.
+pub fn first_parting(_ a: GasWatch, _ b: GasWatch) -> Option<usize> {
+    let shorter = if a.ended.len() < b.ended.len() {
+        a.ended.len()
+    } else {
+        b.ended.len()
+    }
+    for k in 0 .. shorter {
+        let x = a.calls[a.ended[k]]
+        let y = b.calls[b.ended[k]]
         if x.to != y.to || x.input != y.input || x.status != y.status || x.output != y.output {
-            return Option::Some(i)
+            return Option::Some(k)
         }
     }
-    if a.len() != b.len() {
+    if a.ended.len() != b.ended.len() {
         Option::Some(shorter)
     } else {
         Option::None
@@ -120,6 +126,8 @@ pub struct GasWatch {
     pub focus_output: MemBuffer,
     /// Every call of the run (see `CallRecord`).
     pub calls: MemVec<CallRecord>,
+    /// Indexes into `calls`, in the order the calls ended.
+    pub ended: MemVec<usize>,
     /// Gas used per function of the code at the watched address, whichever
     /// code runs there: the deployed contract or the shadow port.
     pub profile: MemVec<SelectorGas>,
@@ -143,6 +151,7 @@ impl GasWatch {
             focus_status: 0,
             focus_output: MemBuffer::empty(),
             calls: MemVec::new(),
+            ended: MemVec::new(),
             profile: MemVec::new(),
         }
     }
@@ -214,6 +223,7 @@ impl Tracer for GasWatch {
             Option::Some(frame) => {
                 self.calls[frame.record].status = call.status
                 self.calls[frame.record].output = fingerprint(output)
+                self.ended.push(frame.record)
                 if self.focus != 0 && !self.focused && frame.to == self.focus {
                     self.focused = true
                     self.focus_status = call.status

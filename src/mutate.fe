@@ -22,7 +22,7 @@ use fevm::trace::{CallEnd, CallStart, Tracer}
 use ingot::fuzz::{same_bytes, same_logs, same_reason, same_state_except, same_status}
 use ingot::load::{field, hex_bytes, load_tx_with, load_world}
 use ingot::replay::{build_world, shadow_targets}
-use ingot::watch::GasWatch
+use ingot::watch::{GasWatch, first_parting}
 
 /// What mutating a block's transactions found.
 pub struct Mutations {
@@ -54,6 +54,18 @@ pub struct Mutations {
     pub first_what: u8,
     pub first_deployed: [i32; 2],
     pub first_port: [i32; 2],
+    /// In flight, the changed call's output on each side; otherwise the
+    /// transaction's.
+    pub first_deployed_output: MemBuffer,
+    pub first_port_output: MemBuffer,
+    /// Where the two runs part (see `watch::first_parting`): the call's
+    /// index, target and selector, and its status on each side (-1 if that
+    /// side made no such call).
+    pub parting: u64,
+    pub parting_to: u256,
+    pub parting_selector: u32,
+    pub parting_deployed: i32,
+    pub parting_port: i32,
 }
 
 impl Mutations {
@@ -76,6 +88,13 @@ impl Mutations {
             first_what: 0,
             first_deployed: [0, 0],
             first_port: [0, 0],
+            first_deployed_output: MemBuffer::empty(),
+            first_port_output: MemBuffer::empty(),
+            parting: 0,
+            parting_to: 0,
+            parting_selector: 0,
+            parting_deployed: -1,
+            parting_port: -1,
         }
     }
 }
@@ -355,6 +374,33 @@ fn compare_run(
     if found.first_tx == 0 {
         found.first_deployed = [ran_a.receipt.invalid, ran_a.receipt.status]
         found.first_port = [ran_b.receipt.invalid, ran_b.receipt.status]
+        match first_parting(watch_a, watch_b) {
+            Option::Some(k) => {
+                found.parting = k.downcast_unchecked()
+                if k < watch_a.ended.len() {
+                    let call = watch_a.calls[watch_a.ended[k]]
+                    found.parting_to = call.to
+                    found.parting_selector = call.selector
+                    found.parting_deployed = call.status
+                }
+                if k < watch_b.ended.len() {
+                    let call = watch_b.calls[watch_b.ended[k]]
+                    found.parting_to = call.to
+                    found.parting_selector = call.selector
+                    found.parting_port = call.status
+                }
+            },
+            Option::None => {},
+        }
+        if direct && watch_a.focused && watch_b.focused {
+            found.first_deployed = [0, watch_a.focus_status]
+            found.first_port = [0, watch_b.focus_status]
+            found.first_deployed_output = MemBuffer::from_span(watch_a.focus_output.span())
+            found.first_port_output = MemBuffer::from_span(watch_b.focus_output.span())
+        } else {
+            found.first_deployed_output = MemBuffer::from_span(ran_a.receipt.output.span())
+            found.first_port_output = MemBuffer::from_span(ran_b.receipt.output.span())
+        }
     }
     what
 }

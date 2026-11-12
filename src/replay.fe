@@ -126,12 +126,11 @@ uses (text: mut MemBuffer)
             mut again,
             mut deployed,
         )
-        match first_parting(deployed.calls, watch.calls) {
-            Option::Some(i) => {
-                "  runs part at call ".fmt(mut text)
-                i.fmt(mut text)
-                if i < deployed.calls.len() {
-                    let call = deployed.calls[i]
+        match first_parting(deployed, watch) {
+            Option::Some(k) => {
+                "  runs part at a call".fmt(mut text)
+                if k < deployed.ended.len() {
+                    let call = deployed.calls[deployed.ended[k]]
                     " (depth ".fmt(mut text)
                     call.depth.fmt(mut text)
                     ", to 0x".fmt(mut text)
@@ -141,17 +140,20 @@ uses (text: mut MemBuffer)
                     "): deployed ".fmt(mut text)
                     status_name(call.status).fmt(mut text)
                 }
-                if i >= watch.calls.len() {
+                if k >= watch.ended.len() {
                     ", and the shadow run made no such call".fmt(mut text)
-                } else if i >= deployed.calls.len() {
+                } else if k >= deployed.ended.len() {
                     " (the deployed run made no such call)".fmt(mut text)
                 } else {
+                    let ours = deployed.calls[deployed.ended[k]]
+                    let theirs = watch.calls[watch.ended[k]]
                     ", shadow ".fmt(mut text)
-                    status_name(watch.calls[i].status).fmt(mut text)
-                    if i < deployed.calls.len() && watch.calls[i].input != deployed.calls[i].input {
+                    status_name(theirs.status).fmt(mut text)
+                    if theirs.to != ours.to {
+                        " (a different call)".fmt(mut text)
+                    } else if theirs.input != ours.input {
                         " (different calldata)".fmt(mut text)
-                    } else if i < deployed.calls.len()
-                        && watch.calls[i].output != deployed.calls[i].output {
+                    } else if theirs.output != ours.output {
                         " (different output)".fmt(mut text)
                     }
                 }

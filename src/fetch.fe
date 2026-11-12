@@ -405,3 +405,120 @@ uses (proc: mut Spawn, fs: mut Fs)
     }
     true
 }
+
+/// One JSON-RPC batch asking for the headers of blocks `first` to
+/// `first + count - 1`.
+fn headers<U: Display>(_ url: U, first: u256, count: u256) -> Option<Value>
+uses (proc: mut Spawn)
+{
+    var body = MemBuffer::empty()
+    "[".fmt(mut body)
+    var i: u256 = 0
+    while i < count {
+        if i > 0 { ",".fmt(mut body) }
+        "{\"jsonrpc\":\"2.0\",\"id\":".fmt(mut body)
+        core::text::decimal(i).fmt(mut body)
+        ",\"method\":\"eth_getBlockByNumber\",\"params\":[\"".fmt(mut body)
+        quantity(first + i).span().fmt(mut body)
+        "\",false]}".fmt(mut body)
+        i += 1
+    }
+    "]".fmt(mut body)
+    let command = Command::new("curl")
+        .arg("-sS")
+        .arg("--fail")
+        .arg("--retry")
+        .arg("8")
+        .arg("--retry-all-errors")
+        .arg("--retry-delay")
+        .arg("2")
+        .arg("-H")
+        .arg("content-type: application/json")
+        .arg("--data-binary")
+        .arg(body)
+        .arg(url)
+        .stdout(Redirect::Capture)
+    let Result::Ok(output) = proc.output(command) else {
+        return Option::None
+    }
+    if !output.status.success() {
+        return Option::None
+    }
+    let Result::Ok(doc) = parse(output.stdout.span()) else {
+        return Option::None
+    }
+    if !doc.as_array().is_some() || doc.items().len() as u256 != count {
+        return Option::None
+    }
+    Option::Some(doc)
+}
+
+/// Adds the hashes of the 256 blocks before block `number` to
+/// `dir/delegates.json` as `blockHashes`, so a replay answers BLOCKHASH
+/// for any block it may ask about. Free endpoints take three requests a
+/// batch, so this costs 86 calls; `range` makes them only for blocks whose
+/// transactions ran BLOCKHASH.
+pub fn fetch_hashes<U: Display, D: Display>(_ url: U, number: u256, _ dir: D) -> bool
+uses (proc: mut Spawn, fs: mut Fs)
+{
+    var hashes = MemBuffer::empty()
+    "\"blockHashes\":{".fmt(mut hashes)
+    var n = if number > 256 { number - 256 } else { 0 }
+    var first = true
+    while n < number {
+        let count: u256 = if number - n < 3 { number - n } else { 3 }
+        let Option::Some(doc) = headers(url, first: n, count) else {
+            return false
+        }
+        for ref answer in doc.items() {
+            if !answer.has("result") || !answer["result"].as_object().is_some() {
+                return false
+            }
+            if !first {
+                ",".fmt(mut hashes)
+            }
+            first = false
+            "\"".fmt(mut hashes)
+            answer["result"]["number"].text().fmt(mut hashes)
+            "\":\"".fmt(mut hashes)
+            answer["result"]["hash"].text().fmt(mut hashes)
+            "\"".fmt(mut hashes)
+        }
+        n += count
+    }
+    "}".fmt(mut hashes)
+    // Into delegates.json: `{"delegates": {...}}` gains a second member.
+    let path = join(dir, "delegates.json")
+    var text = MemBuffer::empty()
+    match fs.read(path) {
+        Result::Ok(bytes) => {
+            var end = bytes.len()
+            while end > 0 && bytes.span()[end - 1] != 0x7d {
+                end -= 1
+            }
+            if end == 0 { return false }
+            for i in 0 .. end - 1 {
+                text.push(bytes.span()[i])
+            }
+            // No comma after an empty object's brace.
+            var last = text.len()
+            while last > 0 && (text.span()[last - 1] == 0x20 || text.span()[last - 1] == 0x0a) {
+                last -= 1
+            }
+            if last > 0 && text.span()[last - 1] != 0x7b {
+                ",".fmt(mut text)
+            }
+            hashes.span().fmt(mut text)
+            "}".fmt(mut text)
+        },
+        Result::Err(_) => {
+            "{".fmt(mut text)
+            hashes.span().fmt(mut text)
+            "}".fmt(mut text)
+        },
+    }
+    match fs.write(path, text.span()) {
+        Result::Ok(_) => true,
+        Result::Err(_) => false,
+    }
+}

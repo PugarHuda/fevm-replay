@@ -70,6 +70,13 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     if is_word(args.get(1), [0x66, 0x75, 0x7a, 0x7a]) {
         return fuzz_command(pair: false)
     }
+    // "fetch-hashes"
+    if is_word(
+        args.get(1),
+        [0x66, 0x65, 0x74, 0x63, 0x68, 0x2d, 0x68, 0x61, 0x73, 0x68, 0x65, 0x73],
+    ) {
+        return fetch_hashes_command()
+    }
     // "fuzz-block"
     if is_word(
         args.get(1),
@@ -257,6 +264,33 @@ pub struct Totals {
     /// on the deployed code and on the shadow code.
     pub deployed_profile: core::MemVec<SelectorGas>,
     pub shadow_profile: core::MemVec<SelectorGas>,
+}
+
+// Whether `dir/delegates.json` already holds older block hashes.
+#[cfg(target_family = "unix")]
+fn has_block_hashes(_ dir: MemSpan) -> bool uses (fs: mut std::fs::Fs) {
+    let Result::Ok(bytes) = fs.read(fetch::join(dir, "delegates.json")) else {
+        return false
+    }
+    match parse(bytes.span()) {
+        Result::Ok(doc) => doc.has("blockHashes"),
+        Result::Err(_) => false,
+    }
+}
+
+fn add_totals(_ into: mut Totals, _ from: Totals) {
+    into.blocks += from.blocks
+    into.transactions += from.transactions
+    into.matched += from.matched
+    into.old_hashes += from.old_hashes
+    into.shadowed += from.shadowed
+    into.gas_sensitive += from.gas_sensitive
+    into.code_sensitive += from.code_sensitive
+    into.behavior += from.behavior
+    into.chain_gas += from.chain_gas
+    into.shadow_gas += from.shadow_gas
+    add_profile(mut into.deployed_profile, from.deployed_profile)
+    add_profile(mut into.shadow_profile, from.shadow_profile)
 }
 
 impl Totals {
@@ -678,12 +712,15 @@ fn block_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
 fn range_command() -> i32
 uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut Stdout)
 {
-    if args.count() != 5 && args.count() != 7 {
+    if args.count() < 5 || args.count() > 8 {
         println!(
-            "usage: fevm-replay range <first-block> <count> <dir> [<shadow-address>|<deployed.hex> <runtime.bin>]",
+            "usage: fevm-replay range <first-block> <count> <dir> [<shadow-address>|<deployed.hex> <runtime.bin>] [rpc-url]",
         )
         return 2
     }
+    // An odd count of arguments after the command ends with an RPC URL.
+    let rpc_given = args.count() == 6 || args.count() == 8
+    let shadowing = args.count() >= 7
     let first_arg = args.get(2).span()
     let first = if first_arg.len() > 1 && first_arg[1] == 0x78 {
         core::text::parse_hex_uint(first_arg).unwrap_or(default: 0)
@@ -694,7 +731,7 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     var shadow_address: u256 = 0
     var shadow_code = MemBuffer::empty()
     var shadow_like = MemBuffer::empty()
-    if args.count() == 7 {
+    if shadowing {
         let Option::Some(address) = shadow_target(args.get(5), mut shadow_like) else {
             return 1
         }
@@ -722,22 +759,61 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                 println!("ERROR ", dir, ": cannot create")
                 return 1
             }
-            if !fetch::fetch_block(DEFAULT_RPC, number.span(), dir.span()) {
+            let fetched = if rpc_given {
+                fetch::fetch_block(args.get(args.count() - 1), number.span(), dir.span())
+            } else {
+                fetch::fetch_block(DEFAULT_RPC, number.span(), dir.span())
+            }
+            if !fetched {
                 println!("ERROR block ", number, ": the node did not answer")
             }
         }
-        if !replay_block(
+        var block_totals = Totals::new()
+        var usable = replay_block(
             dir.span(),
             shadow_address,
             shadow_code: shadow_code.span(),
             shadow_like: shadow_like.span(),
-            mut totals,
-        ) {
+            mut block_totals,
+        )
+        // A transaction that read an older block's hash: fetch the 256
+        // before this block once, and replay the block again with them.
+        if usable && block_totals.old_hashes > 0 && !has_block_hashes(dir.span()) {
+            println!(
+                "  fetching the 256 block hashes before ",
+                number,
+                " and replaying it again",
+            )
+            let fetched = if rpc_given {
+                fetch::fetch_hashes(args.get(args.count() - 1), number: n, dir.span())
+            } else {
+                fetch::fetch_hashes(DEFAULT_RPC, number: n, dir.span())
+            }
+            if fetched {
+                block_totals = Totals::new()
+                usable = replay_block(
+                    dir.span(),
+                    shadow_address,
+                    shadow_code: shadow_code.span(),
+                    shadow_like: shadow_like.span(),
+                    mut block_totals,
+                )
+            } else {
+                println!(
+                    "ERROR block ",
+                    number,
+                    ": the node did not answer for older block hashes",
+                )
+            }
+        }
+        if usable {
+            add_totals(mut totals, block_totals)
+        } else {
             unusable += 1
         }
         n += 1
     }
-    print_totals(totals, shadowing: args.count() == 7)
+    print_totals(totals, shadowing)
     if unusable > 0 {
         println!(
             "  ",
@@ -1172,6 +1248,32 @@ uses (args: Args, fs: std::fs::Fs, out: mut Stdout)
         ", port ",
         outcome(found.first_port),
     )
+    println!(
+        "  deployed returned 0x",
+        hex_text(found.first_deployed_output.span()),
+    )
+    println!(
+        "  port returned     0x",
+        hex_text(found.first_port_output.span()),
+    )
+    println!(
+        "  runs part at the call to 0x",
+        core::text::hex(found.parting_to, 20),
+        " selector 0x",
+        core::text::hex(found.parting_selector as u256, 4),
+        ": deployed ",
+        if found.parting_deployed < 0 {
+            "made no such call"
+        } else {
+            fevm::status::status_name(found.parting_deployed)
+        },
+        ", port ",
+        if found.parting_port < 0 {
+            "made no such call"
+        } else {
+            fevm::status::status_name(found.parting_port)
+        },
+    )
     1
 }
 
@@ -1187,4 +1289,38 @@ fn is_number(_ arg: Arg) -> bool {
         }
     }
     true
+}
+
+/// `fetch-hashes <dir> [rpc-url]`: adds the 256 block hashes before the
+/// block saved in `dir` to its `delegates.json`, for transactions that read
+/// an older block's hash.
+#[cfg(target_family = "unix")]
+fn fetch_hashes_command() -> i32
+uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut Stdout)
+{
+    if args.count() != 3 && args.count() != 4 {
+        println!("usage: fevm-replay fetch-hashes <dir> [rpc-url]")
+        return 2
+    }
+    let Option::Some(block) = load_response(args.get(2), "block.json") else {
+        return 1
+    }
+    let number = field(block["result"], "number")
+    let fetched = if args.count() == 4 {
+        fetch::fetch_hashes(args.get(3), number: number, args.get(2))
+    } else {
+        fetch::fetch_hashes(DEFAULT_RPC, number: number, args.get(2))
+    }
+    if !fetched {
+        println!("ERROR ", args.get(2), ": the node did not answer")
+        return 1
+    }
+    println!(
+        "saved the 256 block hashes before block ",
+        number,
+        " in ",
+        args.get(2),
+        "/delegates.json",
+    )
+    0
 }
