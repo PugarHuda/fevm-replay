@@ -58,23 +58,38 @@ Everything was built during the contest window; see the declaration below.
 | 6 hand-picked fixtures (`fixtures/mainnet`) | 6 | 6 |
 | Blocks 26,394,000 to 26,394,019 | 5,129 | 5,129 |
 | Blocks 26,394,100 to 26,394,199 (99 fetched) | 24,991 | 24,982 |
+| Blocks 26,380,000 to 26,380,299 | 85,087 | 84,964 |
+| **Total** | **115,213** | **115,081** |
 
-**No transaction exposed a bug in fevm.** Every difference had a cause
-outside the interpreter, and fevm-replay now names each cause itself:
+**No transaction exposed a bug in fevm.** Every one of the 132
+differences was traced to a cause outside the interpreter, and fevm-replay
+now names each cause itself:
 
 - **`BLOCKHASH` of the parent block** (5 in the first run): the prestate
   tracer can't report block hashes, because they are not state. One of these
   transactions even deployed bytecode with the hash baked in, which showed up
   as code of the same size with different bytes. The parent's hash now comes
   from the header.
-- **`BLOCKHASH` of an older block** (5): a transaction that differs is run a
-  second time under a tracer. If it runs `BLOCKHASH`, it is labeled. Given
-  the 256 previous hashes (the `blockHashes` field of a fixture), the one
-  checked by hand matches.
+- **`BLOCKHASH` of an older block** (91): a transaction that differs is run
+  a second time under a tracer. If it runs `BLOCKHASH`, it is labeled.
+  Given the 256 previous hashes (the `blockHashes` field of a fixture), the
+  one checked by hand matches.
 - **Answers from different nodes** (3): blocks fetched right at the chain
   head through a load-balanced endpoint. Fetched again, the same block
   matches 391/391. `block` now refuses data whose receipts name another
   block hash than the header.
+- **Inconsistent block traces** (37 of the 300-block run): every one of
+  them matches when fetched again as a single transaction
+  (`debug_traceTransaction`).
+- **A gap in the prestate tracer** (seen once): an EIP-7702 transaction
+  (`0xbf29…5e33`) calls an account delegated to `0x490a…ca1d`. Running it
+  runs that target's code, yet one node's prestate left the target out, so
+  fevm found no code and the call did nothing. `fetch` and `fetch-block`
+  now add every delegation target missing from the prestate (from the
+  authorization list and from `0xef0100` designators), with its code from
+  `eth_getCode`, as `delegates`.
+  `fixtures/mainnet/eip7702-delegate-missing-from-trace.json` keeps the
+  case: it matches with `delegates` and differs without them.
 - **A node tracer bug** (1): in transaction
   `0xee56…e697`, a contract deployed with CREATE2 to an address that
   already held ETH destroys itself in the same transaction (EIP-6780).
@@ -99,22 +114,38 @@ coinbase's tip are settled by the gas difference first.
 [`ports/weth9`](ports/weth9) is WETH9 written in Fe. It keeps the deployed
 contract's selectors, events, storage slots (it reads `name` and `symbol`
 from their Solidity short-string slots), payable fallback, empty revert
-data and 2,300 gas stipend. Shadowing mainnet WETH with it over 21 blocks:
+data and ETH transfer gas.
 
-| Transactions that ran Fe WETH9 | Identical | Differ only where code reads the gas left | Behave differently |
-| ---: | ---: | ---: | ---: |
-| 446 | 418 | 28 | **0** |
+**Shadow replay found a bug in it that unit tests had missed.** Over 300
+blocks, 4,806 transactions ran Fe WETH9. In one of them,
+`0x4ac9…0f73`, a contract withdraws zero WETH into its own fallback.
+Solidity's `msg.sender.transfer(wad)` compiles to a call with
+`wad == 0 ? 2300 : 0` gas: the EVM adds the 2,300 gas stipend only to calls
+that move ETH, so for zero solc passes it explicitly. The port passed no gas,
+the fallback ran out, and the withdrawal reverted where mainnet's did not.
+The port now does what solc does, and
+`withdrawing_zero_into_a_fallback_succeeds` fails without the fix and
+passes with it. Replayed again, the block's 14 WETH transactions are all
+identical.
 
-The Fe port used less gas than the deployed Solidity in every block, 0.3%
-over all 446 transactions (gas of the whole transactions, so the share
-WETH itself saved is larger).
+| Fe WETH9 in place of mainnet WETH (300 blocks) | Transactions |
+| --- | ---: |
+| Ran Fe WETH9 | 4,806 |
+| Identical logs and state | 4,348 |
+| Differ only where code reads the gas left | 454 |
+| Differed in behavior: the zero-withdrawal bug above (now fixed) | 1 |
+| Differed in behavior: inconsistent block traces (match per transaction) | 3 |
 
-The 28 are MEV bots that size a builder payment from the gas they used, and
-ERC-4337 bundles whose `UserOperationEvent` records it. Cheaper code
-legitimately changes what they do. This is detected, not guessed: a
+Fe WETH9 used 0.42% less gas than the deployed Solidity over those
+transactions. That is the gas of whole transactions, so the share WETH itself
+saved is larger.
+
+The 454 are mostly MEV bots that size a builder payment from the gas they
+used, and ERC-4337 bundles whose `UserOperationEvent` records it. Cheaper
+code legitimately changes what they do. This is detected, not guessed: a
 `GasWatch` tracer records whether any other code ran `GAS` after the shadow
-code first ran. A difference without such a reading would be the port
-behaving differently, and there were none.
+code first ran. Only a difference without such a reading counts as the port
+behaving differently.
 
 As a control, shadowing WETH with its own deployed bytecode matches every
 transaction with identical gas.
@@ -243,6 +274,8 @@ svg-term. The same steps by hand:
   labeled rather than counted as port bugs.
 - **Fe WETH9 decodes calldata strictly** where Solidity 0.4 read missing
   arguments as zero. No transaction in the replayed blocks relied on that.
+- **Delegates come from the parent block's state.** A delegation target
+  whose code changed within the block would be fetched as it was before.
 - **Double-counted cleared slots:** a slot the chain cleared and fevm kept
   is counted by both comparison passes. The verdict is correct, but its
   count is one too high.

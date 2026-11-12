@@ -69,6 +69,8 @@ fn withdraw_to_a_recipient_that_rejects_ether_reverts() uses (evm: mut Evm) {
 msg HolderMsg {
     #[selector = sol("cycle(address)")]
     Cycle { weth: Address } -> u256,
+    #[selector = sol("withdrawNothing(address)")]
+    WithdrawNothing { weth: Address },
 }
 
 /// Deposits 2 ether, withdraws 1 (receiving it through its payable
@@ -94,6 +96,15 @@ pub contract Holder uses (ctx: Ctx, call: mut Call) {
                 gas: 100000,
                 value: Wei::zero(),
                 message: Weth9Msg::BalanceOf { owner: ctx.address() },
+            )
+        }
+
+        WithdrawNothing { weth } uses (mut call) {
+            call.call(
+                addr: weth,
+                gas: 100000,
+                value: Wei::zero(),
+                message: Weth9Msg::Withdraw { wad: 0 },
             )
         }
     }
@@ -225,4 +236,20 @@ fn metadata_matches_mainnet() uses (evm: mut Evm) {
             message: Weth9Msg::Decimals {},
         )
     assert!(decimals == 18)
+}
+
+// Found by shadow replay on mainnet (transaction 0x4ac91a21...): a contract
+// withdrew zero WETH into its fallback. With no ETH moving, the EVM adds no
+// stipend, so the call must carry 2,300 gas itself, as solc's `transfer`
+// does; with none, the fallback runs out of gas and the withdrawal reverts.
+#[test(balance = 10_000_000_000_000_000_000)]
+fn withdrawing_zero_into_a_fallback_succeeds() uses (evm: mut Evm) {
+    let weth = deploy()
+    let holder = evm.create2<Holder>(value: Wei::zero(), args: (), salt: 0)
+    evm.call(
+        addr: holder,
+        gas: 500000,
+        value: Wei::zero(),
+        message: HolderMsg::WithdrawNothing { weth },
+    )
 }

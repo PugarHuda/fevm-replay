@@ -125,8 +125,8 @@ pub contract WETH9 uses (ctx: Ctx, call: mut Call, log: mut Log) {
             deposit()
         }
 
-        // `msg.sender.transfer(wad)`: a call with the 2,300 gas stipend that
-        // reverts the withdrawal if the recipient rejects the ETH.
+        // `msg.sender.transfer(wad)`: a call with 2,300 gas that reverts the
+        // withdrawal if the recipient rejects the ETH.
         Withdraw { wad } uses (ctx, mut call, mut balance_of, mut log) {
             let src = ctx.caller()
             let balance = balance_of.get(key: src)
@@ -134,7 +134,11 @@ pub contract WETH9 uses (ctx: Ctx, call: mut Call, log: mut Log) {
                 revert_empty()
             }
             balance_of.set(key: src, value: balance - wad)
-            if !call.send_value(addr: src, gas: 0, value: wei(wad)).success() {
+            // solc compiles `transfer` to a call with `wad == 0 ? 2300 : 0`
+            // gas: the EVM adds the 2,300 stipend to calls that move ETH
+            // only, so a zero withdrawal passes it explicitly.
+            let stipend: u256 = if wad == 0 { 2300 } else { 0 }
+            if !call.send_value(addr: src, gas: stipend, value: wei(wad)).success() {
                 revert_empty()
             }
             log.emit(Withdrawal { src, wad })
