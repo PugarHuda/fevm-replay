@@ -48,10 +48,14 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
             "       fevm-replay fetch-block <0x-number> <dir> [rpc-url]",
         )
         println!(
-            "       fevm-replay block <dir> [<shadow-address> <runtime.bin>]",
+            "       fevm-replay block <dir> [<shadow-address>|<deployed.hex> <runtime.bin>]",
         )
         println!(
-            "       fevm-replay range <first-block> <count> <dir> [<shadow-address> <runtime.bin>]",
+            "       fevm-replay range <first-block> <count> <dir> [<shadow-address>|<deployed.hex> <runtime.bin>]",
+        )
+        println!("       fevm-replay fetch-code <address> <file> [rpc-url]")
+        println!(
+            "       fevm-replay fuzz <deployed.hex> <port.bin> [runs] [steps] [seed]",
         )
         return 2
     }
@@ -64,7 +68,14 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     }
     // "fuzz"
     if is_word(args.get(1), [0x66, 0x75, 0x7a, 0x7a]) {
-        return fuzz_command()
+        return fuzz_command(pair: false)
+    }
+    // "fuzz-pair"
+    if is_word(
+        args.get(1),
+        [0x66, 0x75, 0x7a, 0x7a, 0x2d, 0x70, 0x61, 0x69, 0x72],
+    ) {
+        return fuzz_command(pair: true)
     }
     // "fetch-code"
     if is_word(
@@ -287,6 +298,23 @@ uses (fs: std::fs::Fs, out: mut Stdout)
     Option::Some(hex_bytes(hex.span()))
 }
 
+// A shadow target: a `0x` address, or a hex file of deployed code, read into
+// `like`, whose every copy is shadowed (then the address is 0).
+#[cfg(target_family = "unix")]
+fn shadow_target(_ arg: Arg, _ like: mut MemBuffer) -> Option<u256>
+uses (fs: std::fs::Fs, out: mut Stdout)
+{
+    let text = arg.span()
+    if text.len() > 1 && text[0] == 0x30 && text[1] == 0x78 {
+        return Option::Some(core::text::parse_hex_uint(text).unwrap_or(default: 0))
+    }
+    let Option::Some(code) = read_shadow(arg) else {
+        return Option::None
+    }
+    like = code
+    Option::Some(0)
+}
+
 /// Replays every transaction of the block saved in `dir`, printing each
 /// difference and the block's share of matches, and adds to `totals`.
 /// False if the saved answers cannot be used.
@@ -295,6 +323,7 @@ fn replay_block<D: Display>(
     _ dir: D,
     shadow_address: u256,
     shadow_code: MemSpan,
+    shadow_like: MemSpan,
     _ totals: mut Totals,
 ) -> bool
 uses (fs: std::fs::Fs, out: mut Stdout)
@@ -408,6 +437,7 @@ uses (fs: std::fs::Fs, out: mut Stdout)
                 diffs["result"][index]["result"],
                 shadow_address,
                 shadow_code,
+                shadow_like,
                 deployed_gas: mut totals.deployed_profile,
                 shadow_gas: mut totals.shadow_profile,
             )
@@ -563,16 +593,20 @@ uses (out: mut Stdout)
 fn block_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
     if args.count() != 3 && args.count() != 5 {
         println!(
-            "usage: fevm-replay block <dir> [<shadow-address> <runtime.bin>]",
+            "usage: fevm-replay block <dir> [<shadow-address>|<deployed.hex> <runtime.bin>]",
         )
         return 2
     }
     // Shadow replay: run the hex runtime code in `runtime.bin` in place of
-    // the code at `shadow-address`.
+    // the code at `shadow-address`, or of every copy of `deployed.hex`.
     var shadow_address: u256 = 0
     var shadow_code = MemBuffer::empty()
+    var shadow_like = MemBuffer::empty()
     if args.count() == 5 {
-        shadow_address = core::text::parse_hex_uint(args.get(3).span()).unwrap_or(default: 0)
+        let Option::Some(address) = shadow_target(args.get(3), mut shadow_like) else {
+            return 1
+        }
+        shadow_address = address
         let Option::Some(code) = read_shadow(args.get(4)) else {
             return 1
         }
@@ -583,11 +617,12 @@ fn block_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
         args.get(2),
         shadow_address,
         shadow_code: shadow_code.span(),
+        shadow_like: shadow_like.span(),
         mut totals,
     ) {
         return 1
     }
-    if shadow_address != 0 {
+    if args.count() == 5 {
         print_totals(totals, shadowing: true)
     }
     if totals.matched == totals.transactions {
@@ -606,7 +641,7 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
 {
     if args.count() != 5 && args.count() != 7 {
         println!(
-            "usage: fevm-replay range <first-block> <count> <dir> [<shadow-address> <runtime.bin>]",
+            "usage: fevm-replay range <first-block> <count> <dir> [<shadow-address>|<deployed.hex> <runtime.bin>]",
         )
         return 2
     }
@@ -619,8 +654,12 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     let count = core::text::parse_uint(args.get(3).span()).unwrap_or(default: 0)
     var shadow_address: u256 = 0
     var shadow_code = MemBuffer::empty()
+    var shadow_like = MemBuffer::empty()
     if args.count() == 7 {
-        shadow_address = core::text::parse_hex_uint(args.get(5).span()).unwrap_or(default: 0)
+        let Option::Some(address) = shadow_target(args.get(5), mut shadow_like) else {
+            return 1
+        }
+        shadow_address = address
         let Option::Some(code) = read_shadow(args.get(6)) else {
             return 1
         }
@@ -652,13 +691,14 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
             dir.span(),
             shadow_address,
             shadow_code: shadow_code.span(),
+            shadow_like: shadow_like.span(),
             mut totals,
         ) {
             unusable += 1
         }
         n += 1
     }
-    print_totals(totals, shadowing: shadow_address != 0)
+    print_totals(totals, shadowing: args.count() == 7)
     if unusable > 0 {
         println!(
             "  ",
@@ -727,12 +767,23 @@ uses (out: mut Stdout)
 
 /// `fuzz <deployed.bin> <port.bin> [runs] [steps] [seed]`: random calls
 /// against the deployed code and its port in two copies of one world.
+/// `fuzz-pair <deployed.bin> <port.bin> <token.bin> [runs] [steps] [seed]`
+/// does the same for a Uniswap V2 pair between two tokens running `token`.
 #[cfg(target_family = "unix")]
-fn fuzz_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
-    if args.count() < 4 || args.count() > 7 {
-        println!(
-            "usage: fevm-replay fuzz <deployed.bin> <port.bin> [runs] [steps] [seed]",
-        )
+fn fuzz_command(pair: bool) -> i32
+uses (args: Args, fs: std::fs::Fs, out: mut Stdout)
+{
+    let first: usize = if pair { 5 } else { 4 }
+    if args.count() < first || args.count() > first + 3 {
+        if pair {
+            println!(
+                "usage: fevm-replay fuzz-pair <deployed.bin> <port.bin> <token.bin> [runs] [steps] [seed]",
+            )
+        } else {
+            println!(
+                "usage: fevm-replay fuzz <deployed.bin> <port.bin> [runs] [steps] [seed]",
+            )
+        }
         return 2
     }
     let Option::Some(deployed) = read_shadow(args.get(2)) else {
@@ -741,11 +792,26 @@ fn fuzz_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
     let Option::Some(port) = read_shadow(args.get(3)) else {
         return 1
     }
-    let runs = number_arg(4, default: 200)
-    let steps = number_arg(5, default: 40)
-    let seed = number_arg(6, default: 1)
+    var token = MemBuffer::empty()
+    if pair {
+        let Option::Some(code) = read_shadow(args.get(4)) else {
+            return 1
+        }
+        token = code
+    }
+    let runs = number_arg(first, default: 200)
+    let steps = number_arg(first + 1, default: 40)
+    let seed = number_arg(first + 2, default: 1)
     var found = fuzz::Findings::new()
-    fuzz::fuzz(deployed.span(), port.span(), runs, steps, seed, mut found)
+    fuzz::fuzz(
+        deployed.span(),
+        port.span(),
+        token: token.span(),
+        runs,
+        steps,
+        seed,
+        mut found,
+    )
     println!(
         "fuzzed ",
         runs,
@@ -757,6 +823,13 @@ fn fuzz_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
     category_line("well-formed", found, 0)
     category_line("short calldata", found, 1)
     category_line("dirty address", found, 2)
+    if found.dirty_padding > 0 {
+        println!(
+            "  ",
+            found.dirty_padding,
+            " identical but for the padding after an Error(string) reason",
+        )
+    }
     if found.first_step == 0 {
         println!("no differences")
         return 0
@@ -795,19 +868,29 @@ fn fuzz_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
         " value ",
         found.first_value,
     )
-    var data = MemBuffer::empty()
-    for i in 0 .. found.first_data.len() {
-        core::text::hex(found.first_data.span()[i] as u256, 1).fmt(mut data)
-    }
-    println!("  calldata 0x", data)
+    println!("  calldata 0x", hex_text(found.first_data.span()))
     println!(
         "  deployed ",
         outcome(found.first_deployed),
         ", port ",
         outcome(found.first_port),
     )
+    if found.first_what == 2 {
+        println!(
+            "  deployed returned 0x",
+            hex_text(found.first_deployed_output.span()),
+        )
+        println!(
+            "  port returned     0x",
+            hex_text(found.first_port_output.span()),
+        )
+    }
     println!(
-        "replay it: fevm-replay fuzz <deployed.bin> <port.bin> 1 ",
+        if pair {
+            "replay it: fevm-replay fuzz-pair <deployed.bin> <port.bin> <token.bin> 1 "
+        } else {
+            "replay it: fevm-replay fuzz <deployed.bin> <port.bin> 1 "
+        },
         found.first_step,
         " ",
         found.first_seed,
@@ -816,6 +899,14 @@ fn fuzz_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
         return 1
     }
     0
+}
+
+fn hex_text(_ bytes: MemSpan) -> MemBuffer {
+    var text = MemBuffer::empty()
+    for i in 0 .. bytes.len() {
+        core::text::hex(bytes[i] as u256, 1).fmt(mut text)
+    }
+    text
 }
 
 fn outcome(_ result: [i32; 2]) -> String<20> {

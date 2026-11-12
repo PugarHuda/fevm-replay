@@ -53,7 +53,8 @@ fn record(_ profile: mut MemVec<SelectorGas>, _ selector: u32, calls: u64, gas: 
 }
 
 pub struct GasWatch {
-    shadow: u256,
+    // The accounts running shadow code.
+    shadows: MemVec<u256>,
     // The open call frames, innermost last.
     frames: MemVec<Frame>,
     shadow_ran: bool,
@@ -68,9 +69,13 @@ pub struct GasWatch {
 }
 
 impl GasWatch {
-    pub fn new(shadow: u256) -> Self {
+    pub fn new(shadows: MemVec<u256>) -> Self {
+        var own_copy: MemVec<u256> = MemVec::new()
+        for i in 0 .. shadows.len() {
+            own_copy.push(shadows[i])
+        }
         GasWatch {
-            shadow,
+            shadows: own_copy,
             frames: MemVec::new(),
             shadow_ran: false,
             observed: false,
@@ -78,6 +83,15 @@ impl GasWatch {
             profile: MemVec::new(),
         }
     }
+}
+
+fn is_shadow(_ shadows: MemVec<u256>, _ address: u256) -> bool {
+    for i in 0 .. shadows.len() {
+        if shadows[i] == address {
+            return true
+        }
+    }
+    false
 }
 
 impl Tracer for GasWatch {
@@ -88,7 +102,7 @@ impl Tracer for GasWatch {
         if step.op == OP_GAS && self.shadow_ran {
             match self.frames.last() {
                 Option::Some(ref frame) => {
-                    if frame.to != self.shadow {
+                    if !is_shadow(self.shadows, frame.to) {
                         self.observed = true
                     }
                 },
@@ -98,7 +112,7 @@ impl Tracer for GasWatch {
     }
 
     fn enter(mut self, _ call: CallStart, input: MemSpan) {
-        if call.to == self.shadow {
+        if is_shadow(self.shadows, call.to) {
             self.shadow_ran = true
         }
         var selector: u32 = 0
@@ -113,7 +127,7 @@ impl Tracer for GasWatch {
     fn leave(mut self, _ call: CallEnd, output: MemSpan) {
         match self.frames.pop() {
             Option::Some(frame) => {
-                if frame.to == self.shadow && frame.gas >= call.gas {
+                if is_shadow(self.shadows, frame.to) && frame.gas >= call.gas {
                     record(
                         mut self.profile,
                         frame.selector,

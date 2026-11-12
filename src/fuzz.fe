@@ -23,6 +23,7 @@ use fevm::{
     WorldState,
     transact,
 }
+use fevm::status::exceptional
 
 /// Where the contract under test lives in the fuzzed world.
 pub const TARGET: u256 = 0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2
@@ -42,6 +43,9 @@ pub const DIRTY_ADDRESS: u8 = 2
 pub struct Findings {
     pub calls: [u64; 3],
     pub identical: [u64; 3],
+    /// Calls whose `Error(string)` reasons agree but whose padding after
+    /// the reason does not: solc 0.5 pads with whatever memory held.
+    pub dirty_padding: u64,
     /// The first difference: its seed, step and category, or `step` 0
     /// when there was none.
     pub first_seed: u64,
@@ -58,6 +62,9 @@ pub struct Findings {
     /// Its outcome on each side: `invalid`, then `status`, as fevm reports them.
     pub first_deployed: [i32; 2],
     pub first_port: [i32; 2],
+    /// Its return or revert data on each side.
+    pub first_deployed_output: MemBuffer,
+    pub first_port_output: MemBuffer,
 }
 
 impl Findings {
@@ -65,6 +72,7 @@ impl Findings {
         Findings {
             calls: [0, 0, 0],
             identical: [0, 0, 0],
+            dirty_padding: 0,
             first_seed: 0,
             first_step: 0,
             first_category: 0,
@@ -76,6 +84,8 @@ impl Findings {
             first_data: MemBuffer::empty(),
             first_deployed: [0, 0],
             first_port: [0, 0],
+            first_deployed_output: MemBuffer::empty(),
+            first_port_output: MemBuffer::empty(),
         }
     }
 }
@@ -233,11 +243,21 @@ fn address_word(_ address: u256, dirty: bool, _ rng: mut Rng) -> u256 {
     }
 }
 
-// One random call: its calldata in `data`, its value, its category and
+// One random call: its calldata in `data`, its target, value, category and
 // selector.
-struct Call { value: u256, category: u8, selector: u32 }
+struct Call { to: u256, value: u256, category: u8, selector: u32 }
 
 impl Copy for Call {}
+
+// A call to WETH9's interface, made directly or through a forwarder.
+fn weth_call(_ rng: mut Rng, _ data: mut MemBuffer) -> Call {
+    let call = random_call(mut rng, mut data)
+    let pick = rng.below(5)
+    let to = if pick == 3 {
+        FORWARDER_ACCEPTS
+    } else if pick == 4 { FORWARDER_REJECTS } else { TARGET }
+    Call { to, value: call.value, category: call.category, selector: call.selector }
+}
 
 fn random_call(_ rng: mut Rng, _ data: mut MemBuffer) -> Call {
     let dirty = rng.below(8) == 0
@@ -294,8 +314,15 @@ fn random_call(_ rng: mut Rng, _ data: mut MemBuffer) -> Call {
         },
         _ => {},
     }
-    // Short calldata: cut into the last argument.
-    if short && data.len() > 4 {
+    if short {
+        cut_short(mut rng, mut data)
+    }
+    Call { to: TARGET, value, category, selector }
+}
+
+// Short calldata: cut into the last argument.
+fn cut_short(_ rng: mut Rng, _ data: mut MemBuffer) {
+    if data.len() > 4 {
         let keep = 4 + rng.below((data.len() - 4).downcast_unchecked()).downcast_unchecked()
         var cut = MemBuffer::empty()
         for i in 0 .. keep {
@@ -303,13 +330,348 @@ fn random_call(_ rng: mut Rng, _ data: mut MemBuffer) -> Call {
         }
         data = cut
     }
-    Call { value, category, selector }
 }
 
-fn block() -> BlockEnv {
+// The Uniswap V2 pair scenario: a pair of two tokens running WETH9's code,
+// a factory whose `feeTo` is unset or set, and two flash-swap callees, one
+// accepting and one reentering the pair.
+pub const PAIR: u256 = 0x4000
+const TOKEN0: u256 = 0x3000
+const TOKEN1: u256 = 0x3001
+const FACTORY_FEE_OFF: u256 = 0x3002
+const FACTORY_FEE_ON: u256 = 0x3003
+const CALLEE_ACCEPTS: u256 = 0x3004
+const CALLEE_REENTERS: u256 = 0x3005
+const FEE_TO: u256 = 0x1003
+
+// Code answering any call with the word `value`.
+fn returns_word(_ value: u256) -> MemBuffer {
+    var code = MemBuffer::empty()
+    push_address(mut code, value)
+    // PUSH1 0 MSTORE PUSH1 32 PUSH1 0 RETURN
+    code.push(0x60)
+    code.push(0x00)
+    code.push(0x52)
+    code.push(0x60)
+    code.push(0x20)
+    code.push(0x60)
+    code.push(0x00)
+    code.push(0xf3)
+    code
+}
+
+// A flash-swap callee that calls the pair's `sync()` back, which the pair's
+// lock refuses, and reverts with the pair's revert data.
+fn reentering_callee() -> MemBuffer {
+    var code = MemBuffer::empty()
+    // PUSH4 sync() PUSH1 224 SHL PUSH1 0 MSTORE
+    code.push(0x63)
+    push_selector(mut code, 0xfff6cae9)
+    code.push(0x60)
+    code.push(0xe0)
+    code.push(0x1b)
+    code.push(0x60)
+    code.push(0x00)
+    code.push(0x52)
+    // CALL(GAS, PAIR, 0, 0, 4, 0, 0)
+    code.push(0x60)
+    code.push(0x00)
+    code.push(0x60)
+    code.push(0x00)
+    code.push(0x60)
+    code.push(0x04)
+    code.push(0x60)
+    code.push(0x00)
+    code.push(0x60)
+    code.push(0x00)
+    push_address(mut code, PAIR)
+    code.push(0x5a)
+    code.push(0xf1)
+    // PUSH1 ok JUMPI
+    let ok = code.len() + 3 + 10
+    code.push(0x60)
+    code.push(ok.downcast_truncate())
+    code.push(0x57)
+    // RETURNDATACOPY(0, 0, RETURNDATASIZE) REVERT(0, RETURNDATASIZE)
+    code.push(0x3d)
+    code.push(0x60)
+    code.push(0x00)
+    code.push(0x60)
+    code.push(0x00)
+    code.push(0x3e)
+    code.push(0x3d)
+    code.push(0x60)
+    code.push(0x00)
+    code.push(0xfd)
+    // ok: JUMPDEST STOP
+    code.push(0x5b)
+    code.push(0x00)
+    code
+}
+
+fn pair_genesis(_ pair: MemSpan, _ token: MemSpan, fee_on: bool) -> WorldState {
+    var world = WorldState::empty()
+    world.set_code(address: PAIR, code: pair)
+    world.set_code(address: TOKEN0, code: token)
+    world.set_code(address: TOKEN1, code: token)
+    let off = returns_word(0)
+    let on = returns_word(FEE_TO)
+    world.set_code(address: FACTORY_FEE_OFF, code: off.span())
+    world.set_code(address: FACTORY_FEE_ON, code: on.span())
+    var stop = MemBuffer::empty()
+    stop.push(0x00)
+    world.set_code(address: CALLEE_ACCEPTS, code: stop.span())
+    let reenters = reentering_callee()
+    world.set_code(address: CALLEE_REENTERS, code: reenters.span())
+    // The storage UniswapV2Factory's createPair leaves: DOMAIN_SEPARATOR,
+    // factory, token0, token1 and `unlocked`.
+    world.storage_store(PAIR, 3, 0xd0a1)
+    world.storage_store(
+            PAIR,
+            5,
+            if fee_on {
+                FACTORY_FEE_ON
+            } else {
+                FACTORY_FEE_OFF
+            },
+        )
+    world.storage_store(PAIR, 6, TOKEN0)
+    world.storage_store(PAIR, 7, TOKEN1)
+    world.storage_store(PAIR, 12, 1)
+    for i in 0 .. 3 {
+        world.set_balance(eoa(i.downcast_unchecked()), 1000 * ETHER)
+    }
+    // Every account wraps 100 ETH into each token.
+    for i in 0 .. 3 {
+        world = deposit(world, eoa(i.downcast_unchecked()), TOKEN0)
+        world = deposit(world, eoa(i.downcast_unchecked()), TOKEN1)
+    }
+    world
+}
+
+fn deposit(_ world: own WorldState, _ sender: u256, _ token: u256) -> WorldState {
+    var data = MemBuffer::empty()
+    push_selector(mut data, 0xd0e30db0)
+    let call = Call { to: token, value: 100 * ETHER, category: WELL_FORMED, selector: 0xd0e30db0 }
+    let tx = request(world, sender, to: token, call, data.span())
+    var buffers = Buffers::new()
+    var none = ()
+    transact(
+        world,
+        tx,
+        block(0),
+        Config::osaka(),
+        mut buffers,
+        mut none,
+    ).state
+}
+
+// Amounts sized for pools of a few hundred ether of each token, with the
+// edges: zero, one, 2**112 and the largest word.
+fn pair_amount(_ rng: mut Rng) -> u256 {
+    match rng.below(10) {
+        0 => 0,
+        1 => 1,
+        2 => 1000,
+        3 => (1 + rng.below(9)) as u256 * pow10(rng.below(22)),
+        4 => (1 + rng.below(9)) as u256 * pow10(rng.below(22)),
+        5 => (1 + rng.below(99)) as u256 * ETHER / 10,
+        6 => 1 << 112,
+        7 => u256::max(),
+        _ => rng.next() as u256 % (10 * ETHER),
+    }
+}
+
+fn pow10(_ n: u64) -> u256 {
+    var x: u256 = 1
+    var i: u64 = 0
+    while i < n {
+        x *= 10
+        i += 1
+    }
+    x
+}
+
+fn pair_actor(_ rng: mut Rng) -> u256 {
+    match rng.below(9) {
+        0 => eoa(0),
+        1 => eoa(1),
+        2 => eoa(2),
+        3 => PAIR,
+        4 => TOKEN0,
+        5 => CALLEE_ACCEPTS,
+        6 => CALLEE_REENTERS,
+        7 => FEE_TO,
+        _ => 0,
+    }
+}
+
+fn pair_call(_ rng: mut Rng, _ data: mut MemBuffer) -> Call {
+    let dirty = rng.below(10) == 0
+    let short = !dirty && rng.below(12) == 0
+    let category = if dirty {
+        DIRTY_ADDRESS
+    } else if short { SHORT_CALLDATA } else { WELL_FORMED }
+    // Nothing on a pair is payable; now and then a call carries ETH anyway.
+    let value: u256 = if rng.below(20) == 0 { 1 } else { 0 }
+    var to = PAIR
+    let op = rng.below(20)
+    let selector: u32 = match op {
+        0 => 0xa9059cbb,
+        1 => 0xa9059cbb,
+        2 => 0xa9059cbb,
+        3 => 0xa9059cbb,
+        4 => 0x6a627842,
+        5 => 0x6a627842,
+        6 => 0xa9059cbb,
+        7 => 0x89afcb44,
+        8 => 0x022c0d9f,
+        9 => 0x022c0d9f,
+        10 => 0x022c0d9f,
+        11 => 0xbc25cf77,
+        12 => 0xfff6cae9,
+        13 => 0xa9059cbb,
+        14 => if rng.below(2) == 0 {
+            0x095ea7b3
+        } else {
+            0x23b872dd
+        },
+        15 => match rng.below(14) {
+            0 => 0x06fdde03,
+            1 => 0x95d89b41,
+            2 => 0x313ce567,
+            3 => 0x18160ddd,
+            4 => 0x3644e515,
+            5 => 0x30adf81f,
+            6 => 0xba9a7a56,
+            7 => 0xc45a0155,
+            8 => 0x0dfe1681,
+            9 => 0xd21220a7,
+            10 => 0x0902f1ac,
+            11 => 0x5909c0d5,
+            12 => 0x5a3d5493,
+            _ => 0x7464fc3d,
+        },
+        16 => match rng.below(3) {
+            0 => 0x70a08231,
+            1 => 0x7ecebe00,
+            _ => 0xdd62ed3e,
+        },
+        17 => 0xd505accf,
+        18 => 0x485cc955,
+        _ => if rng.below(2) == 0 { 0x12345678 } else { 0 },
+    }
+    if selector != 0 {
+        push_selector(mut data, selector)
+    }
+    if op < 4 {
+        // Tokens into the pair, ahead of a mint, swap or skim.
+        to = if op % 2 == 0 { TOKEN0 } else { TOKEN1 }
+        push_word(mut data, address_word(PAIR, dirty, mut rng))
+        push_word(mut data, pair_amount(mut rng))
+    } else if op == 6 {
+        // Liquidity tokens into the pair, ahead of a burn.
+        push_word(mut data, address_word(PAIR, dirty, mut rng))
+        push_word(mut data, pair_amount(mut rng))
+    } else if op == 4 || op == 5 || op == 7 || op == 11 || op == 13 || op == 16 {
+        push_word(
+            mut data,
+            address_word(pair_actor(mut rng), dirty, mut rng),
+        )
+        if op == 13 {
+            push_word(mut data, pair_amount(mut rng))
+        }
+        if op == 16 && selector == 0xdd62ed3e {
+            push_word(
+                mut data,
+                address_word(pair_actor(mut rng), dirty, mut rng),
+            )
+        }
+    } else if op >= 8 && op <= 10 {
+        swap_args(mut rng, mut data, dirty)
+    } else if op == 14 {
+        push_word(
+            mut data,
+            address_word(pair_actor(mut rng), dirty, mut rng),
+        )
+        if selector == 0x23b872dd {
+            push_word(
+                mut data,
+                address_word(pair_actor(mut rng), dirty, mut rng),
+            )
+        }
+        push_word(mut data, pair_amount(mut rng))
+    } else if op == 17 {
+        // permit(owner, spender, value, deadline, v, r, s) with a signature
+        // that never verifies: expired, or signed by nobody.
+        push_word(
+            mut data,
+            address_word(pair_actor(mut rng), dirty, mut rng),
+        )
+        push_word(
+            mut data,
+            address_word(pair_actor(mut rng), dirty, mut rng),
+        )
+        push_word(mut data, pair_amount(mut rng))
+        push_word(mut data, if rng.below(2) == 0 { 0 } else { u256::max() })
+        push_word(mut data, 27 + rng.below(2) as u256)
+        push_word(mut data, rng.next() as u256)
+        push_word(mut data, rng.next() as u256)
+    } else if op == 18 {
+        push_word(
+            mut data,
+            address_word(pair_actor(mut rng), dirty, mut rng),
+        )
+        push_word(
+            mut data,
+            address_word(pair_actor(mut rng), dirty, mut rng),
+        )
+    }
+    if short {
+        cut_short(mut rng, mut data)
+    }
+    Call { to, value, category, selector }
+}
+
+// swap(amount0Out, amount1Out, to, data): mostly one side out, to an
+// account or a callee, with flash-swap data now and then.
+fn swap_args(_ rng: mut Rng, _ data: mut MemBuffer, _ dirty: bool) {
+    let side = rng.below(4)
+    push_word(mut data, if side == 1 { 0 } else { pair_amount(mut rng) })
+    push_word(mut data, if side == 0 { 0 } else { pair_amount(mut rng) })
+    let flash = rng.below(3) == 0
+    let to = if flash {
+        if rng.below(2) == 0 {
+            CALLEE_ACCEPTS
+        } else {
+            CALLEE_REENTERS
+        }
+    } else {
+        pair_actor(mut rng)
+    }
+    push_word(mut data, address_word(to, dirty, mut rng))
+    push_word(mut data, 0x80)
+    let len: u64 = if flash { 1 + rng.below(40) } else { 0 }
+    push_word(mut data, len as u256)
+    var i: u64 = 0
+    while i < (len + 31) / 32 * 32 {
+        data.push(
+            if i < len {
+                (rng.next() & 0xff).downcast_truncate()
+            } else {
+                0
+            },
+        )
+        i += 1
+    }
+}
+
+// Each call lands twelve seconds after the last, so the pair's price
+// accumulators move.
+fn block(_ step: u64) -> BlockEnv {
     BlockEnv {
         coinbase: 0xc0ffee,
-        timestamp: 1_800_000_000,
+        timestamp: 1_800_000_000 + step as u256 * 12,
         number: 26_400_000,
         prevrandao: 0,
         gaslimit: 60_000_000,
@@ -344,6 +706,43 @@ fn request(
         env,
         data: InputData::new(MemBuffer::from_span(data), status: OK),
     )
+}
+
+// Exceptional halts all end a call the same way: no return data and no gas
+// back. solc 0.5 halts with INVALID on division by zero, where a Fe port
+// runs out of gas.
+fn same_status(_ a: i32, _ b: i32) -> bool {
+    a == b || (exceptional(a) && exceptional(b))
+}
+
+// Whether `a` and `b` are the same `Error(string)` revert up to the padding
+// after the reason.
+fn same_reason(_ a: MemSpan, _ b: MemSpan) -> bool {
+    if a.len() != b.len()
+        || a.len() < 68
+        || a[0] != 0x08
+        || a[1] != 0xc3
+        || a[2] != 0x79
+        || a[3] != 0xa0 {
+        return false
+    }
+    // A length beyond four bytes cannot fit the data anyway.
+    for i in 36 .. 64 {
+        if a[i] != 0 { return false }
+    }
+    var length: usize = 0
+    for i in 64 .. 68 {
+        length = (length << 8) | a[i] as usize
+    }
+    if 68 + length > a.len() {
+        return false
+    }
+    for i in 0 .. 68 + length {
+        if a[i] != b[i] {
+            return false
+        }
+    }
+    true
 }
 
 fn same_bytes(_ a: MemSpan, _ b: MemSpan) -> bool {
@@ -382,14 +781,15 @@ fn same_logs(_ a: LogBuffer, _ b: LogBuffer) -> bool {
     true
 }
 
-// Whether every balance, nonce, code (but the target's) and slot agrees.
+// Whether every balance, nonce, code (but the tested contract's) and slot
+// agrees.
 fn same_state(_ a: WorldState, _ b: WorldState) -> bool {
     for position in 0 .. a.account_count() {
         let address = a.account_at(position).address
         if a.balance(address) != b.balance(address) || a.nonce(address) != b.nonce(address) {
             return false
         }
-        if address != TARGET && !same_bytes(a.code(address), b.code(address)) {
+        if address != TARGET && address != PAIR && !same_bytes(a.code(address), b.code(address)) {
             return false
         }
     }
@@ -417,9 +817,12 @@ fn same_state(_ a: WorldState, _ b: WorldState) -> bool {
 /// Runs `runs` sessions of `steps` random calls each, from seeds `seed`,
 /// `seed + 1`, ..., against `deployed` and `port`. A session stops at its
 /// first difference, since the two worlds no longer agree after it.
+/// With `token` empty, the calls target WETH9's interface; otherwise a
+/// Uniswap V2 pair between two tokens running `token`.
 pub fn fuzz(
     _ deployed: MemSpan,
     _ port: MemSpan,
+    token: MemSpan,
     runs: u64,
     steps: u64,
     seed: u64,
@@ -428,19 +831,29 @@ pub fn fuzz(
     var run: u64 = 0
     while run < runs {
         var rng = Rng { state: (seed + run).wrapping_mul(0x9e3779b97f4a7c15) | 1 }
-        var a = genesis(deployed)
-        var b = genesis(port)
+        let pair = token.len() > 0
+        let fee_on = pair && rng.below(2) == 0
+        var a = if pair {
+            pair_genesis(deployed, token, fee_on)
+        } else {
+            genesis(deployed)
+        }
+        var b = if pair {
+            pair_genesis(port, token, fee_on)
+        } else {
+            genesis(port)
+        }
         var step: u64 = 0
         while step < steps {
             step += 1
             var data = MemBuffer::empty()
-            let call = random_call(mut rng, mut data)
-            // A forwarder makes the call when one is picked as the caller.
-            let pick = rng.below(5)
+            let call = if pair {
+                pair_call(mut rng, mut data)
+            } else {
+                weth_call(mut rng, mut data)
+            }
             let sender = eoa(rng.below(3))
-            let to = if pick == 3 {
-                FORWARDER_ACCEPTS
-            } else if pick == 4 { FORWARDER_REJECTS } else { TARGET }
+            let to = call.to
             let tx_a = request(a, sender, to, call, data.span())
             let tx_b = request(b, sender, to, call, data.span())
             var buffers_a = Buffers::new()
@@ -450,7 +863,7 @@ pub fn fuzz(
             let ran_a = transact(
                 a,
                 tx_a,
-                block(),
+                block(step),
                 Config::osaka(),
                 mut buffers_a,
                 mut none_a,
@@ -458,16 +871,17 @@ pub fn fuzz(
             let ran_b = transact(
                 b,
                 tx_b,
-                block(),
+                block(step),
                 Config::osaka(),
                 mut buffers_b,
                 mut none_b,
             )
             found.calls[call.category as usize] += 1
             let what: u8 = if ran_a.receipt.invalid != ran_b.receipt.invalid
-                || ran_a.receipt.status != ran_b.receipt.status {
+                || !same_status(ran_a.receipt.status, ran_b.receipt.status) {
                 1
-            } else if !same_bytes(ran_a.receipt.output.span(), ran_b.receipt.output.span()) {
+            } else if !same_bytes(ran_a.receipt.output.span(), ran_b.receipt.output.span())
+                && !same_reason(ran_a.receipt.output.span(), ran_b.receipt.output.span()) {
                 2
             } else if !same_logs(ran_a.receipt.logs, ran_b.receipt.logs) {
                 3
@@ -492,10 +906,15 @@ pub fn fuzz(
                     found.first_data = MemBuffer::from_span(data.span())
                     found.first_deployed = [ran_a.receipt.invalid, ran_a.receipt.status]
                     found.first_port = [ran_b.receipt.invalid, ran_b.receipt.status]
+                    found.first_deployed_output = MemBuffer::from_span(ran_a.receipt.output.span())
+                    found.first_port_output = MemBuffer::from_span(ran_b.receipt.output.span())
                 }
                 break
             }
             found.identical[call.category as usize] += 1
+            if !same_bytes(ran_a.receipt.output.span(), ran_b.receipt.output.span()) {
+                found.dirty_padding += 1
+            }
         }
         run += 1
     }

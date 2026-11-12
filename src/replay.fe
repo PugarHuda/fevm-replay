@@ -25,7 +25,9 @@ use ingot::watch::{GasWatch, SelectorGas, add_profile}
 ///
 /// Shadow replay: when `shadow_address` is nonzero and the transaction
 /// touches it, its code is replaced by `shadow_code` (in both worlds), such
-/// as a Fe port of the Solidity contract deployed there. The port must then
+/// as a Fe port of the Solidity contract deployed there. With `shadow_like`
+/// set, so is the code of every account in the prestate whose code is
+/// `shadow_like`: every Uniswap V2 pair runs the same code, for one. The port must then
 /// leave every log, balance, nonce and slot as the original did. Only gas may
 /// differ, and with it what the sender paid and the coinbase earned, so
 /// those two balances are adjusted by the gas difference before comparing.
@@ -42,6 +44,7 @@ pub fn replay_tx(
     _ diff: Value,
     shadow_address: u256,
     shadow_code: MemSpan,
+    shadow_like: MemSpan,
     deployed_gas: mut MemVec<SelectorGas>,
     shadow_gas: mut MemVec<SelectorGas>,
 ) -> Mismatches
@@ -50,22 +53,16 @@ uses (text: mut MemBuffer)
     var expected = load_world(prestate)
     add_extras(mut expected, extras)
     apply_diff(mut expected, diff)
-    let shadowed = shadow_address != 0 && expected.exists(shadow_address)
-    if shadowed {
-        expected.set_code(address: shadow_address, code: shadow_code)
+    let targets = shadow_targets(load_world(prestate), shadow_address, shadow_like)
+    let shadowed = targets.len() > 0
+    for i in 0 .. targets.len() {
+        expected.set_code(address: targets[i], code: shadow_code)
     }
-    let world = build_world(
-        prestate,
-        block,
-        parent_hash,
-        extras,
-        shadow_address,
-        shadow_code,
-    )
+    let world = build_world(prestate, block, parent_hash, extras, targets, shadow_code)
     var buffers = Buffers::new()
     // A plain replay passes `()`, which compiles to an interpreter without
     // tracing hooks; a shadow replay watches for code reading the gas left.
-    var watch = GasWatch::new(shadow: shadow_address)
+    var watch = GasWatch::new(shadows: targets)
     let applied = if shadowed {
         transact(
             world,
@@ -108,7 +105,7 @@ uses (text: mut MemBuffer)
     found.read_blockhash = watch.read_blockhash
     // The same transaction on the deployed code, for its gas per function.
     if shadowed && found.total() == 0 {
-        var deployed = GasWatch::new(shadow: shadow_address)
+        var deployed = GasWatch::new(shadows: targets)
         var again = Buffers::new()
         transact(
             build_world(
@@ -116,7 +113,7 @@ uses (text: mut MemBuffer)
                 block,
                 parent_hash,
                 extras,
-                shadow_address: 0,
+                MemVec::new(),
                 shadow_code,
             ),
             load_tx(tx),
@@ -131,7 +128,7 @@ uses (text: mut MemBuffer)
     // A plain replay that differs runs again under the watch, to tell
     // whether it read a block hash the replay does not hold.
     if !shadowed && found.total() > 0 {
-        var probe = GasWatch::new(shadow: 0)
+        var probe = GasWatch::new(shadows: MemVec::new())
         var more = Buffers::new()
         transact(
             build_world(
@@ -139,7 +136,7 @@ uses (text: mut MemBuffer)
                 block,
                 parent_hash,
                 extras,
-                shadow_address,
+                MemVec::new(),
                 shadow_code,
             ),
             load_tx(tx),
@@ -153,19 +150,49 @@ uses (text: mut MemBuffer)
     found
 }
 
-// The prestate as an fevm world, with the shadow code (if the transaction
-// touches its address) and what the node knows beyond its traces.
+// The accounts of `world` to shadow: `address` if present, and every account
+// whose code is `like` (when `like` is not empty).
+fn shadow_targets(_ world: WorldState, _ address: u256, _ like: MemSpan) -> MemVec<u256> {
+    var targets: MemVec<u256> = MemVec::new()
+    if address != 0 && world.exists(address) {
+        targets.push(address)
+    }
+    if like.len() > 0 {
+        for i in 0 .. world.account_count() {
+            let account = world.account_at(i).address
+            if account != address && same_bytes(world.code(account), like) {
+                targets.push(account)
+            }
+        }
+    }
+    targets
+}
+
+fn same_bytes(_ a: MemSpan, _ b: MemSpan) -> bool {
+    if a.len() != b.len() {
+        return false
+    }
+    for i in 0 .. a.len() {
+        if a[i] != b[i] {
+            return false
+        }
+    }
+    true
+}
+
+// The prestate as an fevm world, with the shadow code at `targets` and what
+// the node knows beyond its traces.
 fn build_world(
     _ prestate: Value,
     _ block: BlockEnv,
     _ parent_hash: u256,
     _ extras: Value,
-    _ shadow_address: u256,
+    _ targets: MemVec<u256>,
     _ shadow_code: MemSpan,
 ) -> WorldState {
     var world = load_world(prestate)
-    if shadow_address != 0 && world.exists(shadow_address) {
-        world.set_code(address: shadow_address, code: shadow_code)
+    for i in 0 .. targets.len() {
+        world.set_code(address: targets[i], code: shadow_code)
     }
     // BLOCKHASH reads the client's block hashes, not state, so the prestate
     // tracer cannot see them. The parent's comes with the header; a fixture
@@ -218,6 +245,7 @@ pub fn replay(_ doc: Value) -> Mismatches uses (text: mut MemBuffer) {
         doc["diff"],
         shadow_address: 0,
         shadow_code: MemBuffer::empty().span(),
+        shadow_like: MemBuffer::empty().span(),
         deployed_gas: mut unused_a,
         shadow_gas: mut unused_b,
     )

@@ -97,6 +97,7 @@ fn fuzz_finds_a_difference_only_where_there_is_one() {
     ingot::fuzz::fuzz(
         stop.span(),
         stop.span(),
+        token: core::MemBuffer::empty().span(),
         runs: 3,
         steps: 5,
         seed: 1,
@@ -107,6 +108,7 @@ fn fuzz_finds_a_difference_only_where_there_is_one() {
     ingot::fuzz::fuzz(
         stop.span(),
         revert.span(),
+        token: core::MemBuffer::empty().span(),
         runs: 3,
         steps: 5,
         seed: 1,
