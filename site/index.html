@@ -83,6 +83,7 @@
         <p>Shadow replay puts a Fe port in place of a deployed Solidity contract in every transaction that touches it, and requires the same logs and state. Only gas may differ.</p>
         <p>We wrote WETH9 in Fe and shadowed mainnet WETH across 300 blocks. In 4,806 real transactions it found one that behaved differently: a contract that withdraws zero WETH into its fallback. Solidity's <code>transfer</code> passes 2,300 gas when no ETH moves, because the EVM only adds its stipend to calls that do. The Fe port passed none, so the fallback ran out of gas.</p>
         <p>The unit tests had not caught it. The port is fixed, and a test now fails without the fix.</p>
+        <p>Then we went past mainnet's traffic. <code>fuzz</code> sends random calls to the deployed code and the port side by side: 245,415 well-formed calls in 2.1 seconds, none different. Against the port from before the fix, it finds the zero-withdrawal bug in a tenth of a second.</p>
       </div>
       <div class="ledger" role="table" aria-label="Fe WETH9 in place of mainnet WETH over 300 blocks">
         <div role="row"><span role="cell">Ran Fe WETH9</span><strong role="cell">4,806</strong></div>

@@ -34,6 +34,7 @@
       <li><a href="#fixtures">Fixture format</a></li>
       <li><a href="#blocks">Block directories</a></li>
       <li><a href="#shadow">Shadow replay</a></li>
+      <li><a href="#fuzz">Shadow fuzzing</a></li>
       <li><a href="#ports">Writing a port</a></li>
       <li><a href="#architecture">Architecture</a></li>
       <li><a href="#limits">Limitations</a></li>
@@ -68,6 +69,8 @@ fe build --backend native -O 2 --emit executable --out-dir out .
         <tr><td><code>fevm_replay fetch &lt;txhash&gt; &lt;fixture.json&gt; [rpc]</code></td><td>Asks the node about one transaction and writes its fixture.</td></tr>
         <tr><td><code>fevm_replay fetch-block &lt;0x-number&gt; &lt;dir&gt; [rpc]</code></td><td>Saves the node's answers for a whole block in <code>dir</code>, with five calls plus one per missing delegation target.</td></tr>
         <tr><td><code>fevm_replay block &lt;dir&gt; [&lt;address&gt; &lt;runtime.bin&gt;]</code></td><td>Replays every transaction of a saved block. With an address and runtime code, runs a shadow replay.</td></tr>
+        <tr><td><code>fevm_replay fetch-code &lt;address&gt; &lt;file&gt; [rpc]</code></td><td>Saves the code deployed at an address, as hex.</td></tr>
+        <tr><td><code>fevm_replay fuzz &lt;deployed.hex&gt; &lt;port.bin&gt; [runs] [steps] [seed]</code></td><td>Random calls against the deployed code and a port, compared after each. Exits 1 if a well-formed call differs.</td></tr>
         <tr><td><code>fevm_replay range &lt;first&gt; &lt;count&gt; &lt;dir&gt; [&lt;address&gt; &lt;runtime.bin&gt;]</code></td><td>Fetches the blocks not yet saved under <code>dir</code>, replays them and prints totals. Run it again to resume.</td></tr>
       </tbody>
     </table>
@@ -116,6 +119,13 @@ fe build --backend native -O 2 --emit executable --out-dir out .
     <p>Gas may differ, and with it what the sender paid and the coinbase earned, so those two balances are settled by the gas difference before comparing. The summary line counts transactions that ran the port, those identical, those that differ only where code read the gas left, and those that behaved differently, and totals the gas on chain and with the port. It then lists the average gas per call of each function of the shadowed contract, on the deployed code and on the port, over the transactions the port left identical (each runs a second time on the deployed code for this).</p>
     <p class="note">Code that reads the gas left can legitimately act differently when a port is cheaper: MEV bots that size a builder payment from gas used, and ERC-4337 bundles that record it. A <code>GasWatch</code> tracer detects this, so only a difference without such a reading counts against the port.</p>
 
+    <h2 id="fuzz">Shadow fuzzing</h2>
+    <p>Mainnet only makes the calls it happens to make. <code>fuzz</code> makes the rest: seeded random calls in two copies of one world, one running the deployed code and one running the port, compared after every call (status, return data, logs and all state). Callers include contracts that accept and reject ETH, so withdrawals into fallbacks are exercised.</p>
+<pre><code>./out/fevm_replay fetch-code 0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2 weth9.hex
+./out/fevm_replay fuzz weth9.hex out/weth9/WETH9.runtime.bin 20000 60 1000</code></pre>
+    <p>Calls are counted in three groups: well-formed, calldata shorter than its arguments, and address arguments with dirty upper bits. Fe's ABI decoder rejects the last two where solc 0.4 lets them through, so only a well-formed difference fails the run. The first difference is printed with its sender, target, value, calldata and the outcome on each side, and the seed and call number replay it.</p>
+    <p class="note">The call generator targets WETH9's interface. Another contract needs its own selectors in <code>src/fuzz.fe</code>.</p>
+
     <h2 id="ports">Writing a port</h2>
     <p><a href="https://github.com/PugarHuda/fevm-replay/tree/main/ports/weth9"><code>ports/weth9</code></a> is the worked example. A port is only a drop-in replacement if it keeps the deployed contract's:</p>
     <ul>
@@ -134,6 +144,7 @@ fe build --backend native -O 2 --emit executable --out-dir out .
         <tr><td><code>src/load.fe</code></td><td>JSON to fevm: <code>load_world</code>, <code>load_tx</code>, <code>load_block</code>, <code>add_extras</code></td></tr>
         <tr><td><code>src/replay.fe</code></td><td><code>replay_tx</code>: load, <code>fevm::transact</code>, compare. No host capabilities</td></tr>
         <tr><td><code>src/compare.fe</code></td><td>Applies the chain's diff to the prestate, then compares worlds, receipts and logs in both directions</td></tr>
+        <tr><td><code>src/fuzz.fe</code></td><td>Shadow fuzzing: random calls against deployed code and its port, compared after each</td></tr>
         <tr><td><code>src/watch.fe</code></td><td><code>GasWatch</code>, an fevm tracer that records GAS after the shadow code ran, and BLOCKHASH</td></tr>
         <tr><td><code>src/lib.fe</code></td><td>The command line</td></tr>
       </tbody>
