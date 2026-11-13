@@ -64,6 +64,12 @@ jobs:
       - name: Fuzzed V2 pair port answers well-formed calls as the deployed pair does
         run: ./out/fevm_replay fuzz-pair fixtures/code/uniswap-v2-pair-mainnet.hex out/pair/UniswapV2Pair.runtime.bin fixtures/code/weth9-mainnet.hex 1000 60 1
 
+      - name: Mutants planted in the V2 pair port are caught
+        run: |
+          out=$(./out/fevm_replay mutants ports/uniswap-v2-pair UniswapV2Pair fixtures/code/uniswap-v2-pair-mainnet.hex fixtures/code/weth9-mainnet.hex 8)
+          echo "$out"
+          echo "$out" | grep -q "mutants built"
+
       - name: Mainnet fixtures replay exactly
         run: ./out/fevm_replay fixtures/mainnet/*.json
 

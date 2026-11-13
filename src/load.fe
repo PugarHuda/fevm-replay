@@ -77,6 +77,15 @@ pub fn load_block(_ header: Value, chain_id: u256, blobbasefee: u256) -> BlockEn
 /// The accounts of a `prestateTracer` result (not diff mode) as a world.
 pub fn load_world(_ prestate: Value) -> WorldState {
     var world = WorldState::empty()
+    add_prestate(mut world, prestate)
+    world
+}
+
+/// Sets every account and slot `prestate` lists in `world`, over what it
+/// held. Adding a block's prestates from its last transaction to its first
+/// leaves each at its value when the block began: the first transaction to
+/// touch it saw that value.
+pub fn add_prestate(_ world: mut WorldState, _ prestate: Value) {
     for ref member in prestate.members() {
         let address = parse_hex_uint(member.key.span()).unwrap_or(default: 0)
         let account = ref member.value
@@ -97,7 +106,55 @@ pub fn load_world(_ prestate: Value) -> WorldState {
             }
         }
     }
-    world
+}
+
+/// After `add_prestate` of one transaction's `prestate`: whatever its state
+/// `diff` writes that the prestate does not list did not exist before it
+/// (the prestate tracer leaves out absent accounts and empty slots), so it
+/// is cleared. Going from the last transaction to the first, a later
+/// transaction's prestate (which saw the write) cannot pass for the
+/// block's start.
+pub fn clear_created(_ world: mut WorldState, _ prestate: Value, _ diff: Value) {
+    for ref member in diff["post"].members() {
+        let address = parse_hex_uint(member.key.span()).unwrap_or(default: 0)
+        if !prestate.has(member.key.span()) {
+            world.set_balance(address, 0)
+            world.set_nonce(address, 0)
+            world.set_code(address: address, code: MemBuffer::empty().span())
+        }
+        if member.value.has("storage") {
+            for ref slot in member.value["storage"].members() {
+                if !lists_slot(prestate, member.key.span(), slot.key.span()) {
+                    world.storage_store(address, parse_hex_uint(slot.key.span()).unwrap_or(default: 0), 0)
+                }
+            }
+        }
+    }
+}
+
+// Whether `prestate` lists storage slot `slot` of account `account`.
+fn lists_slot(_ prestate: Value, _ account: MemSpan, _ slot: MemSpan) -> bool {
+    for ref member in prestate.members() {
+        if same_text(member.key.span(), account) {
+            if !member.value.has("storage") {
+                return false
+            }
+            return member.value["storage"].has(slot)
+        }
+    }
+    false
+}
+
+fn same_text(_ a: MemSpan, _ b: MemSpan) -> bool {
+    if a.len() != b.len() {
+        return false
+    }
+    for i in 0 .. a.len() {
+        if a[i] != b[i] {
+            return false
+        }
+    }
+    true
 }
 
 /// An `eth_getTransactionByHash` result as an fevm request. fevm takes the

@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UniswapV2Pair port certificate</title>
+<style>
+:root{--paper:#f2f4f3;--ink:#1f2624;--steel:#5b6b73;--rule:#c9d1ce;--match:#2e8b6f;--diff:#c9961a;--code:#e9edeb}
+@media (prefers-color-scheme:dark){:root{--paper:#161b1a;--ink:#e4e9e7;--steel:#93a3aa;--rule:#34403d;--match:#4fb894;--diff:#e0b03a;--code:#1f2725}}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.55 system-ui,sans-serif}
+main{width:min(880px,100% - 2rem);margin:2rem auto 4rem}h1{font-size:clamp(1.8rem,5vw,2.6rem);line-height:1.1;letter-spacing:-.02em;margin:.25rem 0 1rem}
+h2{margin-top:2.5rem;padding-top:1rem;border-top:1px solid var(--rule);font-size:1.2rem}.kicker{color:var(--steel);font-weight:600;letter-spacing:.06em;text-transform:uppercase;font-size:.8rem}
+code,.mono{font-family:ui-monospace,monospace;font-size:.85em;overflow-wrap:anywhere}table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:.45rem .6rem .45rem 0;border-bottom:1px solid var(--rule);vertical-align:top}th{color:var(--steel);font-weight:600}td.n,th.n{text-align:right}
+.verdict{border-left:4px solid var(--match);padding:.6rem 1rem;background:color-mix(in srgb,var(--match) 12%,transparent);font-size:1.1rem}.verdict.bad{border-color:var(--diff);background:color-mix(in srgb,var(--diff) 15%,transparent)}
+.note{color:var(--steel);font-size:.92rem}pre{background:var(--code);padding:.8rem;overflow-x:auto;font-size:.8rem}.scroll{overflow-x:auto}
+</style>
+</head>
+<body>
+<main>
+<div class="kicker">Fe port certificate</div>
+<h1>UniswapV2Pair</h1>
+<p>Port source <code>ports/uniswap-v2-pair</code>, runtime code hash <code>0x443e928a28d99481a56b924e038dbc0427a440e9ede17cc51aaf017d20492983</code> (5878 bytes), in place of the deployed code with hash <code>0x5b83bdbcc56b2e630f2807bbadd2b0c21619108066b92a58de081261089e9ce5</code> (11293 bytes). Blocks <code>/root/v2blocks/0x192d500</code> to <code>/root/v2blocks/0x192d5c7</code>.</p>
+<p class="verdict">No behavior difference: every transaction that ran the port, every mutation of them and every random call behaved as on the deployed code.</p>
+<h2>Mainnet, as it happened</h2>
+<p>Each transaction of the blocks ran on its own mainnet pre-state, with the port in place of every account holding the deployed code, and was compared with the chain: status, logs, every balance, nonce and storage slot. Only gas may differ.</p>
+<table>
+<tr><th>Blocks</th><td class="n">200</td></tr>
+<tr><th>Transactions</th><td class="n">69643</td></tr>
+<tr><th>Transactions that ran the port</th><td class="n">856</td></tr>
+<tr><th>Identical to the chain</th><td class="n">806</td></tr>
+<tr><th>Differ where other code read the gas left</th><td class="n">47</td></tr>
+<tr><th>&nbsp;&nbsp;of which part at or under that code</th><td class="n">47</td></tr>
+<tr><th>Differ where other code read code hashes</th><td class="n">3</td></tr>
+<tr><th><strong>Behave differently</strong></th><td class="n">0</td></tr>
+</table>
+<h3>Gas per call in identical transactions</h3>
+<div class="scroll"><table>
+<tr><th>Function</th><th class="n">Calls</th><th class="n">Deployed</th><th class="n">Port</th><th class="n">Change</th></tr>
+<tr><td><code>swap</code></td><td class="n">873</td><td class="n">58308</td><td class="n">57761</td><td class="n">&minus;0.9%</td></tr>
+<tr><td><code>token0</code></td><td class="n">49</td><td class="n">2136</td><td class="n">2063</td><td class="n">&minus;3.4%</td></tr>
+<tr><td><code>token1</code></td><td class="n">26</td><td class="n">2049</td><td class="n">1976</td><td class="n">&minus;3.5%</td></tr>
+<tr><td><code>getReserves</code></td><td class="n">803</td><td class="n">2185</td><td class="n">2088</td><td class="n">&minus;4.4%</td></tr>
+<tr><td><code>factory</code></td><td class="n">43</td><td class="n">2402</td><td class="n">2329</td><td class="n">&minus;3.0%</td></tr>
+<tr><td><code>kLast</code></td><td class="n">1</td><td class="n">2388</td><td class="n">2316</td><td class="n">&minus;3.0%</td></tr>
+<tr><td><code>totalSupply</code></td><td class="n">7</td><td class="n">2388</td><td class="n">2315</td><td class="n">&minus;3.0%</td></tr>
+<tr><td><code>approve</code></td><td class="n">1</td><td class="n">7342</td><td class="n">7190</td><td class="n">&minus;2.0%</td></tr>
+<tr><td><code>transferFrom</code></td><td class="n">1</td><td class="n">35449</td><td class="n">34939</td><td class="n">&minus;1.4%</td></tr>
+<tr><td><code>burn</code></td><td class="n">1</td><td class="n">172325</td><td class="n">167369</td><td class="n">&minus;2.8%</td></tr>
+<tr><td><code>mint</code></td><td class="n">1</td><td class="n">57304</td><td class="n">51563</td><td class="n">&minus;10.0%</td></tr>
+<tr><td><code>price0Cumulative</code></td><td class="n">2</td><td class="n">2387</td><td class="n">2315</td><td class="n">&minus;3.0%</td></tr>
+<tr><td><code>price1Cumulative</code></td><td class="n">1</td><td class="n">2409</td><td class="n">2337</td><td class="n">&minus;2.9%</td></tr>
+<tr><td><code>sync</code></td><td class="n">7</td><td class="n">33498</td><td class="n">33902</td><td class="n">+1.2%</td></tr>
+<tr><td><code>transfer</code></td><td class="n">1</td><td class="n">29840</td><td class="n">29614</td><td class="n">&minus;0.7%</td></tr>
+</table></div>
+<h2>Mainnet, mutated</h2>
+<p>Each transaction that touched the deployed code ran again with its calldata changed, or with one call into the contract changed in flight, on both codes, gas free.</p>
+<table>
+<tr><th>Transactions</th><td class="n">856</td></tr>
+<tr><th>Runs</th><td class="n">17120</td></tr>
+<tr><th>Identical</th><td class="n">16692</td></tr>
+<tr><th>Differ where other code read the gas left or code hashes</th><td class="n">411</td></tr>
+<tr><th>&nbsp;&nbsp;of which code hashes</th><td class="n">49</td></tr>
+<tr><th>&nbsp;&nbsp;of the rest, part at or under the code that read the gas left</th><td class="n">362</td></tr>
+<tr><th>Only the deployed code ran out of gas</th><td class="n">17</td></tr>
+<tr><th>Differ after an address-shaped word got upper bits</th><td class="n">0</td></tr>
+<tr><th><strong>Differ</strong></th><td class="n">0</td></tr>
+</table>
+<p>The port ran 2556 of its 3466 instructions (73.7%) in these runs.</p>
+<h2>Random calls</h2>
+<p>1,000 sessions of up to 60 random calls each, against both codes in step, checking the pair's invariants after every call.</p>
+<table>
+<tr><th>Well-formed calls</th><td class="n">49353</td></tr>
+<tr><th><strong>Well-formed calls that differ</strong></th><td class="n">0</td></tr>
+<tr><th>Calls with short calldata that differ</th><td class="n">0</td></tr>
+<tr><th>Calls with dirty addresses that differ</th><td class="n">0</td></tr>
+<tr><th>Invariants broken</th><td class="n">0</td></tr>
+</table>
+<p>The port ran 3289 of its 3466 instructions (94.8%).</p>
+<h2>How sharp the checks are</h2>
+<p>Mutants of the port's source, one operator changed each, built with <code>fe</code> and put through random calls and then mutations of the first ten blocks. The unchanged port passed the same checks first.</p>
+<table>
+<tr><th>Operators in the source</th><td class="n">74</td></tr>
+<tr><th>Mutants built</th><td class="n">74</td></tr>
+<tr><th>Killed by random calls</th><td class="n">57</td></tr>
+<tr><th>Killed by mainnet mutations</th><td class="n">0</td></tr>
+<tr><th>Survived</th><td class="n">17</td></tr>
+</table>
+<p>77.0% killed. A survivor is a blind spot of the checks or a change that means the same; each deserves a look:</p>
+<pre>line 298: if deadline &lt;= ctx.timestamp().as_seconds() {
+line 522: if mul(adjusted0, adjusted1) &lt;= mul(mul(reserve0, reserve1), 1_000_000) {
+line 675: let size: usize = (if reason.len &gt;= 32 { 132 } else { 100 })
+line 681: if reason.len &gt;= 32 {
+line 735: if x &lt;= y { x } else { y }
+line 740: if y &gt;= 3 {
+line 742: var x = y / 2 - 1
+line 749: if y == 0 { 1 } else { 0 }
+line 754: if balance &gt;= left {
+line 804: if balance0 &gt;= UINT112_MAX || balance1 &gt; UINT112_MAX {
+line 804: if balance0 &gt; UINT112_MAX &amp;&amp; balance1 &gt; UINT112_MAX {
+line 804: if balance0 &gt; UINT112_MAX || balance1 &gt;= UINT112_MAX {
+line 809: if elapsed &gt;= 0 &amp;&amp; reserve0 != 0 &amp;&amp; reserve1 != 0 {
+line 847: if root_k &gt;= root_k_last {
+line 851: if liquidity &gt;= 0 {
+line 856: } else if last == 0 { k_last = 0 }
+line 928: if data.len() != 0 { return }
+</pre>
+<p class="note">Made by <a href="https://github.com/PugarHuda/fevm-replay">fevm-replay</a> <code>certify</code>, written in Fe and running fevm, the EVM written in Fe.</p>
+</main>
+</body>
+</html>

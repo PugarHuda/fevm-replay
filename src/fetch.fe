@@ -79,6 +79,23 @@ uses (proc: mut Spawn)
     Option::Some(doc)
 }
 
+/// The balance of `address` at the end of block `number`, as the node at
+/// `url` reports it.
+pub fn balance_at<U: Display>(_ url: U, _ address: u256, number: u256) -> Option<u256>
+uses (proc: mut Spawn)
+{
+    var params = MemBuffer::empty()
+    "[\"0x".fmt(mut params)
+    core::text::hex(address, 20).fmt(mut params)
+    "\",\"".fmt(mut params)
+    quantity(number).fmt(mut params)
+    "\"]".fmt(mut params)
+    match call(url, "eth_getBalance", params) {
+        Option::Some(doc) => Option::Some(field(doc, "result")),
+        Option::None => Option::None,
+    }
+}
+
 /// The fixture for transaction `hash` (with its `0x`) as JSON text in `out`,
 /// or false if the node could not answer.
 pub fn fetch<U: Display, H: Display>(_ url: U, _ hash: H, _ out: mut MemBuffer) -> bool

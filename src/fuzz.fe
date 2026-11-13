@@ -1073,6 +1073,15 @@ fn check_invariants(
     0
 }
 
+/// The Keccak-256 hash of `bytes`: a code hash, for one.
+pub fn keccak(_ bytes: MemBuffer) -> u256 {
+    var hash = Keccak256::new()
+    if bytes.len() > 0 {
+        hash.update(bytes, offset: 0, len: bytes.len())
+    }
+    hash.finish_word()
+}
+
 // The storage slot of `key` in a Solidity mapping at `slot`.
 pub fn mapping_slot(_ key: u256, _ slot: u256) -> u256 {
     var words = MemBuffer::with_capacity(64)

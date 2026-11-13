@@ -187,15 +187,17 @@ withdrawals into fallbacks are exercised. Everything follows from the seed.
 ./out/fevm_replay fuzz weth9.hex out/weth9/WETH9.runtime.bin 20000 60 1000
 ```
 
-| Calls (20,000 runs, 2.1 s) | Calls | Differ |
+| Calls (20,000 runs, 5.4 s) | Calls | Differ |
 | --- | ---: | ---: |
-| Well-formed | 245,415 | 0 |
-| Calldata shorter than the arguments | 26,858 | 10,273 |
-| Address arguments with dirty upper bits | 38,965 | 9,343 |
+| Well-formed | 410,823 | 0 |
+| Calldata shorter than the arguments | 45,383 | 17,326 |
+| Address arguments with dirty upper bits | 65,347 | 0 |
 
-The last two are expected: Fe's ABI decoder rejects what solc 0.4 lets
-through, and they are reported apart. Only a well-formed difference fails the
-run. Against the port from before the zero-withdrawal fix, `fuzz` finds that
+solc 0.4 reads calldata past its end as zeros; Fe's decoder rejects a short
+call, so those are reported apart. Only a well-formed difference fails the
+run. The port takes address arguments as words and keeps their low 160 bits,
+as solc does (see [the bug mainnet showed](#a-bug-only-mainnet-callers-showed)).
+The run reaches 693 of the port's 768 instructions (90%). Against the port from before the zero-withdrawal fix, `fuzz` finds that
 bug in 0.1 s and prints the call to reproduce it:
 
 ```
@@ -259,14 +261,15 @@ that accept or call back into the pair:
 ./out/fevm_replay fuzz-pair pair.hex out/pair/UniswapV2Pair.runtime.bin weth9.hex 20000 60 1000
 ```
 
-| Calls (20,000 runs, 29 s) | Calls | Differ |
+| Calls (20,000 runs, 186 s) | Calls | Differ |
 | --- | ---: | ---: |
-| Well-formed | 260,738 | 0 |
-| Calldata shorter than the arguments | 23,840 | 0 |
-| Address arguments with dirty upper bits | 31,668 | 19,594 |
+| Well-formed | 989,509 | 0 |
+| Calldata shorter than the arguments | 90,425 | 0 |
+| Address arguments with dirty upper bits | 120,066 | 0 |
 
-Of the well-formed calls, 2,029 mints, 582 swaps and 109 burns succeeded;
-the rest of the run covers the reverts. Fuzzing found two things mainnet had
+Of the well-formed calls, 6,010 swaps succeeded, among thousands of mints,
+burns, skims and syncs; the rest cover the reverts. The run reaches 3,289 of
+the port's 3,466 instructions (94%). Fuzzing found two things mainnet had
 not shown:
 
 - **Division by zero.** solc 0.5 divides with `INVALID`, which ends the call
@@ -281,9 +284,13 @@ not shown:
 
 A difference is shrunk: the run is regenerated from its seed and every call
 it does not need is dropped, down to the shortest sequence that still
-differs. Pair runs also check the port against Uniswap V2's invariants
-after every call (the lock is released, `k` never falls in a successful
-swap, the supply is zero or at least the 1,000 locked); none broke.
+differs. Pair runs also check the port against six of Uniswap V2's
+invariants after every call: the lock is released; `k` never falls in a
+successful swap; the supply is zero or at least the 1,000 locked; the pair
+holds at least its reserve of each token (read from the token's
+`balanceOf` slot); neither cumulative price falls; and `kLast` is zero with
+the fee off and the reserves' product after every mint or burn with it on.
+None broke.
 
 ### Fuzzing from mainnet
 
@@ -350,6 +357,183 @@ alone. The port running out stays a difference, as above.
 
 Of the 20,926 in-flight changes, 19,037 got past the pair's own checks. The
 planted bug still shows 23 differences under the same rules.
+
+### A bug only mainnet callers showed
+
+Replaying blocks from across the year turned up one transaction where the
+port behaved differently. In block 26,000,008 a bot calls the USDT pair's
+`swap` with data packed into the upper twelve bytes of the `to` argument.
+solc's ABI decoder keeps the low 160 bits and pays out; Fe's decoder rejected
+the word, so the port reverted and the whole transaction with it. The
+fuzzers had shown this as "dirty address" differences all along, reported
+apart as an expected decoder difference. Mainnet showed that real callers
+depend on it.
+
+Both ports now take address arguments as `u256` and keep their low 160 bits,
+with the selectors written out (`#[selector = 0x022c0d9f]`), since Fe checks
+a `sol(...)` signature against the field types. The block now matches
+264/264, and dirty-address calls no longer differ in either fuzzer.
+
+### Every label, explained
+
+A difference labeled "reads the gas left" is only excused if the gas reading
+explains it. Every call is recorded with its caller, the account it runs as
+(the caller's, for `DELEGATECALL`), its value and whether its code ran `GAS`
+after the port ran. A labeled difference counts as explained when the runs
+part at or under a call whose code read the gas left, or, with every call
+alike, when the first log or state that differs belongs to such an account.
+
+| Labeled runs | Explained |
+| --- | ---: |
+| Mainnet mutations, 200 blocks: read the gas left | 1,163 of 1,163 |
+| Shadow replay, 200 blocks: read the gas left | 47 of 47 |
+| Shadow replay, 90 blocks across the year: read the gas left | 42 of 42 |
+
+Two kinds needed a closer look. A bot that pays the block builder a tip
+worked out from `gasleft()` makes the same call with another value: calls now
+part on value too. And a contract can emit `gasleft()` in an event through a
+`DELEGATECALL`, which is why calls carry the account they run as.
+
+The three code-hash differences are pinned down the same way. Each
+transaction is replayed with the port at one shadowed pair at a time, and the
+report says whether the port ran at all. In all three, a bot reads the code
+hashes of the two pairs it is about to use and reverts with its own error
+before calling either: the port never ran, so the difference is the code's
+identity, not its behavior.
+
+### Who reads the gas left
+
+The explained runs name the contracts whose behavior depends on the gas
+left. Over 200 blocks of mutations (each batch of 50 blocks lists its ten
+most frequent, so these are lower bounds):
+
+| Contract | Runs |
+| --- | ---: |
+| USDC (`0xa0b8…eb48`) | 246 |
+| ERC-4337 EntryPoint v0.8 (`0x4337…f108`) | 235 |
+| ERC-4337 EntryPoint v0.7 (`0x0000…a032`) | 149 |
+| KyberSwap Meta Aggregation Router v2 (`0x6131…37b5`) | 103 |
+| Unknown bot (`0x2cc0…b633`) | 63 |
+| Uniswap Universal Router v2.1.2 (`0x2361…de85`) | 45 |
+| Uniswap V2 Router02 (`0x7a25…488d`) | 44 |
+| Spire Proposer Multicall (`0x9ccc…b294`) | 25 |
+| ERC-4337 EntryPoint v0.6 (`0x5ff1…2789`) | 25 |
+
+Account-abstraction entry points meter each user operation with `gasleft()`
+and charge for it, so any change in the cost of the code they call changes
+what they pay out. USDC's proxy forwards the gas it reads to its
+implementation. Routers and bots pass on or check what is left before a
+step. A port that is cheaper than the code it replaces is still
+distinguishable to all of them, which is why these runs are labeled rather
+than counted as differences, and why every label is checked.
+
+### Across the year
+
+fevm implements Osaka, so the spread covers the Osaka era: ten blocks at
+each of nine points from 23,940,000 (December 2025, before the BPO1 blob
+fork) to 26,300,000 (November 2026), plus the 200 blocks above.
+
+| 90 blocks across the Osaka era | Transactions |
+| --- | ---: |
+| Replayed | 30,957 |
+| MATCH (with every V2 pair replaced by the Fe pair) | 30,915 |
+| Ran the Fe pair | 831 |
+| Differ where code reads the gas left (all explained) | 42 |
+| **Behave differently** | **0** |
+
+The first run showed 25 differences in December's blocks: the replay
+computed the blob base fee with BPO2's update fraction for every block. It
+now picks Prague's, BPO1's or BPO2's by the block's timestamp.
+
+### A block as one chain
+
+`chain` replays a saved block the way a node does: the world starts as the
+block's pre-state, each transaction runs on what the one before it left,
+and each is checked against the chain's receipt and state diff. After the
+last transaction it credits the block's withdrawals (EIP-4895) and, given an
+RPC URL, checks every recipient's balance against the node's at the end of
+the block.
+
+```sh
+./out/fevm_replay chain blocks/0x192d500 https://eth.drpc.org
+chain blocks/0x192d500: 88/88 transactions MATCH (100.0%)
+withdrawals: 16 to 4 recipients, 4 balances match the node at the end of the block
+```
+
+A transaction created mid-block is the trap: the prestate tracer leaves out
+accounts and slots that do not exist yet, so the first prestate that lists
+them already holds a later value. Whatever a transaction's diff writes that
+its prestate does not list is cleared before the block starts.
+
+### How sharp are the checks?
+
+A check that passes everything proves nothing. `mutants` plants mutants in a
+port's source, one operator changed each (`+` for `-`, `<` for `<=`, `==` for
+`!=`, `&&` for `||`, ...), builds each with `fe`, and puts it through random
+calls and mainnet mutations. The unchanged port goes first and must pass.
+
+```sh
+./out/fevm_replay mutants ports/uniswap-v2-pair UniswapV2Pair pair.hex weth9.hex 74 blocks/*
+```
+
+| Every operator of the Fe pair (74 mutants) | Mutants |
+| --- | ---: |
+| Killed by random calls | 57 |
+| Killed by mainnet mutations | 0 |
+| Survived | 17 |
+
+77% are killed. Of the 17 survivors, about half change nothing a caller can
+see: `elapsed >= 0` for `elapsed > 0` (a zero adds nothing to the price
+accumulators), `x <= y` for `x < y` in `min`, `>=` for `>` against a revert
+reason's length, which is never exactly 32. The rest are real blind spots,
+listed in the certificate: the exact `k` boundary of `swap`, `permit`'s
+deadline at exactly the block's timestamp, `UINT112_MAX` overflow (balances
+above 2^112 that no test reaches), small inputs to `sqrt`, and the flash-swap
+callback skipped when data is present. Each is a test to write.
+
+The Fe WETH9 port has 13 operators: 12 mutants are killed (92%). The
+survivor doubles the length `name()` and `symbol()` decode from storage, and
+the fuzzer's world leaves both empty.
+
+### One command: a port certificate
+
+`certify` does all of the above for a port and writes one HTML page: it
+builds the port from source with `fe` (and records both code hashes),
+replays the saved blocks with the port in place of every copy of the
+deployed code, mutates their transactions, fuzzes the port, and plants
+mutants. It exits 1 if anything differs.
+
+```sh
+./out/fevm_replay certify certificate.html pair.hex ports/uniswap-v2-pair UniswapV2Pair weth9.hex 74 blocks/*
+```
+
+[The certificate for the Fe pair](https://fevm-replay.vercel.app/certificate.html),
+over the 200 blocks with all 74 mutants, took about 25 minutes:
+
+| Fe UniswapV2Pair certificate | |
+| --- | ---: |
+| Transactions replayed / that ran the port | 69,643 / 856 |
+| Behave differently | **0** |
+| Mainnet mutations (20 per transaction) | 17,120 |
+| &nbsp;&nbsp;labeled, all explained (362 gas, 49 code hash) | 411 |
+| &nbsp;&nbsp;only the deployed code ran out of gas | 17 |
+| &nbsp;&nbsp;**differ** | **0** |
+| Random well-formed calls / that differ | 49,353 / **0** |
+| Invariants broken | 0 |
+| Port instructions reached: mainnet mutations / random calls | 74% / 95% |
+| Mutants killed | 57 of 74 (77%) |
+
+### Explorer
+
+[The explorer](https://fevm-replay.vercel.app/explorer.html) shows four of
+these transactions call by call, the deployed pair beside the Fe port, with
+the call where the runs part marked: the dirty-address bug (with the port as
+it was before the fix), a bot that checks code hashes, a builder tip worked
+out from `gasleft()`, and an ordinary swap. Its data comes from `trace`:
+
+```sh
+./out/fevm_replay trace blocks/0x192d520 448 pair.hex out/pair/UniswapV2Pair.runtime.bin > trace.json
+```
 
 ## Fe highlight
 
@@ -439,7 +623,9 @@ the free `https://eth.drpc.org`; pass another URL as the last argument.
 ![fevm-replay fetching and replaying a mainnet transaction, a negative fixture, a whole block and a shadow replay of Fe WETH9](demo/demo.svg)
 
 The recording is [`demo/demo.sh`](demo/demo.sh), made with asciinema and
-svg-term. The same steps by hand:
+svg-term. [`demo/explorer-tour.mp4`](demo/explorer-tour.mp4) is a
+25-second tour of [the explorer](https://fevm-replay.vercel.app/explorer.html),
+recorded in a headless browser. The same steps by hand:
 
 ```sh
 ./out/fevm_replay fetch 0x9a0970fbbf5df6a17277bc94bf2d96e117d504bd36e341a7ca5230998f916184 usdt.json
@@ -489,8 +675,19 @@ svg-term. The same steps by hand:
   the original transaction did not touch are not in its pre-state; a
   mutation that wanders off sees them empty in both runs, which is fair
   but not realistic.
-- **Code-hash labels are by opcode, not target.** fevm's tracer does not
-  expose the stack, so a label can be broader than its cause.
+- **Code-hash and gas labels are checked afterwards, not at the opcode.**
+  fevm's tracer does not expose the stack, so the target of `EXTCODEHASH` is
+  found by replaying with the port at one account at a time, and a gas
+  reading is tied to a difference through the call tree.
+- **Calldata shorter than its arguments** still differs on the WETH9 port:
+  solc 0.4 reads past the end as zeros, Fe's decoder rejects the call.
+- **Mainnet mutations cannot fetch state on demand.** A mutation that reaches
+  a slot the original transaction never touched sees it empty in both runs.
+  Fetching it would need the slot's key, which only the stack holds, or a
+  node call per mutation (`debug_traceCall` with the block's earlier diffs
+  applied); neither is done.
+- **Only Osaka.** fevm implements Osaka rules, so the replays cover blocks
+  from December 2025 on.
 - **Delegates come from the parent block's state.** A delegation target
   whose code changed within the block would be fetched as it was before.
 - **Double-counted cleared slots:** a slot the chain cleared and fevm kept
