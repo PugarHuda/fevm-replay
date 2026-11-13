@@ -229,12 +229,12 @@ fn running_out_of_gas_first_is_a_cost() {
     a.ended.push(0)
     b.ended.push(0)
     a.calls[0].status = fevm::status::ERR_OUT_OF_GAS
-    assert!(ingot::mutate::ran_out_first(a, b))
+    assert!(ingot::watch::ran_out_first(a, b))
     // The port running out is a difference.
-    assert!(!ingot::mutate::ran_out_first(b, a))
+    assert!(!ingot::watch::ran_out_first(b, a))
     // So is the deployed code reverting.
     a.calls[0].status = fevm::status::ERR_REVERT
-    assert!(!ingot::mutate::ran_out_first(a, b))
+    assert!(!ingot::watch::ran_out_first(a, b))
 }
 
 // Solidity mapping slots: balanceOf[0x01] in slot 0.

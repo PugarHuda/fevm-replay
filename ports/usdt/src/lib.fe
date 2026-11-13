@@ -1,0 +1,686 @@
+//! TetherToken (USDT, mainnet 0xdAC17F958D2ee523a2206206994597C13D831ec7) in
+//! Fe, built to drop in for the deployed solc 0.4.17 code: same selectors,
+//! events and storage slots, and the same failures. `require` reverts with
+//! no data; SafeMath's `assert` runs INVALID, which burns all the gas a call
+//! has; a failed call to the upgraded contract reverts. `transfer`,
+//! `transferFrom` and `approve` return nothing, as the deployed code does.
+
+use std::abi::DynString
+use std::evm::{
+    StorageMap,
+    bubble_last_revert,
+    copy_returndata,
+    encode_msg_calldata,
+    revert_empty,
+    wei,
+}
+
+msg TetherMsg {
+    #[selector = sol("name()")]
+    Name -> DynString,
+    #[selector = sol("symbol()")]
+    Symbol -> DynString,
+    #[selector = sol("decimals()")]
+    Decimals -> u256,
+    #[selector = sol("totalSupply()")]
+    TotalSupply -> u256,
+    #[selector = sol("_totalSupply()")]
+    StoredTotalSupply -> u256,
+    // balanceOf(address)
+    #[selector = 0x70a08231]
+    BalanceOf { who: u256 } -> u256,
+    // balances(address)
+    #[selector = 0x27e235e3]
+    Balances { who: u256 } -> u256,
+    // allowance(address,address)
+    #[selector = 0xdd62ed3e]
+    Allowance { owner: u256, spender: u256 } -> u256,
+    // allowed(address,address)
+    #[selector = 0x5c658165]
+    Allowed { owner: u256, spender: u256 } -> u256,
+    // transfer(address,uint256)
+    #[selector = 0xa9059cbb]
+    Transfer { to: u256, value: u256 },
+    // transferFrom(address,address,uint256)
+    #[selector = 0x23b872dd]
+    TransferFrom { from: u256, to: u256, value: u256 },
+    // approve(address,uint256)
+    #[selector = 0x095ea7b3]
+    Approve { spender: u256, value: u256 },
+    #[selector = sol("owner()")]
+    Owner -> Address,
+    #[selector = sol("getOwner()")]
+    GetOwner -> Address,
+    #[selector = sol("paused()")]
+    Paused -> bool,
+    #[selector = sol("basisPointsRate()")]
+    BasisPointsRate -> u256,
+    #[selector = sol("maximumFee()")]
+    MaximumFee -> u256,
+    #[selector = sol("MAX_UINT()")]
+    MaxUint -> u256,
+    #[selector = sol("upgradedAddress()")]
+    UpgradedAddress -> Address,
+    #[selector = sol("deprecated()")]
+    Deprecated -> bool,
+    // isBlackListed(address)
+    #[selector = 0xe47d6060]
+    IsBlackListed { who: u256 } -> bool,
+    // getBlackListStatus(address)
+    #[selector = 0x59bf1abe]
+    GetBlackListStatus { who: u256 } -> bool,
+    // transferOwnership(address)
+    #[selector = 0xf2fde38b]
+    TransferOwnership { new_owner: u256 },
+    #[selector = sol("pause()")]
+    Pause,
+    #[selector = sol("unpause()")]
+    Unpause,
+    // addBlackList(address)
+    #[selector = 0x0ecb93c0]
+    AddBlackList { who: u256 },
+    // removeBlackList(address)
+    #[selector = 0xe4997dc5]
+    RemoveBlackList { who: u256 },
+    // destroyBlackFunds(address)
+    #[selector = 0xf3bdc228]
+    DestroyBlackFunds { who: u256 },
+    // deprecate(address)
+    #[selector = 0x0753c30c]
+    Deprecate { upgraded: u256 },
+    #[selector = sol("issue(uint256)")]
+    Issue { amount: u256 },
+    #[selector = sol("redeem(uint256)")]
+    Redeem { amount: u256 },
+    #[selector = sol("setParams(uint256,uint256)")]
+    SetParams { basis_points: u256, max_fee: u256 },
+}
+
+// What a deprecated TetherToken asks of its successor.
+msg UpgradedMsg {
+    #[selector = sol("transferByLegacy(address,address,uint256)")]
+    TransferByLegacy { from: Address, to: Address, value: u256 },
+    #[selector = sol("transferFromByLegacy(address,address,address,uint256)")]
+    TransferFromByLegacy { sender: Address, from: Address, spender: Address, value: u256 },
+    #[selector = sol("approveByLegacy(address,address,uint256)")]
+    ApproveByLegacy { from: Address, spender: Address, value: u256 },
+    #[selector = sol("balanceOf(address)")]
+    BalanceOf { who: Address },
+    #[selector = sol("allowance(address,address)")]
+    Allowance { owner: Address, spender: Address },
+    #[selector = sol("totalSupply()")]
+    TotalSupply,
+}
+
+#[event]
+struct Transfer {
+    #[indexed]
+    from: Address,
+    #[indexed]
+    to: Address,
+    value: u256,
+}
+
+#[event]
+struct Approval {
+    #[indexed]
+    owner: Address,
+    #[indexed]
+    spender: Address,
+    value: u256,
+}
+
+#[event]
+struct Issue { amount: u256 }
+
+#[event]
+struct Redeem { amount: u256 }
+
+#[event]
+struct Deprecate { new_address: Address }
+
+#[event]
+struct Params { fee_basis_points: u256, max_fee: u256 }
+
+#[event]
+struct DestroyedBlackFunds { black_listed_user: Address, balance: u256 }
+
+#[event]
+struct AddedBlackList { user: Address }
+
+#[event]
+struct RemovedBlackList { user: Address }
+
+#[event]
+struct Pause {}
+
+#[event]
+struct Unpause {}
+
+const MAX_UINT: u256 = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+const ADDRESS_MASK: u256 = 0xffffffffffffffffffffffffffffffffffffffff
+// A flag packed above an address in one slot.
+const FLAG: u256 = 1 << 160
+
+// An address argument as solc 0.4's ABI decoder reads it: the low 160 bits
+// of its word, whatever the rest holds.
+fn address(_ word: u256) -> Address {
+    Address::new(word & ADDRESS_MASK)
+}
+
+/// A Solidity `string` of at most 31 bytes, stored in one slot: the bytes
+/// left-aligned, twice the length in the lowest byte.
+fn short_string(_ word: u256) -> DynString {
+    DynString::from_word_prefix(word: word, len: ((word & 0xff) / 2).downcast_truncate())
+}
+
+/// The state of the deployed contract, slot for slot. Slot 0 packs `owner`
+/// with `paused` above it, slot 10 `upgradedAddress` with `deprecated`, as
+/// solc lays out an address followed by a bool.
+pub contract TetherToken uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Log) {
+    mut owner_and_paused: u256,
+    mut total_supply: u256,
+    mut balances: StorageMap<Address, u256>,
+    mut basis_points_rate: u256,
+    mut maximum_fee: u256,
+    mut allowed: StorageMap<Address, StorageMap<Address, u256>>,
+    mut black_listed: StorageMap<Address, u256>,
+    mut name: u256,
+    mut symbol: u256,
+    mut decimals: u256,
+    mut upgraded_and_deprecated: u256,
+
+    // As deployed: the creator owns every token.
+    init(initial_supply: u256)
+    uses (
+        ctx,
+        mut owner_and_paused,
+        mut total_supply,
+        mut balances,
+        mut name,
+        mut symbol,
+        mut decimals,
+    )
+    {
+        owner_and_paused = ctx.caller().word()
+        total_supply = initial_supply
+        balances.set(key: ctx.caller(), value: initial_supply)
+        // "Tether USD", "USDT", 6
+        name = 0x5465746865722055534400000000000000000000000000000000000000000014
+        symbol = 0x5553445400000000000000000000000000000000000000000000000000000008
+        decimals = 6
+    }
+
+    recv TetherMsg {
+        Name -> DynString uses (name) {
+            short_string(name)
+        }
+
+        Symbol -> DynString uses (symbol) {
+            short_string(symbol)
+        }
+
+        Decimals -> u256 uses (decimals) {
+            decimals
+        }
+
+        TotalSupply -> u256 uses (evm, ctx, mut call, total_supply, upgraded_and_deprecated) {
+            if upgraded_and_deprecated & FLAG != 0 {
+                return view_word(
+                    upgraded_of(upgraded_and_deprecated),
+                    encode_msg_calldata(UpgradedMsg::TotalSupply {}).span(),
+                )
+            }
+            total_supply
+        }
+
+        StoredTotalSupply -> u256 uses (total_supply) {
+            total_supply
+        }
+
+        BalanceOf { who } -> u256 uses (evm, ctx, mut call, balances, upgraded_and_deprecated) {
+            let who = address(who)
+            if upgraded_and_deprecated & FLAG != 0 {
+                return view_word(
+                    upgraded_of(upgraded_and_deprecated),
+                    encode_msg_calldata(UpgradedMsg::BalanceOf { who }).span(),
+                )
+            }
+            balances.get(key: who)
+        }
+
+        Balances { who } -> u256 uses (balances) {
+            let who = address(who)
+            balances.get(key: who)
+        }
+
+        Allowance { owner, spender } -> u256 uses (
+            evm,
+            ctx,
+            mut call,
+            allowed,
+            upgraded_and_deprecated,
+        ) {
+            let owner = address(owner)
+            let spender = address(spender)
+            if upgraded_and_deprecated & FLAG != 0 {
+                return view_word(
+                    upgraded_of(upgraded_and_deprecated),
+                    encode_msg_calldata(UpgradedMsg::Allowance { owner, spender }).span(),
+                )
+            }
+            allowed[owner][spender]
+        }
+
+        Allowed { owner, spender } -> u256 uses (allowed) {
+            let owner = address(owner)
+            let spender = address(spender)
+            allowed[owner][spender]
+        }
+
+        Transfer { to, value } uses (
+            evm,
+            ctx,
+            mut call,
+            mut log,
+            owner_and_paused,
+            mut balances,
+            basis_points_rate,
+            maximum_fee,
+            black_listed,
+            upgraded_and_deprecated,
+        ) {
+            let to = address(to)
+            when_not_paused(owner_and_paused)
+            require(black_listed.get(key: ctx.caller()) == 0)
+            if upgraded_and_deprecated & FLAG != 0 {
+                forward(
+                    upgraded_of(upgraded_and_deprecated),
+                    encode_msg_calldata(
+                        UpgradedMsg::TransferByLegacy { from: ctx.caller(), to, value },
+                    )
+                        .span(),
+                )
+                return
+            }
+            let fee = fee_of(value, basis_points_rate, maximum_fee)
+            let send = sub(value, fee)
+            let sender = ctx.caller()
+            balances.set(key: sender, value: sub(balances.get(key: sender), value))
+            balances.set(key: to, value: add(balances.get(key: to), send))
+            if fee > 0 {
+                let owner = address(owner_and_paused)
+                balances.set(key: owner, value: add(balances.get(key: owner), fee))
+                log.emit(Transfer { from: sender, to: owner, value: fee })
+            }
+            log.emit(Transfer { from: sender, to, value: send })
+        }
+
+        TransferFrom { from, to, value } uses (
+            evm,
+            ctx,
+            mut call,
+            mut log,
+            owner_and_paused,
+            mut balances,
+            basis_points_rate,
+            maximum_fee,
+            mut allowed,
+            black_listed,
+            upgraded_and_deprecated,
+        ) {
+            let from = address(from)
+            let to = address(to)
+            when_not_paused(owner_and_paused)
+            require(black_listed.get(key: from) == 0)
+            if upgraded_and_deprecated & FLAG != 0 {
+                forward(
+                    upgraded_of(upgraded_and_deprecated),
+                    encode_msg_calldata(
+                        UpgradedMsg::TransferFromByLegacy {
+                            sender: ctx.caller(),
+                            from,
+                            spender: to,
+                            value,
+                        },
+                    )
+                        .span(),
+                )
+                return
+            }
+            let spender = ctx.caller()
+            let current = allowed[from][spender]
+            let fee = fee_of(value, basis_points_rate, maximum_fee)
+            if current < MAX_UINT {
+                allowed[from][spender] = sub(current, value)
+            }
+            let send = sub(value, fee)
+            balances.set(key: from, value: sub(balances.get(key: from), value))
+            balances.set(key: to, value: add(balances.get(key: to), send))
+            if fee > 0 {
+                let owner = address(owner_and_paused)
+                balances.set(key: owner, value: add(balances.get(key: owner), fee))
+                log.emit(Transfer { from, to: owner, value: fee })
+            }
+            log.emit(Transfer { from, to, value: send })
+        }
+
+        Approve { spender, value } uses (
+            evm,
+            ctx,
+            mut call,
+            mut log,
+            mut allowed,
+            upgraded_and_deprecated,
+        ) {
+            let spender = address(spender)
+            if upgraded_and_deprecated & FLAG != 0 {
+                forward(
+                    upgraded_of(upgraded_and_deprecated),
+                    encode_msg_calldata(
+                        UpgradedMsg::ApproveByLegacy { from: ctx.caller(), spender, value },
+                    )
+                        .span(),
+                )
+                return
+            }
+            let owner = ctx.caller()
+            // A nonzero allowance must go to zero before it changes.
+            require(!(value != 0 && allowed[owner][spender] != 0))
+            allowed[owner][spender] = value
+            log.emit(Approval { owner, spender, value })
+        }
+
+        Owner -> Address uses (owner_and_paused) {
+            address(owner_and_paused)
+        }
+
+        GetOwner -> Address uses (owner_and_paused) {
+            address(owner_and_paused)
+        }
+
+        Paused -> bool uses (owner_and_paused) {
+            owner_and_paused & FLAG != 0
+        }
+
+        BasisPointsRate -> u256 uses (basis_points_rate) {
+            basis_points_rate
+        }
+
+        MaximumFee -> u256 uses (maximum_fee) {
+            maximum_fee
+        }
+
+        MaxUint -> u256 {
+            MAX_UINT
+        }
+
+        UpgradedAddress -> Address uses (upgraded_and_deprecated) {
+            address(upgraded_and_deprecated)
+        }
+
+        Deprecated -> bool uses (upgraded_and_deprecated) {
+            upgraded_and_deprecated & FLAG != 0
+        }
+
+        IsBlackListed { who } -> bool uses (black_listed) {
+            let who = address(who)
+            black_listed.get(key: who) != 0
+        }
+
+        GetBlackListStatus { who } -> bool uses (black_listed) {
+            let who = address(who)
+            black_listed.get(key: who) != 0
+        }
+
+        TransferOwnership { new_owner } uses (evm, ctx, mut owner_and_paused) {
+            only_owner(owner_and_paused)
+            let new_owner = new_owner & ADDRESS_MASK
+            if new_owner != 0 {
+                owner_and_paused = (owner_and_paused & ~ADDRESS_MASK) | new_owner
+            }
+        }
+
+        Pause uses (evm, ctx, mut log, mut owner_and_paused) {
+            only_owner(owner_and_paused)
+            when_not_paused(owner_and_paused)
+            owner_and_paused = owner_and_paused | FLAG
+            log.emit(Pause {})
+        }
+
+        Unpause uses (evm, ctx, mut log, mut owner_and_paused) {
+            only_owner(owner_and_paused)
+            require(owner_and_paused & FLAG != 0)
+            owner_and_paused = owner_and_paused & ~FLAG
+            log.emit(Unpause {})
+        }
+
+        AddBlackList { who } uses (evm, ctx, mut log, owner_and_paused, mut black_listed) {
+            let who = address(who)
+            only_owner(owner_and_paused)
+            black_listed.set(key: who, value: 1)
+            log.emit(AddedBlackList { user: who })
+        }
+
+        RemoveBlackList { who } uses (evm, ctx, mut log, owner_and_paused, mut black_listed) {
+            let who = address(who)
+            only_owner(owner_and_paused)
+            black_listed.set(key: who, value: 0)
+            log.emit(RemovedBlackList { user: who })
+        }
+
+        DestroyBlackFunds { who } uses (
+            evm,
+            ctx,
+            mut call,
+            mut log,
+            owner_and_paused,
+            mut balances,
+            mut total_supply,
+            black_listed,
+            upgraded_and_deprecated,
+        ) {
+            let who = address(who)
+            only_owner(owner_and_paused)
+            require(black_listed.get(key: who) != 0)
+            // `balanceOf`, which a deprecated token asks its successor for.
+            let dirty = if upgraded_and_deprecated & FLAG != 0 {
+                view_word(
+                    upgraded_of(upgraded_and_deprecated),
+                    encode_msg_calldata(UpgradedMsg::BalanceOf { who }).span(),
+                )
+            } else {
+                balances.get(key: who)
+            }
+            balances.set(key: who, value: 0)
+            total_supply = total_supply.wrapping_sub(dirty)
+            log.emit(
+                DestroyedBlackFunds { black_listed_user: who, balance: dirty },
+            )
+        }
+
+        Deprecate { upgraded } uses (
+            evm,
+            ctx,
+            mut log,
+            owner_and_paused,
+            mut upgraded_and_deprecated,
+        ) {
+            only_owner(owner_and_paused)
+            let upgraded = upgraded & ADDRESS_MASK
+            upgraded_and_deprecated = upgraded | FLAG
+            log.emit(Deprecate { new_address: Address::new(upgraded) })
+        }
+
+        Issue { amount } uses (
+            evm,
+            ctx,
+            mut log,
+            owner_and_paused,
+            mut total_supply,
+            mut balances,
+        ) {
+            only_owner(owner_and_paused)
+            let owner = address(owner_and_paused)
+            require(total_supply.wrapping_add(amount) > total_supply)
+            require(
+                balances.get(key: owner).wrapping_add(amount) > balances.get(key: owner),
+            )
+            balances.set(
+                    key: owner,
+                    value: balances.get(key: owner).wrapping_add(amount),
+                )
+            total_supply = total_supply.wrapping_add(amount)
+            log.emit(Issue { amount })
+        }
+
+        Redeem { amount } uses (
+            evm,
+            ctx,
+            mut log,
+            owner_and_paused,
+            mut total_supply,
+            mut balances,
+        ) {
+            only_owner(owner_and_paused)
+            let owner = address(owner_and_paused)
+            require(total_supply >= amount)
+            require(balances.get(key: owner) >= amount)
+            total_supply = total_supply - amount
+            balances.set(key: owner, value: balances.get(key: owner) - amount)
+            log.emit(Redeem { amount })
+        }
+
+        SetParams { basis_points, max_fee } uses (
+            evm,
+            ctx,
+            mut log,
+            owner_and_paused,
+            mut basis_points_rate,
+            mut maximum_fee,
+            decimals,
+        ) {
+            only_owner(owner_and_paused)
+            // Ensure transparency by hardcoding limit beyond which fees can never be added
+            require(basis_points < 20)
+            require(max_fee < 50)
+            basis_points_rate = basis_points
+            maximum_fee = mul(max_fee, pow10(decimals))
+            log.emit(
+                Params { fee_basis_points: basis_points_rate, max_fee: maximum_fee },
+            )
+        }
+    }
+}
+
+// `require`: a revert with no data.
+fn require(_ condition: bool) uses (evm: Evm) {
+    if !condition {
+        revert_empty()
+    }
+}
+
+fn only_owner(_ owner_and_paused: u256) uses (evm: Evm, ctx: Ctx) {
+    require(ctx.caller().word() == owner_and_paused & ADDRESS_MASK)
+}
+
+fn when_not_paused(_ owner_and_paused: u256) uses (evm: Evm) {
+    require(owner_and_paused & FLAG == 0)
+}
+
+fn upgraded_of(_ upgraded_and_deprecated: u256) -> Address {
+    address(upgraded_and_deprecated)
+}
+
+// The fee on `value`: `basisPointsRate` ten-thousandths, at most
+// `maximumFee`.
+fn fee_of(_ value: u256, _ rate: u256, _ maximum: u256) -> u256 {
+    let fee = mul(value, rate) / 10000
+    if fee > maximum { maximum } else { fee }
+}
+
+fn pow10(_ n: u256) -> u256 {
+    var result: u256 = 1
+    var i: u256 = 0
+    while i < n {
+        result = result.wrapping_mul(10)
+        i += 1
+    }
+    result
+}
+
+// SafeMath 0.4: `assert`, which solc compiles to INVALID.
+fn add(_ x: u256, _ y: u256) -> u256 {
+    let z = x.wrapping_add(y)
+    if z < x { invalid() }
+    z
+}
+
+fn sub(_ x: u256, _ y: u256) -> u256 {
+    if y > x { invalid() }
+    x - y
+}
+
+fn mul(_ x: u256, _ y: u256) -> u256 {
+    if x == 0 { return 0 }
+    let z = x.wrapping_mul(y)
+    if z / x != y { invalid() }
+    z
+}
+
+// INVALID ends the call and burns all its gas. Fe has no INVALID, so memory
+// grows until the gas runs out: the same exceptional halt.
+fn invalid() {
+    // ponytail: memory grown until gas runs out stands in for INVALID.
+    var sink = MemBuffer::empty()
+    while true {
+        sink.push(0)
+    }
+}
+
+// A solc 0.4 call to a view function of the successor returning one word.
+fn view_word(_ target: Address, _ args: MemSpan) -> u256
+uses (evm: Evm, ctx: Ctx, call: mut Call)
+{
+    if ctx.extcodesize(target) == 0 {
+        revert_empty()
+    }
+    var ret = MemBuffer::empty()
+    if !call.raw_call(
+        addr: target,
+        gas: ctx.gas(),
+        value: wei(0),
+        args,
+        ret: mut ret,
+    ).success() {
+        revert_empty()
+    }
+    let data = copy_returndata()
+    if data.len() < 32 {
+        revert_empty()
+    }
+    var word: u256 = 0
+    for i in 0 .. 32 {
+        word = (word << 8) | data.span()[i] as u256
+    }
+    word
+}
+
+// A solc 0.4 call to a function of the successor returning nothing.
+fn forward(_ target: Address, _ args: MemSpan)
+uses (evm: Evm, ctx: Ctx, call: mut Call)
+{
+    if ctx.extcodesize(target) == 0 {
+        revert_empty()
+    }
+    var ret = MemBuffer::empty()
+    if !call.raw_call(
+        addr: target,
+        gas: ctx.gas(),
+        value: wei(0),
+        args,
+        ret: mut ret,
+    ).success() {
+        revert_empty()
+    }
+}

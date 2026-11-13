@@ -374,6 +374,53 @@ with the selectors written out (`#[selector = 0x022c0d9f]`), since Fe checks
 a `sol(...)` signature against the field types. The block now matches
 264/264, and dirty-address calls no longer differ in either fuzzer.
 
+### USDT, the most-called contract
+
+[`ports/usdt`](ports/usdt) is TetherToken (solc 0.4.17) in Fe: all 32
+functions of the deployed dispatcher, the same eleven storage slots (with
+`owner` and `paused` packed in slot 0, `upgradedAddress` and `deprecated` in
+slot 10), the fee and blacklist logic, and the old compiler's failures:
+`require` reverts with no data, SafeMath's `assert` runs `INVALID` (the port
+grows memory until the gas runs out), and `transfer`, `transferFrom` and
+`approve` return nothing. A deprecated token forwards to its successor as
+the deployed one does.
+
+```sh
+(cd ports/usdt && fe build -O 2 --out-dir ../../out/usdt .)
+./out/fevm_replay block blocks/0x192d500 0xdac17f958d2ee523a2206206994597c13d831ec7 out/usdt/TetherToken.runtime.bin
+```
+
+| Fe USDT in place of mainnet USDT | 200 blocks | 90 blocks across the year |
+| --- | ---: | ---: |
+| Transactions that ran the Fe USDT | 16,217 | 5,013 |
+| Identical logs and state | 15,571 | 4,850 |
+| Differ where code reads the gas left (all explained) | 643 | 163 |
+| Only the deployed code ran out of gas | 3 | 0 |
+| **Behave differently** | **0** | **0** |
+
+The three that ran out of gas are transfers sent with a tight gas limit: on
+chain, USDT ran out of gas and the transaction failed; the port, cheaper,
+got through. Replay labels them like `fuzz-block` does: the runs part at a
+call with the same calldata that ran out of gas only on the deployed code.
+
+| Function | Calls | Deployed Solidity | Fe USDT | Change |
+| --- | ---: | ---: | ---: | ---: |
+| `transfer` | 15,969 | 28,123 | 26,977 | −4.1% |
+| `balanceOf` | 5,138 | 2,034 | 1,612 | −20.8% |
+| `transferFrom` | 2,378 | 22,767 | 21,868 | −3.9% |
+| `approve` | 867 | 20,905 | 20,562 | −1.6% |
+| `allowance` | 342 | 3,081 | 2,475 | −19.7% |
+| `decimals` | 41 | 1,898 | 1,708 | −10.0% |
+
+Whole transactions that ran the Fe USDT used 1.4% less gas. Mutating 1,825
+transactions of 20 blocks twenty times each (36,500 runs) finds no
+difference. 55 runs differ after a mutation cut the calldata short: solc 0.4
+reads missing bytes as zeros, Fe's decoder rejects the call; they are
+counted apart. The same run caught a flaw in the in-flight proxy: it
+patched every call into the account, so a transaction that called USDT
+several times had all of them cut to the changed call's length. The proxy
+now patches only calls with the changed call's selector and length.
+
 ### Every label, explained
 
 A difference labeled "reads the gas left" is only excused if the gas reading
@@ -580,16 +627,19 @@ Other Fe pieces doing real work:
 | --- | --- |
 | `src/fetch.fe` | JSON-RPC through curl (`Spawn`), fixtures and block directories, EIP-4844 blob base fee |
 | `src/load.fe` | JSON to fevm: `load_world`, `load_tx`, `load_block` |
-| `src/replay.fe` | `replay_tx`: load, `transact`, compare. No host capabilities |
+| `src/replay.fe` | `replay_tx`: load, `transact`, compare; `trace_tx`; finding the account whose code hash a bot checked. No host capabilities |
 | `src/check.fe` | checks the shape of the node's answers before anything reads them |
 | `src/compare.fe` | applies the chain's diff, then compares worlds, receipts and logs |
 | `src/fuzz.fe` | shadow fuzzing of WETH9 and of a Uniswap V2 pair: random calls against deployed code and its port, compared after each |
 | `src/mutate.fe` | mainnet-seeded fuzzing: real transactions mutated on their own pre-state, calls changed in flight through a proxy |
-| `src/watch.fe` | `GasWatch`, a tracer that records every call, reads of the gas left after shadow code ran, of code hashes, and `BLOCKHASH`; where two runs part |
-| `src/lib.fe` | the CLI: `fetch`, `fetch-block`, `fetch-code`, `fetch-hashes`, `block`, `range`, `fuzz`, `fuzz-pair`, `fuzz-block`, replaying fixture files |
+| `src/watch.fe` | `GasWatch`, a tracer that records every call (caller, account it runs as, value, gas, calldata and output), reads of the gas left after shadow code ran, of code hashes, `BLOCKHASH`, and the port's program counters; where two runs part and which gas reading explains it |
+| `src/mutants.fe` | mutation sites in a port's source and the mutants planted there |
+| `src/certify.fe` | the certificate page |
+| `src/lib.fe` | the CLI: `fetch`, `fetch-block`, `fetch-code`, `fetch-hashes`, `block`, `range`, `chain`, `trace`, `fuzz`, `fuzz-pair`, `fuzz-block`, `mutants`, `certify`, replaying fixture files |
 | `src/tests.fe` | unit tests for the helpers |
 | `ports/weth9` | WETH9 in Fe, for shadow replay |
 | `ports/uniswap-v2-pair` | UniswapV2Pair in Fe, for shadow replay of every V2 pair |
+| `ports/usdt` | TetherToken (USDT) in Fe |
 
 ## Build and test
 

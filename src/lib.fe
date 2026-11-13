@@ -274,6 +274,8 @@ pub struct Totals {
     pub gas_explained: u64,
     /// Shadowed transactions that differ where code read a code hash.
     pub code_sensitive: u64,
+    /// Shadowed transactions where only the deployed code ran out of gas.
+    pub cheaper: u64,
     /// Shadowed transactions that differ without reading the gas left.
     pub behavior: u64,
     pub chain_gas: u64,
@@ -305,6 +307,7 @@ fn add_totals(_ into: mut Totals, _ from: Totals) {
     into.gas_sensitive += from.gas_sensitive
     into.gas_explained += from.gas_explained
     into.code_sensitive += from.code_sensitive
+    into.cheaper += from.cheaper
     into.behavior += from.behavior
     into.chain_gas += from.chain_gas
     into.shadow_gas += from.shadow_gas
@@ -323,6 +326,7 @@ impl Totals {
             gas_sensitive: 0,
             gas_explained: 0,
             code_sensitive: 0,
+            cheaper: 0,
             behavior: 0,
             chain_gas: 0,
             shadow_gas: 0,
@@ -569,6 +573,15 @@ uses (fs: std::fs::Fs, out: mut Stdout)
                 txs[index]["hash"].text(),
                 " (ran BLOCKHASH; a hash before the parent's is not in the node's traces)",
             )
+        } else if found.shadowed && found.cheaper {
+            totals.cheaper += 1
+            println!(
+                "DIFF  tx ",
+                index,
+                " ",
+                txs[index]["hash"].text(),
+                " (the deployed code ran out of gas where the shadow code, cheaper, did not)",
+            )
         } else {
             if found.shadowed {
                 totals.behavior += 1
@@ -602,7 +615,11 @@ fn print_totals(_ totals: Totals, shadowing: bool) uses (out: mut Stdout) {
             "shadow: ",
             totals.shadowed,
             " transactions ran the shadow code, ",
-            totals.shadowed - totals.gas_sensitive - totals.code_sensitive - totals.behavior,
+            totals.shadowed -
+                totals.gas_sensitive -
+                totals.code_sensitive -
+                totals.cheaper -
+                totals.behavior,
             " identical, ",
             totals.gas_sensitive,
             " differ where code reads the gas left, ",
@@ -614,6 +631,13 @@ fn print_totals(_ totals: Totals, shadowing: bool) uses (out: mut Stdout) {
             ", shadow ",
             totals.shadow_gas,
         )
+        if totals.cheaper > 0 {
+            println!(
+                "  ",
+                totals.cheaper,
+                " more differ where only the deployed code ran out of gas",
+            )
+        }
         if totals.gas_sensitive > 0 {
             println!(
                 "  of the ",
@@ -781,7 +805,11 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     while i > 0 {
         i -= 1
         load::add_prestate(mut world, prestates["result"][i]["result"])
-        load::clear_created(mut world, prestates["result"][i]["result"], diffs["result"][i]["result"])
+        load::clear_created(
+            mut world,
+            prestates["result"][i]["result"],
+            diffs["result"][i]["result"],
+        )
     }
     world.set_block_hash(env.number - 1, field(header, "parentHash"))
     load::add_extras(mut world, extras)
@@ -1081,7 +1109,11 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         certify::row("Transactions that ran the port", totals.shadowed)
         certify::row(
             "Identical to the chain",
-            totals.shadowed - totals.gas_sensitive - totals.code_sensitive - totals.behavior,
+            totals.shadowed -
+                totals.gas_sensitive -
+                totals.code_sensitive -
+                totals.cheaper -
+                totals.behavior,
         )
         certify::row(
             "Differ where other code read the gas left",
@@ -1095,6 +1127,7 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
             "Differ where other code read code hashes",
             totals.code_sensitive,
         )
+        certify::row("Only the deployed code ran out of gas", totals.cheaper)
         certify::row("<strong>Behave differently</strong>", totals.behavior)
         "</table>\n".fmt(mut html)
         certificate_gas(totals.deployed_profile, totals.shadow_profile)
@@ -1118,6 +1151,7 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
             "Differ after an address-shaped word got upper bits",
             found.dirtied,
         )
+        certify::row("Differ after the calldata was cut short", found.shortened)
         certify::row("<strong>Differ</strong>", found.differ)
         "</table>\n<p>The port ran ".fmt(mut html)
         let ran = watch::coverage_count(found.covered)
@@ -2196,6 +2230,8 @@ uses (args: Args, fs: std::fs::Fs, out: mut Stdout)
         " code hashes), ",
         found.dirtied,
         " differ after an address-shaped word got upper bits, ",
+        found.shortened,
+        " after the calldata was cut short, ",
         found.cheaper,
         " where only the deployed code ran out of gas, ",
         found.differ,

@@ -91,9 +91,13 @@ pub fn add_prestate(_ world: mut WorldState, _ prestate: Value) {
         let account = ref member.value
         world.set_balance(address, field(account, "balance"))
         world.set_nonce(address, field(account, "nonce"))
+        // The tracer leaves out empty code: an account without it has none,
+        // though a later transaction's prestate may have set some.
         if account.has("code") {
             let code = hex_bytes(account["code"].text())
             world.set_code(address: address, code: code.span())
+        } else {
+            world.set_code(address: address, code: MemBuffer::empty().span())
         }
         if account.has("storage") {
             for ref slot in account["storage"].members() {
@@ -125,7 +129,12 @@ pub fn clear_created(_ world: mut WorldState, _ prestate: Value, _ diff: Value) 
         if member.value.has("storage") {
             for ref slot in member.value["storage"].members() {
                 if !lists_slot(prestate, member.key.span(), slot.key.span()) {
-                    world.storage_store(address, parse_hex_uint(slot.key.span()).unwrap_or(default: 0), 0)
+                    world
+                        .storage_store(
+                            address,
+                            parse_hex_uint(slot.key.span()).unwrap_or(default: 0),
+                            0,
+                        )
                 }
             }
         }

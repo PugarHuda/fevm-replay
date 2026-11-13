@@ -112,6 +112,8 @@
     <h3 class="subhead">Then every Uniswap V2 pair at once</h3>
     <p>Every V2 pair on mainnet runs the same code, so one Fe port of UniswapV2Pair stands in for all of them. Over 200 blocks (69,643 transactions) and 90 more spread across the year, 1,687 transactions ran it and <strong>none behaved differently</strong> in the end. Every difference left is a contract reading the gas left or a code hash, and each one is checked: the runs part under the code that read it. <code>swap</code> costs 0.9% less gas, <code>getReserves</code> 4.4% less.</p>
     <p>Getting there took one real bug fix. A bot in block 26,000,008 packs data into the upper bytes of <code>swap</code>'s <code>to</code> argument. Solidity keeps the low 160 bits; Fe's decoder rejected the word. <a href="explorer.html">See it call by call</a>.</p>
+    <h3 class="subhead">And USDT, the most-called contract on Ethereum</h3>
+    <p>A third port, TetherToken from 2017's solc 0.4.17, keeps every quirk: no return value from <code>transfer</code>, fees and blacklists, an owner and a pause flag packed into one slot, and SafeMath that burns all gas on failure. Across 290 blocks, 21,230 real transactions ran it and <strong>none behaved differently</strong>; <code>transfer</code> costs 4.1% less gas, <code>balanceOf</code> 20.8% less.</p>
     <p>Beside mainnet, 1.2 million random calls match with six Uniswap invariants checked after each, mutated mainnet transactions match too, and 57 of 74 mutants planted in the port are caught. All of it fits on <a href="certificate.html">one certificate</a>, written by one command.</p>
   </section>
 

@@ -89,6 +89,9 @@ pub struct Mismatches {
     pub code_target: u256,
     /// Whether the shadow code ran at all.
     pub shadow_ran: bool,
+    /// The deployed code ran out of gas where the shadow code, at a call
+    /// with the same calldata, did not (see `watch::ran_out_first`).
+    pub cheaper: bool,
     pub code_targets: u64,
     pub shadow_targets: u64,
     /// Whether the transaction ran BLOCKHASH (filled in for differences only).
@@ -307,6 +310,7 @@ uses (text: mut MemBuffer)
         gas_reader: 0,
         code_target: 0,
         shadow_ran: false,
+        cheaper: false,
         code_targets: 0,
         shadow_targets: 0,
         read_blockhash: false,

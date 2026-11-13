@@ -3,6 +3,7 @@
 
 use core::{MemBuffer, MemSpan, MemVec}
 use fevm::{LogBuffer, WorldState}
+use fevm::status::{ERR_OUT_OF_GAS, OK}
 use fevm::trace::{CallEnd, CallStart, Step, Tracer}
 
 const OP_GAS: u8 = 0x5a
@@ -280,6 +281,22 @@ fn same_payload(_ a: MemSpan, _ b: MemSpan) -> bool {
         }
     }
     true
+}
+
+/// Whether the runs part at a call, with the same target and calldata, that
+/// ran out of gas on the deployed code and succeeded on the port.
+pub fn ran_out_first(_ a: GasWatch, _ b: GasWatch) -> bool {
+    match first_parting(a, b) {
+        Option::Some(k) => {
+            if k >= a.ended.len() || k >= b.ended.len() {
+                return false
+            }
+            let x = a.calls[a.ended[k]]
+            let y = b.calls[b.ended[k]]
+            x.to == y.to && x.input == y.input && x.status == ERR_OUT_OF_GAS && y.status == OK
+        },
+        Option::None => false,
+    }
 }
 
 /// Adds the calls and gas of each function in `from` to `into`.

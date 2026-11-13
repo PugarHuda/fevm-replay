@@ -55,6 +55,13 @@ jobs:
           fe test .
           fe build -O 2 --out-dir ../../out/pair .
 
+      - name: USDT (TetherToken) port
+        working-directory: ports/usdt
+        run: |
+          fe fmt --check
+          fe test .
+          fe build -O 2 --out-dir ../../out/usdt .
+
       - name: Build fevm-replay
         run: fe build --backend native -O 2 --emit executable --out-dir out .
 

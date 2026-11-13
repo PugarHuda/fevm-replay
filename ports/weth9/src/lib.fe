@@ -79,16 +79,16 @@ fn short_string(_ word: u256) -> DynString {
     DynString::from_word_prefix(word: word, len: ((word & 0xff) / 2).downcast_truncate())
 }
 
-/// The state of the deployed contract, slot for slot: `string name`,
-/// `string symbol`, `uint8 decimals`, `mapping(address => uint) balanceOf`,
-/// `mapping(address => mapping(address => uint)) allowance`. The first three
-/// are read whole and decoded; nothing but `init` writes them.
- // An address argument as solc 0.4's ABI decoder reads it: the low 160 bits
+// An address argument as solc 0.4's ABI decoder reads it: the low 160 bits
 // of its word, whatever the rest holds.
 fn address(_ word: u256) -> Address {
     Address::new(word & ((1 << 160) - 1))
 }
 
+/// The state of the deployed contract, slot for slot: `string name`,
+/// `string symbol`, `uint8 decimals`, `mapping(address => uint) balanceOf`,
+/// `mapping(address => mapping(address => uint)) allowance`. The first three
+/// are read whole and decoded; nothing but `init` writes them.
 pub contract WETH9 uses (ctx: Ctx, call: mut Call, log: mut Log) {
     mut name: u256,
     mut symbol: u256,

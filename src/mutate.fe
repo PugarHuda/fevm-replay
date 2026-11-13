@@ -23,7 +23,14 @@ use fevm::status::{ERR_OUT_OF_GAS, OK}
 use ingot::fuzz::{same_bytes, same_logs, same_reason, same_state_except, same_status}
 use ingot::load::{field, hex_bytes, load_tx_with, load_world}
 use ingot::replay::{build_world, shadow_targets}
-use ingot::watch::{GasWatch, differing_owner, explain_gas, first_parting, merge_coverage}
+use ingot::watch::{
+    GasWatch,
+    differing_owner,
+    explain_gas,
+    first_parting,
+    merge_coverage,
+    ran_out_first,
+}
 
 /// A contract that read the gas left where two runs part, and in how many
 /// runs.
@@ -81,6 +88,9 @@ pub struct Mutations {
     /// Runs that differ after a word shaped like an address (upper twelve
     /// bytes zero) got upper bits: Fe's decoder rejects what solc cleaned.
     pub dirtied: u64,
+    /// Runs that differ after the calldata was cut short: solc 0.4 reads
+    /// the missing bytes as zeros, Fe's decoder rejects the call.
+    pub shortened: u64,
     /// Runs of each kind: the transaction's calldata changed, or a call
     /// into the shadowed contract changed in flight.
     pub tx_runs: u64,
@@ -129,6 +139,7 @@ impl Mutations {
             differ: 0,
             cheaper: 0,
             dirtied: 0,
+            shortened: 0,
             tx_runs: 0,
             direct_runs: 0,
             first_tx: 0,
@@ -267,7 +278,8 @@ pub fn mutate_tx(
         var data = MemBuffer::empty()
         var to: u256 = 0
         var dirtied = false
-        var patch = Patch { at: 0, word: 0, len: 0, replaces: false }
+        var shortened = false
+        var patch = Patch { at: 0, word: 0, len: 0, replaces: false, selector: 0, original: 0 }
         if direct {
             let seen = recorder.seen[rng.index(recorder.seen.len())]
             to = seen.to
@@ -276,13 +288,17 @@ pub fn mutate_tx(
                 received.push(recorder.inputs.span()[seen.start + i])
             }
             data = MemBuffer::from_span(received.span())
+            let before = data.len()
             dirtied = mutate(mut rng, mut data)
+            shortened = data.len() < before
             patch = patch_between(received.span(), data.span())
             found.direct_runs += 1
         } else {
             data = MemBuffer::from_span(original.span())
             if run > 0 {
+                let before = data.len()
                 dirtied = mutate(mut rng, mut data)
+                shortened = data.len() < before
             }
             found.tx_runs += 1
         }
@@ -318,6 +334,8 @@ pub fn mutate_tx(
             found.cheaper += 1
         } else if what < 10 && dirtied {
             found.dirtied += 1
+        } else if what < 10 && shortened {
+            found.shortened += 1
         } else if what < 10 {
             found.differ += 1
             if found.first_tx == 0 {
@@ -545,22 +563,6 @@ fn compare_run(
     what
 }
 
-// Whether the runs part at a call, with the same target and calldata, that
-// ran out of gas on the deployed code and succeeded on the port.
-pub fn ran_out_first(_ a: GasWatch, _ b: GasWatch) -> bool {
-    match first_parting(a, b) {
-        Option::Some(k) => {
-            if k >= a.ended.len() || k >= b.ended.len() {
-                return false
-            }
-            let x = a.calls[a.ended[k]]
-            let y = b.calls[b.ended[k]]
-            x.to == y.to && x.input == y.input && x.status == ERR_OUT_OF_GAS && y.status == OK
-        },
-        Option::None => false,
-    }
-}
-
 // Where the code under test runs when a proxy stands in front of it.
 const IMPL: u256 = 0xfe11ed
 
@@ -568,7 +570,7 @@ const CHEAPER: u8 = 20
 
 // A change to a call's calldata as a proxy applies it: `word` written at
 // `at` (when `replaces`), and `len` bytes passed on.
-struct Patch { at: usize, word: u256, len: usize, replaces: bool }
+struct Patch { at: usize, word: u256, len: usize, replaces: bool, selector: u256, original: usize }
 
 impl Copy for Patch {}
 
@@ -584,32 +586,76 @@ fn patch_between(_ before: MemSpan, _ after: MemSpan) -> Patch {
         if before[i] != after[i] && i >= 4 {
             let at = 4 + (i - 4) / 32 * 32
             if at + 32 <= after.len() {
-                return Patch { at, word: read_word(after, at), len: after.len(), replaces: true }
+                return Patch {
+                    at,
+                    word: read_word(after, at),
+                    len: after.len(),
+                    replaces: true,
+                    selector: selector_of(before),
+                    original: before.len(),
+                }
             }
         }
     }
-    Patch { at: 0, word: 0, len: after.len(), replaces: false }
+    Patch {
+        at: 0,
+        word: 0,
+        len: after.len(),
+        replaces: false,
+        selector: selector_of(before),
+        original: before.len(),
+    }
 }
 
-// Code that copies its calldata, applies `patch`, DELEGATECALLs `IMPL` with
-// all its gas and returns or reverts with what that returned. Storage,
-// caller and value stay the account's own.
+fn selector_of(_ data: MemSpan) -> u256 {
+    var selector: u256 = 0
+    for i in 0 .. 4 {
+        selector = (selector << 8) | if i < data.len() { data[i] as u256 } else { 0 }
+    }
+    selector
+}
+
+// Code that copies its calldata and DELEGATECALLs `IMPL` with all its gas,
+// returning or reverting with what that returned. A call with the changed
+// call's selector and length gets `patch` first; any other call into the
+// account (a token is often called several times in one transaction) passes
+// as it came. Storage, caller and value stay the account's own.
 fn proxy(_ patch: Patch) -> MemBuffer {
     var code = MemBuffer::empty()
     // CALLDATACOPY(0, 0, CALLDATASIZE)
     push_bytes(mut code, 0x366000600037, 6)
+    let patched = 33
+    let call_at: usize = patched + 1 + (if patch.replaces { 37 } else { 0 }) + 3
+    // CALLDATASIZE == original && CALLDATALOAD(0) >> 224 == selector: JUMPI patched
+    code.push(0x61)
+    push_bytes(mut code, patch.original as u256, 2)
+    push_bytes(mut code, 0x3614, 2)
+    push_bytes(mut code, 0x60003560e01c, 6)
+    code.push(0x63)
+    push_bytes(mut code, patch.selector, 4)
+    push_bytes(mut code, 0x1416, 2)
+    code.push(0x61)
+    push_bytes(mut code, patched as u256, 2)
+    code.push(0x57)
+    // Any other call: its own length.
+    code.push(0x36)
+    code.push(0x61)
+    push_bytes(mut code, call_at as u256, 2)
+    code.push(0x56)
+    // patched: JUMPDEST, PUSH32 word PUSH2 at MSTORE, then the patched length
+    code.push(0x5b)
     if patch.replaces {
-        // PUSH32 word PUSH2 at MSTORE
         code.push(0x7f)
         push_bytes(mut code, patch.word, 32)
         code.push(0x61)
         push_bytes(mut code, patch.at as u256, 2)
         code.push(0x52)
     }
-    // DELEGATECALL(GAS, IMPL, 0, len, 0, 0)
-    push_bytes(mut code, 0x60006000, 4)
     code.push(0x61)
     push_bytes(mut code, patch.len as u256, 2)
+    // call: JUMPDEST; DELEGATECALL(GAS, IMPL, 0, len, 0, 0) with len on the stack
+    code.push(0x5b)
+    push_bytes(mut code, 0x6000600082, 5)
     push_bytes(mut code, 0x6000, 2)
     code.push(0x73)
     push_bytes(mut code, IMPL, 20)

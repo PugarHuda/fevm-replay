@@ -15,7 +15,7 @@ use fevm::{BlockEnv, Buffers, Config, WorldState, transact}
 use ingot::compare::{Mismatches, apply_diff, compare}
 use ingot::load::{add_extras, field, load_block, load_tx, load_world}
 use core::MemVec
-use ingot::watch::{GasWatch, SelectorGas, add_profile, explain_gas, first_parting}
+use ingot::watch::{GasWatch, SelectorGas, add_profile, explain_gas, first_parting, ran_out_first}
 use ingot::fuzz::{same_logs, same_state_except, same_status}
 
 /// Replays transaction `tx` in fevm against its `prestate`, in the block
@@ -180,6 +180,9 @@ uses (text: mut MemBuffer)
             mut again,
             mut deployed,
         )
+        // The deployed code ran out of gas where the cheaper port did not,
+        // at a call with the same calldata: a cost, not a behavior.
+        found.cheaper = ran_out_first(deployed, watch)
         match first_parting(deployed, watch) {
             Option::Some(k) => {
                 "  runs part at a call".fmt(mut text)

@@ -173,6 +173,7 @@ fe build --backend native -O 2 --emit executable --out-dir out .
 
     <h2 id="ports">Writing a port</h2>
     <p><a href="https://github.com/PugarHuda/fevm-replay/tree/main/ports/weth9"><code>ports/weth9</code></a> is the worked example. A port is only a drop-in replacement if it keeps the deployed contract's:</p>
+    <p>The repository has three: <code>ports/weth9</code> (solc 0.4.19), <code>ports/uniswap-v2-pair</code> (solc 0.5.16) and <code>ports/usdt</code> (solc 0.4.17). All three take address arguments as words and keep their low 160 bits, as solc's decoder does, with the selectors written out (<code>#[selector = 0xa9059cbb]</code>) since Fe checks a <code>sol(...)</code> signature against the field types.</p>
     <ul>
       <li>function selectors and ABI encoding, including return values;</li>
       <li>event signatures and which arguments are indexed;</li>
