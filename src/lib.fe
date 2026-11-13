@@ -938,6 +938,7 @@ uses (args: Args, fs: std::fs::Fs, out: mut Stdout)
     category_line("well-formed", found, 0)
     category_line("short calldata", found, 1)
     category_line("dirty address", found, 2)
+    print_coverage(found.covered, port.span())
     if pair {
         print!("  succeeded:")
         for i in 0 .. found.succeeded.len() {
@@ -1100,6 +1101,51 @@ fn outcome(_ result: [i32; 2]) -> String<20> {
 /// port. The directories come first; the last arguments that read as
 /// numbers are `mutations` and `seed`.
 #[cfg(target_family = "unix")]
+ // How much of the port's code the runs covered.
+fn print_coverage(_ covered: MemVec<u8>, _ port: MemSpan)
+uses (out: mut Stdout) {
+    let ran = watch::coverage_count(covered)
+    let total: u64 = watch::instructions(port).downcast_unchecked()
+    println!(
+        "  the port ran ",
+        ran,
+        " of its ",
+        total,
+        " instructions (",
+        if total == 0 { 0 } else { ran * 100 / total },
+        "%)",
+    )
+}
+
+// The contracts that read the gas left where runs part, most runs first,
+// at most ten.
+fn print_readers(_ readers: MemVec<mutate::Reader>) uses (out: mut Stdout) {
+    var shown: MemVec<bool> = MemVec::new()
+    for _ in 0 .. readers.len() {
+        shown.push(false)
+    }
+    var printed: usize = 0
+    while printed < 10 && printed < readers.len() {
+        var best: usize = 0
+        var best_runs: u64 = 0
+        for i in 0 .. readers.len() {
+            if !shown[i] && readers[i].runs >= best_runs {
+                best = i
+                best_runs = readers[i].runs
+            }
+        }
+        shown[best] = true
+        println!(
+            "    0x",
+            core::text::hex(readers[best].address, 20),
+            ": ",
+            best_runs,
+            " runs",
+        )
+        printed += 1
+    }
+}
+
 fn fuzz_block_command() -> i32
 uses (args: Args, fs: std::fs::Fs, out: mut Stdout)
 {
@@ -1228,6 +1274,31 @@ uses (args: Args, fs: std::fs::Fs, out: mut Stdout)
         found.differ,
         " differ",
     )
+    println!(
+        "  of the ",
+        found.sensitive - found.code_sensitive,
+        " where code reads the gas left, ",
+        found.gas_explained,
+        " part at or under a call whose code read it",
+    )
+    print_readers(found.readers)
+    if found.unexplained_tx != 0 {
+        println!(
+            "  first other: tx ",
+            found.unexplained_tx - 1,
+            ", parting call ",
+            found.unexplained_at,
+            " to 0x",
+            core::text::hex(found.unexplained_to, 20),
+            ", deployed ",
+            found.unexplained_deployed,
+            ", port ",
+            found.unexplained_port,
+            ", what ",
+            found.unexplained_what,
+        )
+    }
+    print_coverage(found.covered, port.span())
     if found.first_tx == 0 {
         return 0
     }

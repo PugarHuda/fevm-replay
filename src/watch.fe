@@ -8,6 +8,8 @@ const OP_GAS: u8 = 0x5a
 const OP_BLOCKHASH: u8 = 0x40
 const OP_EXTCODECOPY: u8 = 0x3c
 const OP_EXTCODEHASH: u8 = 0x3f
+const OP_CALLCODE: u8 = 0xf2
+const OP_DELEGATECALL: u8 = 0xf4
 
 /// Watches a shadow replay for code other than the shadow code reading the
 /// gas left (the GAS opcode) after the shadow code first ran. Until the
@@ -27,16 +29,23 @@ impl Copy for SelectorGas {}
 
 // An open call frame: the code it runs, and for calls into the watched
 // address, the function and the gas the frame started with.
-struct Frame { to: u256, selector: u32, gas: u64, record: usize }
+struct Frame { to: u256, selector: u32, gas: u64, record: usize, shadow: bool, covered: bool }
 
 impl Copy for Frame {}
 
 /// One call a run made, in the order calls began: its depth, target,
 /// selector, a hash of its calldata, and once it ended, its status and a
 /// hash of its output. Two runs of one transaction can be compared call by
-/// call to find where they part.
+/// call to find where they part. `parent` indexes the call that made it
+/// (`NO_PARENT` for the transaction's own); `read_gas` is whether code
+/// other than the shadow code ran GAS in it after the shadow code first ran;
+/// `context` is the account it runs as, the caller's for DELEGATECALL and
+/// CALLCODE.
 pub struct CallRecord {
     pub depth: usize,
+    pub parent: usize,
+    pub read_gas: bool,
+    pub context: u256,
     pub to: u256,
     pub selector: u32,
     pub input: u64,
@@ -45,6 +54,8 @@ pub struct CallRecord {
 }
 
 impl Copy for CallRecord {}
+
+pub const NO_PARENT: usize = 0xffffffff
 
 // FNV-1a: enough to tell two byte strings apart in a report.
 fn fingerprint(_ bytes: MemSpan) -> u64 {
@@ -77,6 +88,84 @@ pub fn first_parting(_ a: GasWatch, _ b: GasWatch) -> Option<usize> {
     } else {
         Option::None
     }
+}
+
+/// Where two runs that differ only where code read the gas left part: the
+/// address of the code that read it, when the parting call (see
+/// `first_parting`) is that code's call or runs under it, as when a contract
+/// forwards a share of the gas it reads. None if the runs agree or part
+/// elsewhere, which a gas reading does not explain.
+pub fn gas_reader(_ a: GasWatch, _ b: GasWatch) -> Option<u256> {
+    match first_parting(a, b) {
+        Option::Some(k) => {
+            let reader = reader_above(a, k)
+            if reader != 0 {
+                return Option::Some(reader)
+            }
+            let other = reader_above(b, k)
+            if other != 0 {
+                return Option::Some(other)
+            }
+            Option::None
+        },
+        Option::None => Option::None,
+    }
+}
+
+// The address of the nearest call, from the `k`th to end up through its
+// callers, that read the gas left; 0 if none.
+fn reader_above(_ run: GasWatch, _ k: usize) -> u256 {
+    if k >= run.ended.len() {
+        return 0
+    }
+    var at = run.ended[k]
+    while at != NO_PARENT {
+        let call = run.calls[at]
+        if call.read_gas {
+            return call.context
+        }
+        at = call.parent
+    }
+    0
+}
+
+/// Marks in `into` every program counter `from` marks.
+pub fn merge_coverage(_ into: mut MemVec<u8>, _ from: MemVec<u8>) {
+    for pc in 0 .. from.len() {
+        if from[pc] != 0 {
+            while into.len() <= pc {
+                into.push(0)
+            }
+            into[pc] = 1
+        }
+    }
+}
+
+/// How many program counters `covered` marks.
+pub fn coverage_count(_ covered: MemVec<u8>) -> u64 {
+    var count: u64 = 0
+    for pc in 0 .. covered.len() {
+        if covered[pc] != 0 {
+            count += 1
+        }
+    }
+    count
+}
+
+/// The instruction offsets of `code`: every byte that starts an opcode
+/// rather than sitting in a PUSH's data.
+pub fn instructions(_ code: MemSpan) -> usize {
+    var count: usize = 0
+    var pc: usize = 0
+    while pc < code.len() {
+        let op = code[pc]
+        count += 1
+        pc += 1
+        if op >= 0x60 && op <= 0x7f {
+            pc += (op - 0x5f) as usize
+        }
+    }
+    count
 }
 
 /// Adds the calls and gas of each function in `from` to `into`.
@@ -128,6 +217,10 @@ pub struct GasWatch {
     pub calls: MemVec<CallRecord>,
     /// Indexes into `calls`, in the order the calls ended.
     pub ended: MemVec<usize>,
+    /// The accounts whose code to measure coverage of, and for each
+    /// program counter they ran, a 1 (a byte per offset).
+    pub cover: MemVec<u256>,
+    pub covered: MemVec<u8>,
     /// Gas used per function of the code at the watched address, whichever
     /// code runs there: the deployed contract or the shadow port.
     pub profile: MemVec<SelectorGas>,
@@ -152,6 +245,8 @@ impl GasWatch {
             focus_output: MemBuffer::empty(),
             calls: MemVec::new(),
             ended: MemVec::new(),
+            cover: MemVec::new(),
+            covered: MemVec::new(),
             profile: MemVec::new(),
         }
     }
@@ -171,25 +266,25 @@ impl Tracer for GasWatch {
         if step.op == OP_BLOCKHASH {
             self.read_blockhash = true
         }
-        if (step.op == OP_EXTCODEHASH || step.op == OP_EXTCODECOPY) && self.shadows.len() > 0 {
-            match self.frames.last() {
-                Option::Some(ref frame) => {
-                    if !is_shadow(self.shadows, frame.to) {
-                        self.read_code = true
+        match self.frames.last() {
+            Option::Some(ref frame) => {
+                if (step.op == OP_EXTCODEHASH || step.op == OP_EXTCODECOPY)
+                    && self.shadows.len() > 0
+                    && !frame.shadow {
+                    self.read_code = true
+                }
+                if step.op == OP_GAS && self.shadow_ran && !frame.shadow {
+                    self.observed = true
+                    self.calls[frame.record].read_gas = true
+                }
+                if frame.covered {
+                    while self.covered.len() <= step.pc {
+                        self.covered.push(0)
                     }
-                },
-                Option::None => {},
-            }
-        }
-        if step.op == OP_GAS && self.shadow_ran {
-            match self.frames.last() {
-                Option::Some(ref frame) => {
-                    if !is_shadow(self.shadows, frame.to) {
-                        self.observed = true
-                    }
-                },
-                Option::None => {},
-            }
+                    self.covered[step.pc] = 1
+                }
+            },
+            Option::None => {},
         }
     }
 
@@ -204,10 +299,21 @@ impl Tracer for GasWatch {
             }
         }
         let record = self.calls.len()
+        let parent = match self.frames.last() {
+            Option::Some(ref frame) => frame.record,
+            Option::None => NO_PARENT,
+        }
         self.calls
             .push(
                 CallRecord {
                     depth: call.depth,
+                    parent,
+                    read_gas: false,
+                    context: if call.kind == OP_DELEGATECALL || call.kind == OP_CALLCODE {
+                        call.from
+                    } else {
+                        call.to
+                    },
                     to: call.to,
                     selector,
                     input: fingerprint(input),
@@ -215,7 +321,11 @@ impl Tracer for GasWatch {
                     output: 0,
                 },
             )
-        self.frames.push(Frame { to: call.to, selector, gas: call.gas, record })
+        let shadow = is_shadow(self.shadows, call.to)
+        let covered = is_shadow(self.cover, call.to)
+        self.frames.push(
+                Frame { to: call.to, selector, gas: call.gas, record, shadow, covered },
+            )
     }
 
     fn leave(mut self, _ call: CallEnd, output: MemSpan) {

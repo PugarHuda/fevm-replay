@@ -12,6 +12,7 @@
 
 use core::{MemBuffer, MemSpan, MemVec}
 use keccak::Keccak256
+use ingot::watch::{GasWatch, merge_coverage}
 use fevm::{
     BlockEnv,
     Buffers,
@@ -42,6 +43,8 @@ pub const DIRTY_ADDRESS: u8 = 2
 
 /// What a fuzzing session found, per category.
 pub struct Findings {
+    /// The program counters the port ran (see `GasWatch::covered`).
+    pub covered: MemVec<u8>,
     pub calls: [u64; 3],
     pub identical: [u64; 3],
     /// Calls whose `Error(string)` reasons agree but whose padding after
@@ -86,6 +89,7 @@ pub struct Findings {
 impl Findings {
     pub fn new() -> Self {
         Findings {
+            covered: MemVec::new(),
             calls: [0, 0, 0],
             identical: [0, 0, 0],
             dirty_padding: 0,
@@ -908,6 +912,9 @@ pub fn fuzz(
         } else {
             genesis(port)
         }
+        // The port's runs, watched for the code they cover.
+        var watch = GasWatch::new(shadows: MemVec::new())
+        watch.cover.push(if pair { PAIR } else { TARGET })
         var step: u64 = 0
         while step < steps {
             step += 1
@@ -927,7 +934,6 @@ pub fn fuzz(
             var buffers_a = Buffers::new()
             var buffers_b = Buffers::new()
             var none_a = ()
-            var none_b = ()
             let ran_a = transact(
                 a,
                 tx_a,
@@ -942,7 +948,7 @@ pub fn fuzz(
                 block(step),
                 Config::osaka(),
                 mut buffers_b,
-                mut none_b,
+                mut watch,
             )
             found.calls[call.category as usize] += 1
             let what: u8 = if ran_a.receipt.invalid != ran_b.receipt.invalid
@@ -1006,6 +1012,7 @@ pub fn fuzz(
                 }
             }
         }
+        merge_coverage(mut found.covered, watch.covered)
         run += 1
     }
     if found.first_step != 0 {

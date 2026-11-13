@@ -17,13 +17,30 @@
 
 use core::{MemBuffer, MemSpan, MemVec}
 use json::Value
-use fevm::{BlockEnv, Buffers, Config, WorldState, transact}
+use fevm::{BlockEnv, Buffers, Config, LogBuffer, WorldState, transact}
 use fevm::trace::{CallEnd, CallStart, Tracer}
 use fevm::status::{ERR_OUT_OF_GAS, OK}
 use ingot::fuzz::{same_bytes, same_logs, same_reason, same_state_except, same_status}
 use ingot::load::{field, hex_bytes, load_tx_with, load_world}
 use ingot::replay::{build_world, shadow_targets}
-use ingot::watch::{GasWatch, first_parting}
+use ingot::watch::{GasWatch, first_parting, gas_reader, merge_coverage}
+
+/// A contract that read the gas left where two runs part, and in how many
+/// runs.
+pub struct Reader { pub address: u256, pub runs: u64 }
+
+impl Copy for Reader {}
+
+/// Counts one more run for `address` in `readers`.
+pub fn add_reader(_ readers: mut MemVec<Reader>, _ address: u256, runs: u64) {
+    for i in 0 .. readers.len() {
+        if readers[i].address == address {
+            readers[i].runs += runs
+            return
+        }
+    }
+    readers.push(Reader { address, runs })
+}
 
 /// What mutating a block's transactions found.
 pub struct Mutations {
@@ -35,6 +52,23 @@ pub struct Mutations {
     pub sensitive: u64,
     /// Of those, the runs where code read code hashes.
     pub code_sensitive: u64,
+    /// Of those where code read the gas left, the runs that part at or
+    /// under a call whose code read it (see `watch::gas_reader`), and which
+    /// contracts those were.
+    pub gas_explained: u64,
+    pub readers: MemVec<Reader>,
+    /// The first run where code read the gas left but the runs part
+    /// elsewhere: its transaction's index plus one (0 for none), and the
+    /// parting call's index, target and status on each side (-1 for none).
+    pub unexplained_tx: u64,
+    pub unexplained_at: u64,
+    pub unexplained_to: u256,
+    pub unexplained_deployed: i32,
+    pub unexplained_port: i32,
+    pub unexplained_what: u8,
+    /// The program counters the port ran, over every run (see
+    /// `GasWatch::covered`).
+    pub covered: MemVec<u8>,
     /// In-flight runs whose changed call succeeded on the deployed code:
     /// how far the changes got past the contract's own checks.
     pub flight_succeeded: u64,
@@ -82,6 +116,15 @@ impl Mutations {
             identical: 0,
             sensitive: 0,
             code_sensitive: 0,
+            gas_explained: 0,
+            readers: MemVec::new(),
+            unexplained_tx: 0,
+            unexplained_at: 0,
+            unexplained_to: 0,
+            unexplained_deployed: -1,
+            unexplained_port: -1,
+            unexplained_what: 0,
+            covered: MemVec::new(),
             flight_succeeded: 0,
             differ: 0,
             cheaper: 0,
@@ -263,6 +306,7 @@ pub fn mutate_tx(
             to,
             patch,
             input.span(),
+            index,
             more_gas: false,
             mut found,
         )
@@ -307,6 +351,7 @@ fn compare_run(
     _ to: u256,
     _ patch: Patch,
     _ data: MemSpan,
+    index: u64,
     more_gas: bool,
     _ found: mut Mutations,
 ) -> u8 {
@@ -316,6 +361,9 @@ fn compare_run(
     if direct {
         watch_a.focus = to
         watch_b.focus = to
+        watch_b.cover.push(IMPL)
+    } else {
+        watch_b.cover = copy_list(targets)
     }
     var buffers_a = Buffers::new()
     var buffers_b = Buffers::new()
@@ -373,6 +421,7 @@ fn compare_run(
     if !more_gas && direct && watch_a.focused && watch_a.focus_status == 0 {
         found.flight_succeeded += 1
     }
+    merge_coverage(mut found.covered, watch_b.covered)
     if what == 0 { return 0 }
     // In flight, the changed call's own outcome decides: if it differs, the
     // code under test behaved differently, whatever its callers read.
@@ -401,6 +450,7 @@ fn compare_run(
             to,
             patch,
             data,
+            index,
             more_gas: true,
             mut found,
         )
@@ -418,6 +468,54 @@ fn compare_run(
         return what + 10
     }
     if !call_differs && watch_b.observed {
+        // With every call alike, the difference sits in a log or state of
+        // its own: explained if the account it belongs to read the gas left.
+        var reader = gas_reader(watch_a, watch_b)
+        if reader.is_none() {
+            let owner = differing_owner(
+                ran_a.receipt.logs,
+                ran_b.receipt.logs,
+                ran_a.state,
+                ran_b.state,
+            )
+            if owner != 0 && (read_gas_in(watch_a, owner) || read_gas_in(watch_b, owner)) {
+                reader = Option::Some(owner)
+            }
+        }
+        match reader {
+            Option::Some(reader) => {
+                found.gas_explained += 1
+                add_reader(mut found.readers, reader, runs: 1)
+            },
+            Option::None => {
+                if found.unexplained_tx == 0 {
+                    found.unexplained_tx = index + 1
+                    found.unexplained_what = what
+                    match first_parting(watch_a, watch_b) {
+                        Option::Some(k) => {
+                            found.unexplained_at = k.downcast_unchecked()
+                            if k < watch_a.ended.len() {
+                                found.unexplained_to = watch_a.calls[watch_a.ended[k]].to
+                                found.unexplained_deployed = watch_a.calls[watch_a.ended[k]].status
+                            }
+                            if k < watch_b.ended.len() {
+                                found.unexplained_to = watch_b.calls[watch_b.ended[k]].to
+                                found.unexplained_port = watch_b.calls[watch_b.ended[k]].status
+                            }
+                        },
+                        Option::None => {
+                            found.unexplained_at = 0xffff
+                            found.unexplained_to = differing_owner(
+                                ran_a.receipt.logs,
+                                ran_b.receipt.logs,
+                                ran_a.state,
+                                ran_b.state,
+                            )
+                        },
+                    }
+                }
+            },
+        }
         return what + 10
     }
     if found.first_tx == 0 {
@@ -468,6 +566,64 @@ pub fn ran_out_first(_ a: GasWatch, _ b: GasWatch) -> bool {
         },
         Option::None => false,
     }
+}
+
+// The account a difference between two runs belongs to: the emitter of the
+// first log that differs, or else the first account whose balance, nonce or
+// storage differs; 0 if none does.
+fn differing_owner(_ a: LogBuffer, _ b: LogBuffer, _ x: WorldState, _ y: WorldState) -> u256 {
+    var i: u64 = 0
+    while i < a.len() || i < b.len() {
+        if i >= a.len() {
+            return b.entry(i).address
+        }
+        if i >= b.len() {
+            return a.entry(i).address
+        }
+        let one = a.entry(i)
+        let two = b.entry(i)
+        var differs = one.address != two.address
+            || one.topic_count != two.topic_count
+            || !same_bytes(a.payload(i), b.payload(i))
+        for t in 0 .. 4 {
+            if one.topics[t] != two.topics[t] {
+                differs = true
+            }
+        }
+        if differs {
+            return one.address
+        }
+        i += 1
+    }
+    for position in 0 .. x.account_count() {
+        let address = x.account_at(position).address
+        if x.balance(address) != y.balance(address) || x.nonce(address) != y.nonce(address) {
+            return address
+        }
+    }
+    for slot in 0 .. x.storage_slots() {
+        let entry = x.storage_at(slot)
+        if entry.occupied && y.storage_load(entry.address, entry.slot) != entry.value {
+            return entry.address
+        }
+    }
+    for slot in 0 .. y.storage_slots() {
+        let entry = y.storage_at(slot)
+        if entry.occupied && x.storage_load(entry.address, entry.slot) != entry.value {
+            return entry.address
+        }
+    }
+    0
+}
+
+// Whether code at `address` read the gas left in `run`.
+fn read_gas_in(_ run: GasWatch, _ address: u256) -> bool {
+    for i in 0 .. run.calls.len() {
+        if run.calls[i].read_gas && run.calls[i].context == address {
+            return true
+        }
+    }
+    false
 }
 
 // Where the code under test runs when a proxy stands in front of it.

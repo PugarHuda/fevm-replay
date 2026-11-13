@@ -163,6 +163,13 @@ fn runs_part_at_the_first_differing_call() {
     for i in 0 .. 3 {
         let call = ingot::watch::CallRecord {
             depth: i,
+            parent: if i == 0 {
+                ingot::watch::NO_PARENT
+            } else {
+                i - 1
+            },
+            read_gas: false,
+            context: 0xb0,
             to: 0xb0,
             selector: 1,
             input: 7,
@@ -177,6 +184,11 @@ fn runs_part_at_the_first_differing_call() {
     assert!(ingot::watch::first_parting(a, b).is_none())
     b.calls[1].output = 10
     assert!(ingot::watch::first_parting(a, b) == Option::Some(1))
+    // No gas reading explains it, until the call above it read the gas left.
+    assert!(ingot::watch::gas_reader(a, b).is_none())
+    a.calls[0].read_gas = true
+    a.calls[0].context = 0xa0
+    assert!(ingot::watch::gas_reader(a, b) == Option::Some(0xa0))
 }
 
 // A run where the deployed code ran out of gas at a call the port, with the
@@ -187,6 +199,9 @@ fn running_out_of_gas_first_is_a_cost() {
     var b = ingot::watch::GasWatch::new(shadows: core::MemVec::new())
     let call = ingot::watch::CallRecord {
         depth: 1,
+        parent: ingot::watch::NO_PARENT,
+        read_gas: false,
+        context: 0xb0,
         to: 0xb0,
         selector: 1,
         input: 7,
