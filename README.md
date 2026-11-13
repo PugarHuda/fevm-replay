@@ -897,22 +897,50 @@ recorded in a headless browser. The same steps by hand:
 ./out/fevm_replay range 26394000 20 blocks 0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2 out/weth9/WETH9.runtime.bin
 ```
 
+## Security assumptions
+
+What a MATCH or a clean certificate rests on:
+
+- **The node's traces are the reference.** Pre-state, receipts and state
+  diffs come from one RPC endpoint and are not proven against the block
+  header. A node bug shows up as a DIFF, as several did (see
+  Results); a node that lies consistently in its prestate and its diff
+  would go unnoticed. `block` rejects receipts that disagree with the
+  header, and `chain` checks every value the next prestate lists against
+  the state it carried.
+- **A load-balanced endpoint can mix nodes** near the chain head. Fetch a
+  few blocks behind it.
+- **Fixtures are trusted input.** A replay reads only the fixture file, and
+  the compiler enforces it: the functions that decide MATCH or DIFF do not
+  declare the `Spawn` or `Fs` effects (see [Fe highlight](#fe-highlight)).
+  A fixture edited by hand replays what it says; malformed ones are rejected
+  with a message, not a panic.
+- **fevm is the reference EVM for shadow replay and fuzzing.** Both codes
+  run in the same fevm, so a fevm bug that hits both the same way is not
+  seen there. Plain replays compare fevm with the chain, which is how fevm
+  itself is checked.
+- **A certificate is evidence, not proof.** It covers the blocks, calls and
+  mutants it names. Behavior no transaction, random call or mutation
+  reached is not covered; the coverage line says how much of the port ran.
+- **Gas- and code-hash-labeled differences are excluded from the verdict**
+  only when the call tree shows other code reading the gas left or a code
+  hash where the runs part. A port bug that hides behind such a reading
+  would be labeled, not counted.
+- **The fetcher runs `curl`** with arguments it builds itself from the URL
+  and hashes on the command line. It does not run a shell.
+
 ## Limitations
 
 - **Block hashes:** `fetch-block` loads only the parent's. `fetch-hashes`
   adds the 256 before a block (86 calls at three a batch), and `range` does
   it by itself for a block whose transactions read one: block 26,400,001
   goes from 446/447 to 447/447.
-- **Each transaction runs alone**, on its own pre-state from the node.
-  Block-level effects (system contracts, withdrawals, the coinbase reward)
-  are not replayed.
+- **`block` and `range` run each transaction alone**, on its own pre-state
+  from the node. `chain` carries state from one transaction to the next and
+  credits withdrawals, but does not run the block's system calls (EIP-4788,
+  EIP-2935) or the end-of-block requests (EIP-7002, EIP-7251).
 - **Osaka with mainnet's BPO2 blob schedule only.** Older blocks may follow
   other rules.
-- **The node is trusted.** Its traces are the reference, so a node bug shows
-  up as a DIFF. That happened once, and the chain's own state settled it (see
-  Results). Data fetched near the chain head through a load-balanced
-  endpoint can mix nodes. `block` rejects data whose receipts disagree with
-  the header, but fetching a few blocks behind the head is safer.
 - **Shadow replay sees gas-sensitive code.** Code that reads `GAS` after the
   shadow code ran may legitimately act differently. Such transactions are
   labeled rather than counted as port bugs. So are transactions where other
@@ -946,9 +974,6 @@ recorded in a headless browser. The same steps by hand:
   [Across the year](#across-the-year)).
 - **Delegates come from the parent block's state.** A delegation target
   whose code changed within the block would be fetched as it was before.
-- **Double-counted cleared slots:** a slot the chain cleared and fevm kept
-  is counted by both comparison passes. The verdict is correct, but its
-  count is one too high.
 
 ## Declaration
 

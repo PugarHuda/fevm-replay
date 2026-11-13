@@ -202,10 +202,9 @@ uses (text: mut MemBuffer)
 }
 
 // Every slot the expected world holds, then the nonzero slots fevm wrote
-// that the expected world reads as zero.
-// ponytail: a slot the chain cleared and fevm kept is reported by both passes;
-// the verdict is right, its count is one high.
-fn compare_storage(_ expected: WorldState, _ actual: WorldState) -> u64
+// that the expected world reads as zero. A cleared slot is removed, not held
+// as zero, so only the second pass sees one fevm kept.
+pub fn compare_storage(_ expected: WorldState, _ actual: WorldState) -> u64
 uses (text: mut MemBuffer)
 {
     var count: u64 = 0
