@@ -1,0 +1,31 @@
+name: Certify a port
+
+# The repository's own action (action.yml) on its USDT port: what another Fe
+# project would add to its CI to check a port against mainnet.
+on:
+  workflow_dispatch:
+    inputs:
+      first-block:
+        description: First mainnet block
+        default: "26400000"
+      blocks:
+        description: How many blocks
+        default: "3"
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./
+        with:
+          deployed: "0xdac17f958d2ee523a2206206994597c13d831ec7"
+          port-dir: ports/usdt
+          contract: TetherToken
+          token: usdt
+          first-block: ${{ inputs.first-block }}
+          blocks: ${{ inputs.blocks }}
+          mutants: "10"

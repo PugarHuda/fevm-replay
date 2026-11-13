@@ -107,6 +107,13 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     ) {
         return fuzz_command(pair: true)
     }
+    // "fuzz-usdt"
+    if is_word(
+        args.get(1),
+        [0x66, 0x75, 0x7a, 0x7a, 0x2d, 0x75, 0x73, 0x64, 0x74],
+    ) {
+        return fuzz_command(pair: false)
+    }
     // "fetch-code"
     if is_word(
         args.get(1),
@@ -811,11 +818,38 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
             diffs["result"][i]["result"],
         )
     }
+    // An empty account does not exist on chain (EIP-161), though the
+    // tracer lists accounts a transaction only looked at; a record of one
+    // would count as existing, as for an EIP-7702 authority's refund.
+    var empty: core::MemVec<u256> = core::MemVec::new()
+    for k in 0 .. world.account_count() {
+        let address = world.account_at(k).address
+        if world.is_empty(address) && !world.has_storage(address) {
+            empty.push(address)
+        }
+    }
+    for k in 0 .. empty.len() {
+        world.remove_account(empty[k])
+    }
     world.set_block_hash(env.number - 1, field(header, "parentHash"))
     load::add_extras(mut world, extras)
     var matched: u64 = 0
     var old_hashes: u64 = 0
+    var drift: u64 = 0
     for index in 0 .. count {
+        // The carried state must hold what the node saw before this
+        // transaction, for every account and slot it touched.
+        let off = load::prestate_mismatches(world, prestates["result"][index]["result"])
+        if off > 0 {
+            drift += 1
+            println!(
+                "STATE tx ",
+                index,
+                ": ",
+                off,
+                " values differ from the node's prestate",
+            )
+        }
         let Option::Some(before) = world.try_clone() else {
             println!("ERROR out of memory")
             return 1
@@ -858,6 +892,55 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
             } else {
                 println!("DIFF  tx ", index, " ", txs[index]["hash"].text())
                 print!(text)
+                // The same transaction on its own prestate: the first call
+                // whose gas differs shows where the carried state matters.
+                var alone = watch::GasWatch::new(shadows: core::MemVec::new())
+                var more = fevm::Buffers::new()
+                let mut_world = replay::build_world(
+                    prestates["result"][index]["result"],
+                    env,
+                    field(header, "parentHash"),
+                    extras,
+                    core::MemVec::new(),
+                    MemBuffer::empty().span(),
+                )
+                fevm::transact(
+                    mut_world,
+                    load_tx(txs[index]),
+                    env,
+                    fevm::Config::osaka(),
+                    mut more,
+                    mut alone,
+                )
+                let n = if alone.calls.len() < tracer.calls.len() {
+                    alone.calls.len()
+                } else {
+                    tracer.calls.len()
+                }
+                for c in 0 .. n {
+                    let x = tracer.calls[c]
+                    let y = alone.calls[c]
+                    if x.used != y.used || x.gas != y.gas || x.to != y.to {
+                        println!(
+                            "  call ",
+                            c,
+                            " to 0x",
+                            core::text::hex(x.to, 20),
+                            " selector 0x",
+                            core::text::hex(x.selector as u256, 4),
+                            ": gas given ",
+                            x.gas,
+                            " used ",
+                            x.used,
+                            " in the chain, given ",
+                            y.gas,
+                            " used ",
+                            y.used,
+                            " on its own prestate",
+                        )
+                        break
+                    }
+                }
             }
             // Go on from the chain's state, so one difference stays one.
             let Option::Some(chain_state) = expected.try_clone() else {
@@ -870,6 +953,13 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     print_share(matched, count.downcast_unchecked())
     if old_hashes > 0 {
         println!("  of the differences, ", old_hashes, " ran BLOCKHASH")
+    }
+    if drift > 0 {
+        println!(
+            "  ",
+            drift,
+            " transactions started from a state that differs from the node's prestate",
+        )
     }
     // Withdrawals: each credits its recipient, in gwei.
     if !header.has("withdrawals") {
@@ -991,7 +1081,12 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     let Option::Some(deployed) = read_shadow(args.get(3)) else {
         return 1
     }
-    let token = if args.get(6).span().len() == 1 {
+    let token = if is_word(args.get(6), [0x75, 0x73, 0x64, 0x74]) {
+        // `usdt`: the USDT scenario (see `fuzz::is_usdt`).
+        var marker = MemBuffer::empty()
+        marker.push(0x55)
+        marker
+    } else if args.get(6).span().len() == 1 {
         MemBuffer::empty()
     } else {
         let Option::Some(code) = read_shadow(args.get(6)) else {
@@ -1005,7 +1100,9 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     let first_dir: usize = 8
     let last_dir = args.count()
     // The port, built from its source.
-    let built = "/tmp/fevm-replay-certify"
+    var built = MemBuffer::empty()
+    "/tmp/fevm-replay-certify-".fmt(mut built)
+    args.get(5).fmt(mut built)
     println!("building ", args.get(4), " in ", args.get(5))
     if !fe_build(args.get(4), built) {
         println!("ERROR ", args.get(4), ": does not build with fe")
@@ -1070,6 +1167,7 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         } else {
             last_dir
         },
+        each: false,
     )
     let fuzz_differ = fuzzed.calls[0] - fuzzed.identical[0]
     let clean = totals.behavior == 0
@@ -1293,6 +1391,8 @@ pub struct MutantScore {
     pub by_fuzz: u64,
     pub by_mainnet: u64,
     pub survived: u64,
+    /// With `each`: the mutants mainnet mutations kill on their own.
+    pub mainnet_alone: u64,
     /// One line per survivor: its line number and text.
     pub survivors: MemBuffer,
     /// Whether the unchanged port built and passed; if not, nothing else
@@ -1335,6 +1435,7 @@ fn score_mutants<P: Display, C: Display>(
     wanted: u64,
     first_dir: usize,
     last_dir: usize,
+    each: bool,
 ) -> MutantScore
 uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut Stdout)
 {
@@ -1344,6 +1445,7 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         by_fuzz: 0,
         by_mainnet: 0,
         survived: 0,
+        mainnet_alone: 0,
         survivors: MemBuffer::empty(),
         baseline: false,
     }
@@ -1356,7 +1458,11 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         return score
     }
     // The mutant's ingot: the port's manifest and one mutated source.
-    let work = "/tmp/fevm-replay-mutant"
+    // One work directory per contract, so runs for different ports can
+    // share a machine.
+    var work = MemBuffer::empty()
+    "/tmp/fevm-replay-mutant-".fmt(mut work)
+    name.fmt(mut work)
     let Result::Ok(_) = fs.create_dir_all(fetch::join(work, "src")) else {
         println!("ERROR ", work, ": cannot create")
         return score
@@ -1413,7 +1519,9 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         )
         let killed = fuzzed.identical[0] != fuzzed.calls[0] || fuzzed.invariant_breaks > 0
         var mainnet = false
-        if !killed && last_dir > first_dir {
+        // With `each`, mainnet mutations check every mutant, not only the
+        // ones random calls missed, so each check's own score shows.
+        if (each || !killed) && last_dir > first_dir {
             var found = mutate::Mutations::new()
             var first_block = MemBuffer::empty()
             var first_hash = MemBuffer::empty()
@@ -1441,6 +1549,9 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
             continue
         }
         score.built += 1
+        if mainnet {
+            score.mainnet_alone += 1
+        }
         if killed {
             score.by_fuzz += 1
         } else if mainnet {
@@ -1484,7 +1595,12 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     let Option::Some(deployed) = read_shadow(args.get(4)) else {
         return 1
     }
-    let token = if args.get(5).span().len() == 1 {
+    let token = if is_word(args.get(5), [0x75, 0x73, 0x64, 0x74]) {
+        // `usdt`: the USDT scenario (see `fuzz::is_usdt`).
+        var marker = MemBuffer::empty()
+        marker.push(0x55)
+        marker
+    } else if args.get(5).span().len() == 1 {
         MemBuffer::empty()
     } else {
         let Option::Some(code) = read_shadow(args.get(5)) else {
@@ -1495,14 +1611,17 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     let wanted: u64 = core::text::parse_uint(args.get(6).span())
         .unwrap_or(default: 20)
         .downcast_unchecked()
+    // `each` before the blocks: mainnet mutations check every mutant.
+    let each = args.count() > 7 && is_word(args.get(7), [0x65, 0x61, 0x63, 0x68])
     let score = score_mutants(
         args.get(2),
         args.get(3),
         deployed: deployed.span(),
         token: token.span(),
         wanted,
-        first_dir: 7,
+        first_dir: if each { 8 } else { 7 },
         last_dir: args.count(),
+        each,
     )
     if !score.baseline {
         return 1
@@ -1531,6 +1650,14 @@ fn print_score(_ score: MutantScore) uses (out: mut Stdout) {
         },
         "% killed",
     )
+    if score.mainnet_alone > 0 {
+        println!(
+            "  mainnet mutations alone kill ",
+            score.mainnet_alone,
+            " of the ",
+            score.built,
+        )
+    }
 }
 
 /// `trace <dir> <index> <address|deployed.hex> <port.bin>`: both runs of one
@@ -1848,6 +1975,12 @@ uses (args: Args, fs: std::fs::Fs, out: mut Stdout)
             return 1
         }
         token = code
+    } else if is_word(
+        args.get(1),
+        [0x66, 0x75, 0x7a, 0x7a, 0x2d, 0x75, 0x73, 0x64, 0x74],
+    ) {
+        // The USDT scenario (see `fuzz::is_usdt`).
+        token.push(0x55)
     }
     let runs = number_arg(first, default: 200)
     let steps = number_arg(first + 1, default: 40)
@@ -1971,16 +2104,18 @@ uses (args: Args, fs: std::fs::Fs, out: mut Stdout)
             hex_text(found.first_port_output.span()),
         )
     }
-    println!(
-        if pair {
-            "replay it: fevm-replay fuzz-pair <deployed.bin> <port.bin> <token.bin> 1 "
-        } else {
-            "replay it: fevm-replay fuzz <deployed.bin> <port.bin> 1 "
-        },
-        found.first_step,
-        " ",
-        found.first_seed,
-    )
+    if pair {
+        print!(
+            "replay it: fevm-replay fuzz-pair <deployed.bin> <port.bin> <token.bin> 1 ",
+        )
+    } else if fuzz::is_usdt(token.span()) {
+        print!(
+            "replay it: fevm-replay fuzz-usdt <deployed.bin> <port.bin> 1 ",
+        )
+    } else {
+        print!("replay it: fevm-replay fuzz <deployed.bin> <port.bin> 1 ")
+    }
+    println!(found.first_step, " ", found.first_seed)
     println!(
         "shrunk to ",
         found.shrunk.len(),

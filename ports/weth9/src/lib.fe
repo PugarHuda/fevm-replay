@@ -1,6 +1,8 @@
 //! WETH9 (mainnet 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2) in Fe, built to
 //! drop in for the deployed Solidity code: same selectors, events, storage
-//! slots, fallback, revert data and ETH transfer stipend. fevm-replay checks
+//! slots, fallback, revert data and ETH transfer stipend. Arguments are
+//! read with CALLDATALOAD, so missing bytes read as zeros, as solc 0.4 reads
+//! them. fevm-replay checks
 //! that claim against real mainnet traffic (`fevm-replay block <dir>
 //! 0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2 out/WETH9.runtime.bin`).
 
@@ -18,23 +20,24 @@ msg Weth9Msg {
     TotalSupply -> u256,
     // balanceOf(address)
     #[selector = 0x70a08231]
-    BalanceOf { owner: u256 } -> u256,
+    BalanceOf -> u256,
     // allowance(address,address)
     #[selector = 0xdd62ed3e]
-    Allowance { owner: u256, spender: u256 } -> u256,
+    Allowance -> u256,
     #[selector = sol("deposit()")]
     Deposit,
-    #[selector = sol("withdraw(uint256)")]
-    Withdraw { wad: u256 },
+    // withdraw(uint256)
+    #[selector = 0x2e1a7d4d]
+    Withdraw,
     // approve(address,uint256)
     #[selector = 0x095ea7b3]
-    Approve { guy: u256, wad: u256 } -> bool,
+    Approve -> bool,
     // transfer(address,uint256)
     #[selector = 0xa9059cbb]
-    Transfer { dst: u256, wad: u256 } -> bool,
+    Transfer -> bool,
     // transferFrom(address,address,uint256)
     #[selector = 0x23b872dd]
-    TransferFrom { src: u256, dst: u256, wad: u256 } -> bool,
+    TransferFrom -> bool,
 }
 
 #[event]
@@ -89,7 +92,7 @@ fn address(_ word: u256) -> Address {
 /// `string symbol`, `uint8 decimals`, `mapping(address => uint) balanceOf`,
 /// `mapping(address => mapping(address => uint)) allowance`. The first three
 /// are read whole and decoded; nothing but `init` writes them.
-pub contract WETH9 uses (ctx: Ctx, call: mut Call, log: mut Log) {
+pub contract WETH9 uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Log) {
     mut name: u256,
     mut symbol: u256,
     mut decimals: u256,
@@ -123,12 +126,15 @@ pub contract WETH9 uses (ctx: Ctx, call: mut Call, log: mut Log) {
             ctx.balance(ctx.address()).as_wei()
         }
 
-        BalanceOf { owner } -> u256 uses (balance_of) {
+        BalanceOf -> u256 uses (evm, balance_of) {
+            let owner = evm.calldataload(4)
             let owner = address(owner)
             balance_of.get(key: owner)
         }
 
-        Allowance { owner, spender } -> u256 uses (allowance) {
+        Allowance -> u256 uses (evm, allowance) {
+            let owner = evm.calldataload(4)
+            let spender = evm.calldataload(36)
             let owner = address(owner)
             let spender = address(spender)
             allowance[owner][spender]
@@ -141,7 +147,8 @@ pub contract WETH9 uses (ctx: Ctx, call: mut Call, log: mut Log) {
 
         // `msg.sender.transfer(wad)`: a call with 2,300 gas that reverts the
         // withdrawal if the recipient rejects the ETH.
-        Withdraw { wad } uses (ctx, mut call, mut balance_of, mut log) {
+        Withdraw uses (evm, ctx, mut call, mut balance_of, mut log) {
+            let wad = evm.calldataload(4)
             let src = ctx.caller()
             let balance = balance_of.get(key: src)
             if balance < wad {
@@ -158,7 +165,9 @@ pub contract WETH9 uses (ctx: Ctx, call: mut Call, log: mut Log) {
             log.emit(Withdrawal { src, wad })
         }
 
-        Approve { guy, wad } -> bool uses (ctx, mut allowance, mut log) {
+        Approve -> bool uses (evm, ctx, mut allowance, mut log) {
+            let guy = evm.calldataload(4)
+            let wad = evm.calldataload(36)
             let guy = address(guy)
             let src = ctx.caller()
             allowance[src][guy] = wad
@@ -166,12 +175,17 @@ pub contract WETH9 uses (ctx: Ctx, call: mut Call, log: mut Log) {
             true
         }
 
-        Transfer { dst, wad } -> bool uses (ctx, mut balance_of, mut allowance, mut log) {
+        Transfer -> bool uses (evm, ctx, mut balance_of, mut allowance, mut log) {
+            let dst = evm.calldataload(4)
+            let wad = evm.calldataload(36)
             let dst = address(dst)
             transfer_from(src: ctx.caller(), dst, wad)
         }
 
-        TransferFrom { src, dst, wad } -> bool uses (ctx, mut balance_of, mut allowance, mut log) {
+        TransferFrom -> bool uses (evm, ctx, mut balance_of, mut allowance, mut log) {
+            let src = evm.calldataload(4)
+            let dst = evm.calldataload(36)
+            let wad = evm.calldataload(68)
             let src = address(src)
             let dst = address(dst)
             transfer_from(src, dst, wad)

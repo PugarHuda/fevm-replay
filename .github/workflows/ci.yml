@@ -71,6 +71,9 @@ jobs:
       - name: Fuzzed V2 pair port answers well-formed calls as the deployed pair does
         run: ./out/fevm_replay fuzz-pair fixtures/code/uniswap-v2-pair-mainnet.hex out/pair/UniswapV2Pair.runtime.bin fixtures/code/weth9-mainnet.hex 1000 60 1
 
+      - name: Fuzzed USDT port answers every call as mainnet USDT does
+        run: ./out/fevm_replay fuzz-usdt fixtures/code/usdt-mainnet.hex out/usdt/TetherToken.runtime.bin 1000 60 1
+
       - name: Mutants planted in the V2 pair port are caught
         run: |
           out=$(./out/fevm_replay mutants ports/uniswap-v2-pair UniswapV2Pair fixtures/code/uniswap-v2-pair-mainnet.hex fixtures/code/weth9-mainnet.hex 8)

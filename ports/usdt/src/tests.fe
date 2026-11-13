@@ -2,7 +2,24 @@
 // replay (see the repository README); these cover what the owner does, which
 // mainnet traffic rarely shows.
 
-use ingot::{TetherMsg, TetherToken}
+use ingot::TetherToken
+
+// The calls as any ABI encoder makes them; the token reads them back with
+// CALLDATALOAD.
+msg Usdt {
+    #[selector = sol("balanceOf(address)")]
+    BalanceOf { who: Address } -> u256,
+    #[selector = sol("transfer(address,uint256)")]
+    Transfer { to: Address, value: u256 },
+    #[selector = sol("approve(address,uint256)")]
+    Approve { spender: Address, value: u256 },
+    #[selector = sol("setParams(uint256,uint256)")]
+    SetParams { basis_points: u256, max_fee: u256 },
+    #[selector = sol("pause()")]
+    Pause,
+    #[selector = sol("addBlackList(address)")]
+    AddBlackList { who: Address },
+}
 
 fn deploy() -> Address uses (evm: mut Evm) {
     evm.create2<TetherToken>(value: Wei::zero(), args: (1_000_000_000,), salt: 0)
@@ -13,20 +30,21 @@ fn balance(_ token: Address, _ who: Address) -> u256 uses (evm: mut Evm) {
         addr: token,
         gas: 100000,
         value: Wei::zero(),
-        message: TetherMsg::BalanceOf { who: who.word() },
+        message: Usdt::BalanceOf { who },
     )
 }
 
-fn send(_ token: Address, _ message: own TetherMsg::Transfer)
-uses (evm: mut Evm)
-{
+fn send(_ token: Address, _ message: own Usdt::Transfer) uses (evm: mut Evm) {
     evm.call(addr: token, gas: 200000, value: Wei::zero(), message)
 }
 
 #[test]
 fn the_creator_holds_the_supply_and_transfers() uses (evm: mut Evm) {
     let usdt = deploy()
-    send(usdt, TetherMsg::Transfer { to: 0xbeef, value: 400 })
+    send(
+        usdt,
+        Usdt::Transfer { to: Address::new(0xbeef), value: 400 },
+    )
     assert!(balance(usdt, Address::new(0xbeef)) == 400)
     assert!(balance(usdt, evm.address()) == 1_000_000_000 - 400)
 }
@@ -40,9 +58,12 @@ fn fees_go_to_the_owner() uses (evm: mut Evm) {
         addr: usdt,
         gas: 100000,
         value: Wei::zero(),
-        message: TetherMsg::SetParams { basis_points: 10, max_fee: 1 },
+        message: Usdt::SetParams { basis_points: 10, max_fee: 1 },
     )
-    send(usdt, TetherMsg::Transfer { to: 0xbeef, value: 1_000_000 })
+    send(
+        usdt,
+        Usdt::Transfer { to: Address::new(0xbeef), value: 1_000_000 },
+    )
     assert!(balance(usdt, Address::new(0xbeef)) == 999_000)
     // The owner sent 1,000,000 and got the 1,000 fee back.
     assert!(balance(usdt, evm.address()) == 1_000_000_000 - 999_000)
@@ -55,9 +76,12 @@ fn paused_tokens_do_not_move() uses (evm: mut Evm) {
         addr: usdt,
         gas: 100000,
         value: Wei::zero(),
-        message: TetherMsg::Pause {},
+        message: Usdt::Pause {},
     )
-    send(usdt, TetherMsg::Transfer { to: 0xbeef, value: 1 })
+    send(
+        usdt,
+        Usdt::Transfer { to: Address::new(0xbeef), value: 1 },
+    )
 }
 
 #[test(should_revert)]
@@ -67,9 +91,12 @@ fn black_listed_senders_cannot_transfer() uses (evm: mut Evm) {
         addr: usdt,
         gas: 100000,
         value: Wei::zero(),
-        message: TetherMsg::AddBlackList { who: evm.address().word() },
+        message: Usdt::AddBlackList { who: evm.address() },
     )
-    send(usdt, TetherMsg::Transfer { to: 0xbeef, value: 1 })
+    send(
+        usdt,
+        Usdt::Transfer { to: Address::new(0xbeef), value: 1 },
+    )
 }
 
 // A nonzero allowance must be set to zero before it changes.
@@ -80,13 +107,13 @@ fn approve_needs_a_zero_allowance_first() uses (evm: mut Evm) {
         addr: usdt,
         gas: 100000,
         value: Wei::zero(),
-        message: TetherMsg::Approve { spender: 0x5eed, value: 5 },
+        message: Usdt::Approve { spender: Address::new(0x5eed), value: 5 },
     )
     evm.call(
         addr: usdt,
         gas: 100000,
         value: Wei::zero(),
-        message: TetherMsg::Approve { spender: 0x5eed, value: 6 },
+        message: Usdt::Approve { spender: Address::new(0x5eed), value: 6 },
     )
 }
 
@@ -95,6 +122,6 @@ fn transfer_beyond_the_balance_halts() uses (evm: mut Evm) {
     let usdt = deploy()
     send(
         usdt,
-        TetherMsg::Transfer { to: 0xbeef, value: 1_000_000_001 },
+        Usdt::Transfer { to: Address::new(0xbeef), value: 1_000_000_001 },
     )
 }

@@ -2,7 +2,10 @@
 //! Fe, built to drop in for the deployed solc 0.4.17 code: same selectors,
 //! events and storage slots, and the same failures. `require` reverts with
 //! no data; SafeMath's `assert` runs INVALID, which burns all the gas a call
-//! has; a failed call to the upgraded contract reverts. `transfer`,
+//! has; a failed call to the upgraded contract reverts. Arguments are read
+//! with CALLDATALOAD, so missing bytes read as zeros, as solc 0.4's decoder
+//! reads them; `onlyPayloadSize` stands where the deployed code has it.
+//! `transfer`,
 //! `transferFrom` and `approve` return nothing, as the deployed code does.
 
 use std::abi::DynString
@@ -28,25 +31,25 @@ msg TetherMsg {
     StoredTotalSupply -> u256,
     // balanceOf(address)
     #[selector = 0x70a08231]
-    BalanceOf { who: u256 } -> u256,
+    BalanceOf -> u256,
     // balances(address)
     #[selector = 0x27e235e3]
-    Balances { who: u256 } -> u256,
+    Balances -> u256,
     // allowance(address,address)
     #[selector = 0xdd62ed3e]
-    Allowance { owner: u256, spender: u256 } -> u256,
+    Allowance -> u256,
     // allowed(address,address)
     #[selector = 0x5c658165]
-    Allowed { owner: u256, spender: u256 } -> u256,
+    Allowed -> u256,
     // transfer(address,uint256)
     #[selector = 0xa9059cbb]
-    Transfer { to: u256, value: u256 },
+    Transfer,
     // transferFrom(address,address,uint256)
     #[selector = 0x23b872dd]
-    TransferFrom { from: u256, to: u256, value: u256 },
+    TransferFrom,
     // approve(address,uint256)
     #[selector = 0x095ea7b3]
-    Approve { spender: u256, value: u256 },
+    Approve,
     #[selector = sol("owner()")]
     Owner -> Address,
     #[selector = sol("getOwner()")]
@@ -65,35 +68,38 @@ msg TetherMsg {
     Deprecated -> bool,
     // isBlackListed(address)
     #[selector = 0xe47d6060]
-    IsBlackListed { who: u256 } -> bool,
+    IsBlackListed -> bool,
     // getBlackListStatus(address)
     #[selector = 0x59bf1abe]
-    GetBlackListStatus { who: u256 } -> bool,
+    GetBlackListStatus -> bool,
     // transferOwnership(address)
     #[selector = 0xf2fde38b]
-    TransferOwnership { new_owner: u256 },
+    TransferOwnership,
     #[selector = sol("pause()")]
     Pause,
     #[selector = sol("unpause()")]
     Unpause,
     // addBlackList(address)
     #[selector = 0x0ecb93c0]
-    AddBlackList { who: u256 },
+    AddBlackList,
     // removeBlackList(address)
     #[selector = 0xe4997dc5]
-    RemoveBlackList { who: u256 },
+    RemoveBlackList,
     // destroyBlackFunds(address)
     #[selector = 0xf3bdc228]
-    DestroyBlackFunds { who: u256 },
+    DestroyBlackFunds,
     // deprecate(address)
     #[selector = 0x0753c30c]
-    Deprecate { upgraded: u256 },
-    #[selector = sol("issue(uint256)")]
-    Issue { amount: u256 },
-    #[selector = sol("redeem(uint256)")]
-    Redeem { amount: u256 },
-    #[selector = sol("setParams(uint256,uint256)")]
-    SetParams { basis_points: u256, max_fee: u256 },
+    Deprecate,
+    // issue(uint256)
+    #[selector = 0xcc872b66]
+    Issue,
+    // redeem(uint256)
+    #[selector = 0xdb006a75]
+    Redeem,
+    // setParams(uint256,uint256)
+    #[selector = 0xc0324c77]
+    SetParams,
 }
 
 // What a deprecated TetherToken asks of its successor.
@@ -238,7 +244,8 @@ pub contract TetherToken uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Log)
             total_supply
         }
 
-        BalanceOf { who } -> u256 uses (evm, ctx, mut call, balances, upgraded_and_deprecated) {
+        BalanceOf -> u256 uses (evm, ctx, mut call, balances, upgraded_and_deprecated) {
+            let who = evm.calldataload(4)
             let who = address(who)
             if upgraded_and_deprecated & FLAG != 0 {
                 return view_word(
@@ -249,18 +256,15 @@ pub contract TetherToken uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Log)
             balances.get(key: who)
         }
 
-        Balances { who } -> u256 uses (balances) {
+        Balances -> u256 uses (evm, balances) {
+            let who = evm.calldataload(4)
             let who = address(who)
             balances.get(key: who)
         }
 
-        Allowance { owner, spender } -> u256 uses (
-            evm,
-            ctx,
-            mut call,
-            allowed,
-            upgraded_and_deprecated,
-        ) {
+        Allowance -> u256 uses (evm, ctx, mut call, allowed, upgraded_and_deprecated) {
+            let owner = evm.calldataload(4)
+            let spender = evm.calldataload(36)
             let owner = address(owner)
             let spender = address(spender)
             if upgraded_and_deprecated & FLAG != 0 {
@@ -272,13 +276,15 @@ pub contract TetherToken uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Log)
             allowed[owner][spender]
         }
 
-        Allowed { owner, spender } -> u256 uses (allowed) {
+        Allowed -> u256 uses (evm, allowed) {
+            let owner = evm.calldataload(4)
+            let spender = evm.calldataload(36)
             let owner = address(owner)
             let spender = address(spender)
             allowed[owner][spender]
         }
 
-        Transfer { to, value } uses (
+        Transfer uses (
             evm,
             ctx,
             mut call,
@@ -290,6 +296,8 @@ pub contract TetherToken uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Log)
             black_listed,
             upgraded_and_deprecated,
         ) {
+            let to = evm.calldataload(4)
+            let value = evm.calldataload(36)
             let to = address(to)
             when_not_paused(owner_and_paused)
             require(black_listed.get(key: ctx.caller()) == 0)
@@ -303,6 +311,8 @@ pub contract TetherToken uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Log)
                 )
                 return
             }
+            // BasicToken.transfer: onlyPayloadSize(2 * 32)
+            require(evm.calldatasize() >= 68)
             let fee = fee_of(value, basis_points_rate, maximum_fee)
             let send = sub(value, fee)
             let sender = ctx.caller()
@@ -316,7 +326,7 @@ pub contract TetherToken uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Log)
             log.emit(Transfer { from: sender, to, value: send })
         }
 
-        TransferFrom { from, to, value } uses (
+        TransferFrom uses (
             evm,
             ctx,
             mut call,
@@ -329,6 +339,9 @@ pub contract TetherToken uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Log)
             black_listed,
             upgraded_and_deprecated,
         ) {
+            let from = evm.calldataload(4)
+            let to = evm.calldataload(36)
+            let value = evm.calldataload(68)
             let from = address(from)
             let to = address(to)
             when_not_paused(owner_and_paused)
@@ -348,6 +361,8 @@ pub contract TetherToken uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Log)
                 )
                 return
             }
+            // StandardToken.transferFrom: onlyPayloadSize(3 * 32)
+            require(evm.calldatasize() >= 100)
             let spender = ctx.caller()
             let current = allowed[from][spender]
             let fee = fee_of(value, basis_points_rate, maximum_fee)
@@ -365,14 +380,11 @@ pub contract TetherToken uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Log)
             log.emit(Transfer { from, to, value: send })
         }
 
-        Approve { spender, value } uses (
-            evm,
-            ctx,
-            mut call,
-            mut log,
-            mut allowed,
-            upgraded_and_deprecated,
-        ) {
+        Approve uses (evm, ctx, mut call, mut log, mut allowed, upgraded_and_deprecated) {
+            let spender = evm.calldataload(4)
+            let value = evm.calldataload(36)
+            // TetherToken.approve: onlyPayloadSize(2 * 32), before anything else
+            require(evm.calldatasize() >= 68)
             let spender = address(spender)
             if upgraded_and_deprecated & FLAG != 0 {
                 forward(
@@ -423,17 +435,20 @@ pub contract TetherToken uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Log)
             upgraded_and_deprecated & FLAG != 0
         }
 
-        IsBlackListed { who } -> bool uses (black_listed) {
+        IsBlackListed -> bool uses (evm, black_listed) {
+            let who = evm.calldataload(4)
             let who = address(who)
             black_listed.get(key: who) != 0
         }
 
-        GetBlackListStatus { who } -> bool uses (black_listed) {
+        GetBlackListStatus -> bool uses (evm, black_listed) {
+            let who = evm.calldataload(4)
             let who = address(who)
             black_listed.get(key: who) != 0
         }
 
-        TransferOwnership { new_owner } uses (evm, ctx, mut owner_and_paused) {
+        TransferOwnership uses (evm, ctx, mut owner_and_paused) {
+            let new_owner = evm.calldataload(4)
             only_owner(owner_and_paused)
             let new_owner = new_owner & ADDRESS_MASK
             if new_owner != 0 {
@@ -455,21 +470,23 @@ pub contract TetherToken uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Log)
             log.emit(Unpause {})
         }
 
-        AddBlackList { who } uses (evm, ctx, mut log, owner_and_paused, mut black_listed) {
+        AddBlackList uses (evm, ctx, mut log, owner_and_paused, mut black_listed) {
+            let who = evm.calldataload(4)
             let who = address(who)
             only_owner(owner_and_paused)
             black_listed.set(key: who, value: 1)
             log.emit(AddedBlackList { user: who })
         }
 
-        RemoveBlackList { who } uses (evm, ctx, mut log, owner_and_paused, mut black_listed) {
+        RemoveBlackList uses (evm, ctx, mut log, owner_and_paused, mut black_listed) {
+            let who = evm.calldataload(4)
             let who = address(who)
             only_owner(owner_and_paused)
             black_listed.set(key: who, value: 0)
             log.emit(RemovedBlackList { user: who })
         }
 
-        DestroyBlackFunds { who } uses (
+        DestroyBlackFunds uses (
             evm,
             ctx,
             mut call,
@@ -480,6 +497,7 @@ pub contract TetherToken uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Log)
             black_listed,
             upgraded_and_deprecated,
         ) {
+            let who = evm.calldataload(4)
             let who = address(who)
             only_owner(owner_and_paused)
             require(black_listed.get(key: who) != 0)
@@ -499,27 +517,16 @@ pub contract TetherToken uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Log)
             )
         }
 
-        Deprecate { upgraded } uses (
-            evm,
-            ctx,
-            mut log,
-            owner_and_paused,
-            mut upgraded_and_deprecated,
-        ) {
+        Deprecate uses (evm, ctx, mut log, owner_and_paused, mut upgraded_and_deprecated) {
+            let upgraded = evm.calldataload(4)
             only_owner(owner_and_paused)
             let upgraded = upgraded & ADDRESS_MASK
             upgraded_and_deprecated = upgraded | FLAG
             log.emit(Deprecate { new_address: Address::new(upgraded) })
         }
 
-        Issue { amount } uses (
-            evm,
-            ctx,
-            mut log,
-            owner_and_paused,
-            mut total_supply,
-            mut balances,
-        ) {
+        Issue uses (evm, ctx, mut log, owner_and_paused, mut total_supply, mut balances) {
+            let amount = evm.calldataload(4)
             only_owner(owner_and_paused)
             let owner = address(owner_and_paused)
             require(total_supply.wrapping_add(amount) > total_supply)
@@ -534,14 +541,8 @@ pub contract TetherToken uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Log)
             log.emit(Issue { amount })
         }
 
-        Redeem { amount } uses (
-            evm,
-            ctx,
-            mut log,
-            owner_and_paused,
-            mut total_supply,
-            mut balances,
-        ) {
+        Redeem uses (evm, ctx, mut log, owner_and_paused, mut total_supply, mut balances) {
+            let amount = evm.calldataload(4)
             only_owner(owner_and_paused)
             let owner = address(owner_and_paused)
             require(total_supply >= amount)
@@ -551,7 +552,7 @@ pub contract TetherToken uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Log)
             log.emit(Redeem { amount })
         }
 
-        SetParams { basis_points, max_fee } uses (
+        SetParams uses (
             evm,
             ctx,
             mut log,
@@ -560,6 +561,8 @@ pub contract TetherToken uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Log)
             mut maximum_fee,
             decimals,
         ) {
+            let basis_points = evm.calldataload(4)
+            let max_fee = evm.calldataload(36)
             only_owner(owner_and_paused)
             // Ensure transparency by hardcoding limit beyond which fees can never be added
             require(basis_points < 20)

@@ -166,6 +166,39 @@ fn same_text(_ a: MemSpan, _ b: MemSpan) -> bool {
     true
 }
 
+/// How many balances, nonces, codes and slots `prestate` lists that `world`
+/// holds differently.
+pub fn prestate_mismatches(_ world: WorldState, _ prestate: Value) -> u64 {
+    var off: u64 = 0
+    for ref member in prestate.members() {
+        let address = parse_hex_uint(member.key.span()).unwrap_or(default: 0)
+        let account = ref member.value
+        if world.balance(address) != field(account, "balance") {
+            off += 1
+        }
+        if world.nonce(address) != field(account, "nonce") {
+            off += 1
+        }
+        let code = if account.has("code") {
+            hex_bytes(account["code"].text())
+        } else {
+            MemBuffer::empty()
+        }
+        if !same_text(world.code(address), code.span()) {
+            off += 1
+        }
+        if account.has("storage") {
+            for ref slot in account["storage"].members() {
+                let key = parse_hex_uint(slot.key.span()).unwrap_or(default: 0)
+                if world.storage_load(address, key) != hex_word(slot.value) {
+                    off += 1
+                }
+            }
+        }
+    }
+    off
+}
+
 /// An `eth_getTransactionByHash` result as an fevm request. fevm takes the
 /// recovered sender, which the node reports as `from`.
 pub fn load_tx(_ tx: Value) -> TxRequest {

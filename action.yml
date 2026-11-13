@@ -1,0 +1,105 @@
+name: Fe port certificate
+description: >-
+  Builds a Fe port of a deployed Solidity contract, checks it against real
+  mainnet blocks with fevm-replay (shadow replay, mainnet mutations, random
+  calls, mutation testing) and uploads the certificate page. Fails if the
+  port behaves differently anywhere.
+branding:
+  icon: check-circle
+  color: green
+
+inputs:
+  deployed:
+    description: The deployed contract's address (0x...), whose runtime code is fetched, or a hex file of that code.
+    required: true
+  port-dir:
+    description: The port's Fe ingot directory.
+    required: true
+  contract:
+    description: The port's contract name, as `fe build` names its runtime file.
+    required: true
+  token:
+    description: "Random-call scenario: `-` for a WETH-like token, `usdt` for USDT's, or a hex file of the token code a Uniswap V2 pair trades."
+    default: "-"
+  first-block:
+    description: The first mainnet block to replay.
+    required: true
+  blocks:
+    description: How many blocks from `first-block`.
+    default: "5"
+  mutants:
+    description: How many mutants to plant in the port's source.
+    default: "20"
+  rpc:
+    description: A JSON-RPC URL with the debug namespace (prestate tracer).
+    default: https://eth.drpc.org
+
+outputs:
+  certificate:
+    description: Path of the certificate page.
+    value: ${{ steps.certify.outputs.path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Restore the Fe compiler
+      id: fe-cache
+      uses: actions/cache@v4
+      with:
+        path: ~/fe
+        key: fe-${{ runner.os }}-4608e5fdfa3783ec78347f297ad0fced8928fcc7-1.99.0-cranelift
+
+    - name: Build the Fe compiler
+      if: steps.fe-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        npm install -g tree-sitter-cli@0.24.7
+        rustup toolchain install 1.99.0 --profile minimal
+        cargo +1.99.0 install --locked --root ~/fe \
+          --git https://github.com/argotorg/fe --rev 4608e5fdfa3783ec78347f297ad0fced8928fcc7 --features cranelift fe
+
+    - name: Build fevm-replay
+      shell: bash
+      run: |
+        echo "$HOME/fe/bin" >> "$GITHUB_PATH"
+        cd "$GITHUB_ACTION_PATH"
+        "$HOME/fe/bin/fe" build --backend native -O 2 --emit executable --out-dir "$RUNNER_TEMP/fevm-replay" .
+
+    - name: Fetch the blocks and the deployed code
+      shell: bash
+      env:
+        DEPLOYED: ${{ inputs.deployed }}
+        FIRST: ${{ inputs.first-block }}
+        COUNT: ${{ inputs.blocks }}
+        RPC: ${{ inputs.rpc }}
+      run: |
+        tool="$RUNNER_TEMP/fevm-replay/fevm_replay"
+        mkdir -p "$RUNNER_TEMP/blocks"
+        # `range` fetches what is missing and replays it; the replay's own
+        # verdict is not the certificate's, so its exit status is ignored.
+        "$tool" range "$FIRST" "$COUNT" "$RUNNER_TEMP/blocks" "$RPC" || true
+        case "$DEPLOYED" in
+          0x*) "$tool" fetch-code "$DEPLOYED" "$RUNNER_TEMP/deployed.hex" "$RPC" ;;
+          *) cp "$DEPLOYED" "$RUNNER_TEMP/deployed.hex" ;;
+        esac
+
+    - name: Certify the port
+      id: certify
+      shell: bash
+      env:
+        PORT_DIR: ${{ inputs.port-dir }}
+        CONTRACT: ${{ inputs.contract }}
+        TOKEN: ${{ inputs.token }}
+        MUTANTS: ${{ inputs.mutants }}
+      run: |
+        out="$RUNNER_TEMP/certificate.html"
+        echo "path=$out" >> "$GITHUB_OUTPUT"
+        "$RUNNER_TEMP/fevm-replay/fevm_replay" certify "$out" "$RUNNER_TEMP/deployed.hex" \
+          "$PORT_DIR" "$CONTRACT" "$TOKEN" "$MUTANTS" "$RUNNER_TEMP"/blocks/*
+
+    - name: Upload the certificate
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.contract }}-certificate
+        path: ${{ runner.temp }}/certificate.html
