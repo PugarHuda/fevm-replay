@@ -780,7 +780,10 @@ the free `https://eth.drpc.org`; pass another URL as the last argument.
 ![fevm-replay fetching and replaying a mainnet transaction, a negative fixture, a whole block and a shadow replay of Fe WETH9](demo/demo.svg)
 
 The recording is [`demo/demo.sh`](demo/demo.sh), made with asciinema and
-svg-term. [`demo/explorer-tour.mp4`](demo/explorer-tour.mp4) is a
+svg-term. [`demo/tour-captioned.mp4`](demo/tour-captioned.mp4) is a
+49-second captioned tour of the results: the verified ports, the bug only
+mainnet showed (before and after the fix), the gas map and a certificate.
+[`demo/explorer-tour.mp4`](demo/explorer-tour.mp4) is a
 25-second tour of [the explorer](https://fevm-replay.vercel.app/explorer.html),
 recorded in a headless browser. The same steps by hand:
 
