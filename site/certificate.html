@@ -32,6 +32,7 @@ th,td{text-align:left;padding:.45rem .6rem .45rem 0;border-bottom:1px solid var(
 <tr><th>Differ where other code read the gas left</th><td class="n">47</td></tr>
 <tr><th>&nbsp;&nbsp;of which part at or under that code</th><td class="n">47</td></tr>
 <tr><th>Differ where other code read code hashes</th><td class="n">3</td></tr>
+<tr><th>Only the deployed code ran out of gas</th><td class="n">0</td></tr>
 <tr><th><strong>Behave differently</strong></th><td class="n">0</td></tr>
 </table>
 <h3>Gas per call in identical transactions</h3>
@@ -58,19 +59,20 @@ th,td{text-align:left;padding:.45rem .6rem .45rem 0;border-bottom:1px solid var(
 <table>
 <tr><th>Transactions</th><td class="n">856</td></tr>
 <tr><th>Runs</th><td class="n">17120</td></tr>
-<tr><th>Identical</th><td class="n">16692</td></tr>
-<tr><th>Differ where other code read the gas left or code hashes</th><td class="n">411</td></tr>
+<tr><th>Identical</th><td class="n">16591</td></tr>
+<tr><th>Differ where other code read the gas left or code hashes</th><td class="n">489</td></tr>
 <tr><th>&nbsp;&nbsp;of which code hashes</th><td class="n">49</td></tr>
-<tr><th>&nbsp;&nbsp;of the rest, part at or under the code that read the gas left</th><td class="n">362</td></tr>
-<tr><th>Only the deployed code ran out of gas</th><td class="n">17</td></tr>
+<tr><th>&nbsp;&nbsp;of the rest, part at or under the code that read the gas left</th><td class="n">440</td></tr>
+<tr><th>Only the deployed code ran out of gas</th><td class="n">40</td></tr>
 <tr><th>Differ after an address-shaped word got upper bits</th><td class="n">0</td></tr>
+<tr><th>Differ after the calldata was cut short</th><td class="n">0</td></tr>
 <tr><th><strong>Differ</strong></th><td class="n">0</td></tr>
 </table>
 <p>The port ran 2556 of its 3466 instructions (73.7%) in these runs.</p>
 <h2>Random calls</h2>
 <p>1,000 sessions of up to 60 random calls each, against both codes in step, checking the pair's invariants after every call.</p>
 <table>
-<tr><th>Well-formed calls</th><td class="n">49353</td></tr>
+<tr><th>Well-formed calls</th><td class="n">49409</td></tr>
 <tr><th><strong>Well-formed calls that differ</strong></th><td class="n">0</td></tr>
 <tr><th>Calls with short calldata that differ</th><td class="n">0</td></tr>
 <tr><th>Calls with dirty addresses that differ</th><td class="n">0</td></tr>
@@ -82,13 +84,12 @@ th,td{text-align:left;padding:.45rem .6rem .45rem 0;border-bottom:1px solid var(
 <table>
 <tr><th>Operators in the source</th><td class="n">74</td></tr>
 <tr><th>Mutants built</th><td class="n">74</td></tr>
-<tr><th>Killed by random calls</th><td class="n">57</td></tr>
+<tr><th>Killed by random calls</th><td class="n">58</td></tr>
 <tr><th>Killed by mainnet mutations</th><td class="n">0</td></tr>
-<tr><th>Survived</th><td class="n">17</td></tr>
+<tr><th>Survived</th><td class="n">16</td></tr>
 </table>
-<p>77.0% killed. A survivor is a blind spot of the checks or a change that means the same; each deserves a look:</p>
-<pre>line 298: if deadline &lt;= ctx.timestamp().as_seconds() {
-line 522: if mul(adjusted0, adjusted1) &lt;= mul(mul(reserve0, reserve1), 1_000_000) {
+<p>78.3% killed. A survivor is a blind spot of the checks or a change that means the same; each deserves a look:</p>
+<pre>line 522: if mul(adjusted0, adjusted1) &lt;= mul(mul(reserve0, reserve1), 1_000_000) {
 line 675: let size: usize = (if reason.len &gt;= 32 { 132 } else { 100 })
 line 681: if reason.len &gt;= 32 {
 line 735: if x &lt;= y { x } else { y }
