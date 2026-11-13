@@ -19,6 +19,12 @@ block 0x192bda3: 320/320 transactions MATCH (100%)
 
 Replaying is fast: those 5,129 transactions take 5.9 seconds once fetched.
 
+With proofs, a block's state is checked against the chain's state roots,
+so a MATCH rests on the block hash rather than on the node
+([Proven against the state root](#proven-against-the-state-root)).
+To try it without installing Fe, download a release
+([Try it without Fe](#try-it-without-fe)): three commands.
+
 ## The problem
 
 fevm passes all 14,693 runnable Osaka state tests. State tests are
@@ -926,6 +932,24 @@ Other Fe pieces doing real work:
 | `ports/uniswap-v2-pair` | UniswapV2Pair in Fe, for shadow replay of every V2 pair |
 | `ports/usdt` | TetherToken (USDT) in Fe |
 | `ports/usdc-proxy` | FiatTokenProxy, USDC's upgradeable proxy, in Fe |
+
+## Try it without Fe
+
+Each release carries the executable for x86-64 Linux (or WSL), the ports'
+bytecode and the fixtures:
+
+```sh
+curl -sL https://github.com/PugarHuda/fevm-replay/releases/latest/download/fevm-replay-v0.1.0-x86_64-linux.tar.gz | tar xz
+cd fevm-replay-v0.1.0-x86_64-linux
+./fevm_replay fixtures/mainnet/*.json            # 7 real transactions, all MATCH
+```
+
+Then fetch a live block, prove it and replay it as a chain (needs `curl`):
+
+```sh
+B=$(printf '0x%x' $(( $(curl -s -H 'content-type: application/json' --data '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}' https://eth.drpc.org | grep -o '0x[0-9a-f]*') - 2 )))
+./fevm_replay fetch-block $B block && ./fevm_replay fetch-proofs block && ./fevm_replay chain block
+```
 
 ## Build and test
 

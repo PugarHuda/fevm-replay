@@ -1,0 +1,74 @@
+name: Release
+
+# A tag `v*` publishes the fevm-replay executable for x86-64 Linux with the
+# ports' bytecode and the fixtures, so trying it needs no Fe toolchain.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  FE_REVISION: 4608e5fdfa3783ec78347f297ad0fced8928fcc7
+  RUST_VERSION: 1.99.0
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Restore the Fe compiler
+        id: fe-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/fe
+          key: fe-${{ runner.os }}-${{ env.FE_REVISION }}-${{ env.RUST_VERSION }}-cranelift
+
+      - name: Build the Fe compiler
+        if: steps.fe-cache.outputs.cache-hit != 'true'
+        run: |
+          npm install -g tree-sitter-cli@0.24.7
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          cargo "+$RUST_VERSION" install --locked --root ~/fe \
+            --git https://github.com/argotorg/fe --rev "$FE_REVISION" --features cranelift fe
+
+      - run: echo "$HOME/fe/bin" >> "$GITHUB_PATH"
+
+      - name: Build
+        run: |
+          fe build --backend native -O 2 --emit executable --out-dir out .
+          for port in weth9 uniswap-v2-pair usdt usdc-proxy; do
+            (cd "ports/$port" && fe build -O 2 --out-dir "../../out/$port" .)
+          done
+          ./out/fevm_replay fixtures/mainnet/*.json
+
+      - name: Package
+        run: |
+          name="fevm-replay-${GITHUB_REF_NAME}-x86_64-linux"
+          mkdir -p "$name/ports"
+          cp out/fevm_replay README.md LICENSE "$name/"
+          cp -r fixtures "$name/"
+          for port in weth9 uniswap-v2-pair usdt usdc-proxy; do
+            mkdir -p "$name/ports/$port"
+            cp out/$port/*.runtime.bin "$name/ports/$port/"
+          done
+          ldd out/fevm_replay > "$name/LINKED.txt" || true
+          tar czf "$name.tar.gz" "$name"
+          echo "ARCHIVE=$name.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Publish
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "$ARCHIVE" \
+            --title "fevm-replay $GITHUB_REF_NAME" \
+            --notes "fevm-replay for x86-64 Linux (built on ubuntu-latest; see LINKED.txt for the libraries it needs), the four ports' runtime bytecode and the fixtures. Built from ${GITHUB_SHA} with Fe ${FE_REVISION}."
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fevm-replay
+          path: ${{ env.ARCHIVE }}
