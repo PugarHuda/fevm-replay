@@ -13,7 +13,7 @@
 <style>
   .ex-head { padding-block: 1.5rem 0.5rem; }
   .ex-head h1 { font-size: clamp(2rem, 4.5vw, 3rem); letter-spacing: -0.03em; line-height: 1.05; margin: 0 0 0.75rem; }
-  .cases { display: grid; grid-template-columns: repeat(auto-fit, minmax(12.5rem, 1fr)); gap: 0.75rem; margin: 1.75rem 0 1.25rem; }
+  .cases { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 0.75rem; margin: 1.75rem 0 1.25rem; }
   .cases button {
     font: inherit; text-align: left; cursor: pointer; color: inherit;
     background: transparent; border: 1px solid var(--rule); border-top: 3px solid var(--rule);
@@ -76,13 +76,14 @@
 <main class="wrap">
   <section class="ex-head">
     <h1>Where two runs part</h1>
-    <p class="intro">Each transaction below is real: fevm ran it on its mainnet pre-state twice, once with the deployed Uniswap V2 pair and once with every pair replaced by the Fe port. Every call is listed in the order it began, indented by depth. The call where the runs first part, in the order calls ended, is marked. Pick a call for its calldata and output. The data comes from <code>fevm_replay trace</code>.</p>
+    <p class="intro">Each transaction below is real: fevm ran it on its mainnet pre-state twice, once with the deployed code (the Uniswap V2 pair, or USDT) and once with the Fe port in its place. Every call is listed in the order it began, indented by depth. The call where the runs first part, in the order calls ended, is marked. Pick a call for its calldata and output. The data comes from <code>fevm_replay trace</code>.</p>
   </section>
 
   <div class="cases" role="group" aria-label="Transactions">
     <button type="button" data-case="dirty-address" aria-pressed="true"><b>A bug the port had</b><span>A bot packs data into an address argument</span></button>
     <button type="button" data-case="code-hash" aria-pressed="false"><b>Code checked by hash</b><span>A bot refuses code it does not know</span></button>
     <button type="button" data-case="builder-tip" aria-pressed="false"><b>A tip worked out from gas</b><span>The same calls, another amount</span></button>
+    <button type="button" data-case="usdt-out-of-gas" aria-pressed="false"><b>Cheaper is not the same</b><span>USDT runs out of gas; the Fe port does not</span></button>
     <button type="button" class="same" data-case="identical" aria-pressed="false"><b>No difference</b><span>An ordinary swap through a pair</span></button>
   </div>
 
@@ -91,7 +92,7 @@
 
   <div class="runs">
     <section>
-      <h2>Deployed pair (Solidity) <small id="count-a"></small></h2>
+      <h2>Deployed Solidity <small id="count-a"></small></h2>
       <ol class="calls" id="calls-a"></ol>
     </section>
     <section>
@@ -99,7 +100,7 @@
       <ol class="calls" id="calls-b"></ol>
     </section>
   </div>
-  <p class="legend">Each row shows the opcode that made the call (CALL, STATICCALL, DELEGATECALL), the function when its selector is known (<span class="mono">send</span> for a call without calldata), the target (<span class="mono">pair</span> marks an account running the shadowed code), the gas the call used and how it ended. Gas used differs between the runs wherever the port runs: that is expected, and only behavior counts.</p>
+  <p class="legend">Each row shows the opcode that made the call (CALL, STATICCALL, DELEGATECALL), the function when its selector is known (<span class="mono">send</span> for a call without calldata), the target (<span class="mono">port</span> marks an account running the shadowed code: the Fe port in the right column), the gas the call used and how it ended. Gas used differs between the runs wherever the port runs: that is expected, and only behavior counts.</p>
 </main>
 
 <footer class="wrap site-foot">
@@ -128,6 +129,13 @@ const STORIES = {
     text: [
       "A bot routes a swap through a pair, then pays the block builder a tip it works out from <code>gasleft()</code>. The port uses less gas, so the tip differs, though every call has the same calldata and output.",
       "The runs part at the payment to the builder: the same call with another amount. The bot that made it read the gas left, which explains the difference."
+    ]
+  },
+  "usdt-out-of-gas": {
+    block: "26,400,058, with Fe USDT in place of USDT",
+    text: [
+      "A USDT <code>transfer</code> sent with a gas limit that leaves the contract 24,125 gas. On chain, USDT ran out of gas and the transfer failed. The Fe port needs 23,353 and gets through.",
+      "Same calldata, same caller, and the only difference is what the code costs: replay labels it apart, as a case where only the deployed code ran out of gas, rather than as a difference in behavior."
     ]
   },
   "identical": {
@@ -174,7 +182,7 @@ function render(list, run, shadowed, parting) {
     who.className = "who";
     who.style.paddingLeft = (c.depth * 0.9) + "rem";
     who.innerHTML = `<span class="kind">${KINDS[c.kind] || c.kind}</span><span class="fn"></span>` +
-      (shadowed.has(c.to) ? `<span class="pair">pair</span>` : "") + ` <span class="addr">${short(c.to)}</span>`;
+      (shadowed.has(c.to) ? `<span class="pair">port</span>` : "") + ` <span class="addr">${short(c.to)}</span>`;
     who.querySelector(".fn").textContent = name;
     const end = document.createElement("span");
     end.className = "end";
@@ -223,8 +231,8 @@ async function show(name) {
     ` · ${data.parting === null ? "the runs never part" : "they part at call " + (data.parting + 1) + " in the order calls ended"}`;
   render(document.getElementById("calls-a"), data.deployed, shadowed, data.parting);
   render(document.getElementById("calls-b"), data.shadow, shadowed, data.parting);
-  document.getElementById("count-a").textContent = data.deployed.length + " calls";
-  document.getElementById("count-b").textContent = data.shadow.length + " calls";
+  document.getElementById("count-a").textContent = data.deployed.length + (data.deployed.length === 1 ? " call" : " calls");
+  document.getElementById("count-b").textContent = data.shadow.length + (data.shadow.length === 1 ? " call" : " calls");
 }
 
 document.querySelectorAll(".cases button").forEach((b) => b.addEventListener("click", () => show(b.dataset.case)));
