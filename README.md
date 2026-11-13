@@ -369,9 +369,10 @@ asks the node which accounts and slots each changed calldata touches
 (`eth_createAccessList`, no debug namespace needed), reads the missing ones
 at the parent block, and applies the state diffs of the block's earlier
 transactions, so they hold their values at the moment the transaction ran.
-On a first sample of two blocks with five mutations each, 5 of the 30
-changed calldatas reached such state (6 accounts and slots fetched), and
-none differed.
+Over 20 blocks with ten mutations per transaction (960 runs), 115 of the
+calldata changes reached such state, 213 accounts and slots were fetched
+for them, and no run differed. Without fetching, those 115 would have run
+on empty values.
 
 Run longer, with 200 mutations per transaction and three seeds over the same
 200 blocks:
@@ -722,6 +723,8 @@ replays the saved blocks with the port in place of every copy of the
 deployed code, mutates their transactions, fuzzes the port, and plants
 mutants. It exits 1 if anything differs, and writes a badge beside the page
 (`certificate.svg` for `certificate.html`) for a README.
+
+![Fe port: TetherToken verified](site/badge-usdt.svg) ![Fe port: UniswapV2Pair verified](site/badge-uniswap-v2-pair.svg) ![Fe port: WETH9 verified](site/badge-weth9.svg)
 
 ```sh
 ./out/fevm_replay certify certificate.html pair.hex ports/uniswap-v2-pair UniswapV2Pair weth9.hex 74 blocks/*

@@ -20,46 +20,51 @@ th,td{text-align:left;padding:.45rem .6rem .45rem 0;border-bottom:1px solid var(
 <main>
 <div class="kicker">Fe port certificate</div>
 <h1>TetherToken</h1>
-<p>Port source <code>ports/usdt</code>, runtime code hash <code>0x8ec7fe746668d9be951c92be4bdcd6d154f9152b5c4ceaddd5c3f3cc750b61c7</code> (4342 bytes), in place of the deployed code with hash <code>0xb44fb4e949d0f78f87f79ee46428f23a2a5713ce6fc6e0beb3dda78c2ac1ea55</code> (11075 bytes). Blocks <code>/root/v2blocks/0x192d500</code> to <code>/root/v2blocks/0x192d513</code>.</p>
+<p>Port source <code>ports/usdt</code>, runtime code hash <code>0x8ec7fe746668d9be951c92be4bdcd6d154f9152b5c4ceaddd5c3f3cc750b61c7</code> (4342 bytes), in place of the deployed code with hash <code>0xb44fb4e949d0f78f87f79ee46428f23a2a5713ce6fc6e0beb3dda78c2ac1ea55</code> (11075 bytes). Blocks <code>/root/v2blocks/0x192d500</code> to <code>/root/v2blocks/0x192d5c7</code>.</p>
 <p class="verdict">No behavior difference: every transaction that ran the port, every mutation of them and every random call behaved as on the deployed code.</p>
 <h2>Mainnet, as it happened</h2>
 <p>Each transaction of the blocks ran on its own mainnet pre-state, with the port in place of every account holding the deployed code, and was compared with the chain: status, logs, every balance, nonce and storage slot. Only gas may differ.</p>
 <table>
-<tr><th>Blocks</th><td class="n">20</td></tr>
-<tr><th>Transactions</th><td class="n">6310</td></tr>
-<tr><th>Transactions that ran the port</th><td class="n">1825</td></tr>
-<tr><th>Identical to the chain</th><td class="n">1754</td></tr>
-<tr><th>Differ where other code read the gas left</th><td class="n">71</td></tr>
-<tr><th>&nbsp;&nbsp;of which part at or under that code</th><td class="n">71</td></tr>
+<tr><th>Blocks</th><td class="n">200</td></tr>
+<tr><th>Transactions</th><td class="n">69643</td></tr>
+<tr><th>Transactions that ran the port</th><td class="n">16217</td></tr>
+<tr><th>Identical to the chain</th><td class="n">15571</td></tr>
+<tr><th>Differ where other code read the gas left</th><td class="n">643</td></tr>
+<tr><th>&nbsp;&nbsp;of which part at or under that code</th><td class="n">643</td></tr>
 <tr><th>Differ where other code read code hashes</th><td class="n">0</td></tr>
-<tr><th>Only the deployed code ran out of gas</th><td class="n">0</td></tr>
+<tr><th>Only the deployed code ran out of gas</th><td class="n">3</td></tr>
 <tr><th><strong>Behave differently</strong></th><td class="n">0</td></tr>
 </table>
 <h3>Gas per call in identical transactions</h3>
 <div class="scroll"><table>
 <tr><th>Function</th><th class="n">Calls</th><th class="n">Deployed</th><th class="n">Port</th><th class="n">Change</th></tr>
-<tr><td><code>transfer</code></td><td class="n">1760</td><td class="n">28037</td><td class="n">26880</td><td class="n">&minus;4.1%</td></tr>
-<tr><td><code>transferFrom</code></td><td class="n">217</td><td class="n">24122</td><td class="n">23218</td><td class="n">&minus;3.7%</td></tr>
-<tr><td><code>balanceOf</code></td><td class="n">500</td><td class="n">2043</td><td class="n">1564</td><td class="n">&minus;23.4%</td></tr>
-<tr><td><code>allowance</code></td><td class="n">43</td><td class="n">3262</td><td class="n">2598</td><td class="n">&minus;20.3%</td></tr>
-<tr><td><code>approve</code></td><td class="n">73</td><td class="n">21877</td><td class="n">21524</td><td class="n">&minus;1.6%</td></tr>
-<tr><td><code>decimals</code></td><td class="n">4</td><td class="n">2484</td><td class="n">2294</td><td class="n">&minus;7.6%</td></tr>
+<tr><td><code>transfer</code></td><td class="n">15969</td><td class="n">28124</td><td class="n">26968</td><td class="n">&minus;4.1%</td></tr>
+<tr><td><code>transferFrom</code></td><td class="n">2378</td><td class="n">22768</td><td class="n">21860</td><td class="n">&minus;3.9%</td></tr>
+<tr><td><code>balanceOf</code></td><td class="n">5138</td><td class="n">2034</td><td class="n">1555</td><td class="n">&minus;23.5%</td></tr>
+<tr><td><code>allowance</code></td><td class="n">342</td><td class="n">3081</td><td class="n">2417</td><td class="n">&minus;21.5%</td></tr>
+<tr><td><code>approve</code></td><td class="n">867</td><td class="n">20905</td><td class="n">20553</td><td class="n">&minus;1.6%</td></tr>
+<tr><td><code>decimals</code></td><td class="n">41</td><td class="n">1898</td><td class="n">1708</td><td class="n">&minus;10.0%</td></tr>
+<tr><td><code>name</code></td><td class="n">1</td><td class="n">3110</td><td class="n">2636</td><td class="n">&minus;15.2%</td></tr>
+<tr><td><code>symbol</code></td><td class="n">1</td><td class="n">3550</td><td class="n">2634</td><td class="n">&minus;25.8%</td></tr>
+<tr><td><code></code></td><td class="n">6</td><td class="n">773</td><td class="n">226</td><td class="n">&minus;70.7%</td></tr>
+<tr><td><code></code></td><td class="n">1</td><td class="n">2714</td><td class="n">2354</td><td class="n">&minus;13.2%</td></tr>
+<tr><td><code></code></td><td class="n">2</td><td class="n">3033</td><td class="n">2436</td><td class="n">&minus;19.6%</td></tr>
 </table></div>
 <h2>Mainnet, mutated</h2>
 <p>Each transaction that touched the deployed code ran again with its calldata changed, or with one call into the contract changed in flight, on both codes, gas free.</p>
 <table>
-<tr><th>Transactions</th><td class="n">1825</td></tr>
-<tr><th>Runs</th><td class="n">36500</td></tr>
-<tr><th>Identical</th><td class="n">35779</td></tr>
-<tr><th>Differ where other code read the gas left or code hashes</th><td class="n">675</td></tr>
-<tr><th>&nbsp;&nbsp;of which code hashes</th><td class="n">51</td></tr>
-<tr><th>&nbsp;&nbsp;of the rest, part at or under the code that read the gas left</th><td class="n">624</td></tr>
-<tr><th>Only the deployed code ran out of gas</th><td class="n">46</td></tr>
+<tr><th>Transactions</th><td class="n">16217</td></tr>
+<tr><th>Runs</th><td class="n">324340</td></tr>
+<tr><th>Identical</th><td class="n">317561</td></tr>
+<tr><th>Differ where other code read the gas left or code hashes</th><td class="n">6321</td></tr>
+<tr><th>&nbsp;&nbsp;of which code hashes</th><td class="n">533</td></tr>
+<tr><th>&nbsp;&nbsp;of the rest, part at or under the code that read the gas left</th><td class="n">5788</td></tr>
+<tr><th>Only the deployed code ran out of gas</th><td class="n">458</td></tr>
 <tr><th>Differ after an address-shaped word got upper bits</th><td class="n">0</td></tr>
 <tr><th>Differ after the calldata was cut short</th><td class="n">0</td></tr>
 <tr><th><strong>Differ</strong></th><td class="n">0</td></tr>
 </table>
-<p>The port ran 939 of its 2610 instructions (35.9%) in these runs.</p>
+<p>The port ran 1152 of its 2610 instructions (44.1%) in these runs.</p>
 <h2>Random calls</h2>
 <p>1,000 sessions of up to 60 random calls each, against both codes in step, checking the pair's invariants after every call.</p>
 <table>

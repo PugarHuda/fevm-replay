@@ -18,6 +18,8 @@
   .port h2 { margin: 0; font-size: 1.35rem; letter-spacing: -0.01em; }
   .port .meta { color: var(--steel); font-size: 0.9rem; margin: -0.4rem 0 0; }
   .port .stamp { font-family: var(--mono); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--match); border: 1.5px solid var(--match); border-radius: 3px; padding: 0.15rem 0.4rem; align-self: flex-start; }
+  .port .stamp.warn { color: var(--diff); border-color: var(--diff); }
+  .port.warn { border-top-color: var(--diff); }
   .port dl { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: 0.35rem 1rem; font-size: 0.92rem; }
   .port dt { color: var(--steel); }
   .port dd { margin: 0; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -45,19 +47,19 @@
 
 <main class="wrap">
   <section class="v-head">
-    <h1>Fe ports, verified on mainnet</h1>
-    <p class="intro">Three Solidity contracts from three compiler versions, rewritten in Fe to drop in for the deployed code. Each is checked against real Ethereum traffic by one command, <code>fevm_replay certify</code>, which writes the certificate linked below. A port only counts as verified when nothing it does differs from the deployed contract.</p>
+    <h1>Fe ports, checked against mainnet</h1>
+    <p class="intro">Four Solidity contracts from four compiler versions, rewritten in Fe to drop in for the deployed code. Each is checked against real Ethereum traffic by one command, <code>fevm_replay certify</code>, which writes the certificate linked below. A port only counts as verified when nothing it does differs from the deployed contract.</p>
   </section>
 
   <div class="ports">
     <article class="port">
-      <span class="stamp">0 behavior differences</span>
+      <img src="badge-usdt.svg" alt="Fe port: TetherToken verified" width="230" height="20">
       <h2>USDT</h2>
       <p class="meta">TetherToken, solc 0.4.17 · <code>ports/usdt</code></p>
       <dl>
         <dt>Mainnet transactions that ran it</dt><dd>21,230</dd>
         <dt>…that behaved differently</dt><dd class="zero">0</dd>
-        <dt>Mutated mainnet runs that differ</dt><dd class="zero">0 of 36,500</dd>
+        <dt>Mutated mainnet runs that differ</dt><dd class="zero">0 of 324,340</dd>
         <dt>Random calls that differ</dt><dd class="zero">0 of 1.2M</dd>
         <dt>Port code reached</dt><dd>97%</dd>
         <dt>Mutants caught</dt><dd>45 of 49</dd>
@@ -67,7 +69,7 @@
     </article>
 
     <article class="port">
-      <span class="stamp">0 behavior differences</span>
+      <img src="badge-uniswap-v2-pair.svg" alt="Fe port: UniswapV2Pair verified" width="230" height="20">
       <h2>Uniswap V2 pair</h2>
       <p class="meta">UniswapV2Pair, solc 0.5.16 · <code>ports/uniswap-v2-pair</code></p>
       <dl>
@@ -83,7 +85,7 @@
     </article>
 
     <article class="port">
-      <span class="stamp">0 behavior differences</span>
+      <img src="badge-weth9.svg" alt="Fe port: WETH9 verified" width="230" height="20">
       <h2>WETH9</h2>
       <p class="meta">Wrapped Ether, solc 0.4.19 · <code>ports/weth9</code></p>
       <dl>
@@ -96,6 +98,23 @@
         <dt>Gas on <code>balanceOf</code></dt><dd>−17.0%</dd>
       </dl>
       <div class="links"><a href="certificate-weth9.html">Certificate</a><a href="https://github.com/PugarHuda/fevm-replay/tree/main/ports/weth9">Source</a></div>
+    </article>
+
+    <article class="port warn">
+      <span class="stamp warn">2 out-of-gas differences</span>
+      <h2>USDC proxy</h2>
+      <p class="meta">FiatTokenProxy, solc 0.4.24 · <code>ports/usdc-proxy</code></p>
+      <dl>
+        <dt>Mainnet transactions that ran it</dt><dd>16,597</dd>
+        <dt>…that behaved differently</dt><dd>2</dd>
+        <dt>Mutated mainnet runs that differ</dt><dd class="zero">0 of 27,800</dd>
+        <dt>Random calls that differ</dt><dd class="zero">0 of 120,000</dd>
+        <dt>Port code reached</dt><dd>92%</dd>
+        <dt>Mutants caught</dt><dd>9 of 12</dd>
+        <dt>Gas on <code>transfer</code></dt><dd>+0.3%</dd>
+      </dl>
+      <p class="meta">The two: callers with a gas allowance so tight that the deployed proxy fits and the port, 40 to 60 gas costlier per call, runs out.</p>
+      <div class="links"><a href="certificate-usdc-proxy.html">Certificate</a><a href="opgas.html">Gas</a><a href="https://github.com/PugarHuda/fevm-replay/tree/main/ports/usdc-proxy">Source</a></div>
     </article>
   </div>
 
