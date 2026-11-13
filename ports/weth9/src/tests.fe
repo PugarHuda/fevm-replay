@@ -13,7 +13,7 @@ fn balance_of(_ weth: Address, _ owner: Address) -> u256 uses (evm: mut Evm) {
         addr: weth,
         gas: 100000,
         value: Wei::zero(),
-        message: Weth9Msg::BalanceOf { owner },
+        message: Weth9Msg::BalanceOf { owner: owner.word() },
     )
 }
 
@@ -95,7 +95,7 @@ pub contract Holder uses (ctx: Ctx, call: mut Call) {
                 addr: weth,
                 gas: 100000,
                 value: Wei::zero(),
-                message: Weth9Msg::BalanceOf { owner: ctx.address() },
+                message: Weth9Msg::BalanceOf { owner: ctx.address().word() },
             )
         }
 
@@ -163,7 +163,7 @@ fn transfer_moves_balance() uses (evm: mut Evm) {
             addr: weth,
             gas: 100000,
             value: Wei::zero(),
-            message: Weth9Msg::Transfer { dst: to, wad: 400 },
+            message: Weth9Msg::Transfer { dst: to.word(), wad: 400 },
         )
     assert!(ok)
     assert!(balance_of(weth, to) == 400)
@@ -178,7 +178,7 @@ fn transfer_beyond_the_balance_reverts() uses (evm: mut Evm) {
             addr: weth,
             gas: 100000,
             value: Wei::zero(),
-            message: Weth9Msg::Transfer { dst: Address::new(0xbeef), wad: 1 },
+            message: Weth9Msg::Transfer { dst: 0xbeef, wad: 1 },
         )
 }
 
@@ -191,7 +191,7 @@ fn approve_sets_the_allowance() uses (evm: mut Evm) {
             addr: weth,
             gas: 100000,
             value: Wei::zero(),
-            message: Weth9Msg::Approve { guy: spender, wad: 77 },
+            message: Weth9Msg::Approve { guy: spender.word(), wad: 77 },
         )
     assert!(ok)
     let allowed: u256 = evm
@@ -199,7 +199,7 @@ fn approve_sets_the_allowance() uses (evm: mut Evm) {
             addr: weth,
             gas: 100000,
             value: Wei::zero(),
-            message: Weth9Msg::Allowance { owner: evm.address(), spender },
+            message: Weth9Msg::Allowance { owner: evm.address().word(), spender: spender.word() },
         )
     assert!(allowed == 77)
 }
@@ -219,7 +219,7 @@ fn owner_may_transfer_from_itself_without_allowance() uses (evm: mut Evm) {
             addr: weth,
             gas: 100000,
             value: Wei::zero(),
-            message: Weth9Msg::TransferFrom { src: me, dst: Address::new(0xbeef), wad: 5 },
+            message: Weth9Msg::TransferFrom { src: me.word(), dst: 0xbeef, wad: 5 },
         )
     assert!(ok)
     assert!(balance_of(weth, Address::new(0xbeef)) == 5)

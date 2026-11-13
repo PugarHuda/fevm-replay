@@ -77,6 +77,10 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     ) {
         return fetch_hashes_command()
     }
+    // "trace"
+    if is_word(args.get(1), [0x74, 0x72, 0x61, 0x63, 0x65]) {
+        return trace_command()
+    }
     // "fuzz-block"
     if is_word(
         args.get(1),
@@ -254,6 +258,8 @@ pub struct Totals {
     pub shadowed: u64,
     /// Shadowed transactions that differ where code read the gas left.
     pub gas_sensitive: u64,
+    /// Of those, the ones a gas reading explains (see `watch::explain_gas`).
+    pub gas_explained: u64,
     /// Shadowed transactions that differ where code read a code hash.
     pub code_sensitive: u64,
     /// Shadowed transactions that differ without reading the gas left.
@@ -285,6 +291,7 @@ fn add_totals(_ into: mut Totals, _ from: Totals) {
     into.old_hashes += from.old_hashes
     into.shadowed += from.shadowed
     into.gas_sensitive += from.gas_sensitive
+    into.gas_explained += from.gas_explained
     into.code_sensitive += from.code_sensitive
     into.behavior += from.behavior
     into.chain_gas += from.chain_gas
@@ -302,6 +309,7 @@ impl Totals {
             old_hashes: 0,
             shadowed: 0,
             gas_sensitive: 0,
+            gas_explained: 0,
             code_sensitive: 0,
             behavior: 0,
             chain_gas: 0,
@@ -426,7 +434,7 @@ uses (fs: std::fs::Fs, out: mut Stdout)
         chain_id: field(chain, "result"),
         blobbasefee: fetch::blob_base_fee(
             excess: field(header, "excessBlobGas"),
-            fraction: fetch::BPO2_UPDATE_FRACTION,
+            fraction: fetch::update_fraction(field(header, "timestamp")),
         ),
     )
     // Saved by `fetch-block` since EIP-7702 delegates were added; older
@@ -497,13 +505,26 @@ uses (fs: std::fs::Fs, out: mut Stdout)
         }
         if found.shadowed && found.gas_observed {
             totals.gas_sensitive += 1
-            println!(
-                "DIFF  tx ",
-                index,
-                " ",
-                txs[index]["hash"].text(),
-                " (reads gas after the shadow code ran)",
-            )
+            if found.gas_reader != 0 {
+                totals.gas_explained += 1
+                println!(
+                    "DIFF  tx ",
+                    index,
+                    " ",
+                    txs[index]["hash"].text(),
+                    " (reads gas after the shadow code ran: 0x",
+                    core::text::hex(found.gas_reader, 20),
+                    " read it where the runs part)",
+                )
+            } else {
+                println!(
+                    "DIFF  tx ",
+                    index,
+                    " ",
+                    txs[index]["hash"].text(),
+                    " (reads gas after the shadow code ran, but the runs part elsewhere)",
+                )
+            }
         } else if found.shadowed && found.code_observed {
             totals.code_sensitive += 1
             println!(
@@ -567,6 +588,15 @@ fn print_totals(_ totals: Totals, shadowing: bool) uses (out: mut Stdout) {
             ", shadow ",
             totals.shadow_gas,
         )
+        if totals.gas_sensitive > 0 {
+            println!(
+                "  of the ",
+                totals.gas_sensitive,
+                " where code reads the gas left, ",
+                totals.gas_explained,
+                " part at or under a call whose code read it",
+            )
+        }
         print_profile(totals.deployed_profile, totals.shadow_profile)
     }
 }
@@ -663,6 +693,71 @@ uses (out: mut Stdout)
 }
 
 #[cfg(target_family = "unix")]
+/// `trace <dir> <index> <address|deployed.hex> <port.bin>`: both runs of one
+/// saved transaction, deployed and shadowed, call by call as JSON (see
+/// `replay::trace_tx`).
+fn trace_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
+    if args.count() != 6 {
+        println!(
+            "usage: fevm-replay trace <dir> <tx-index> <shadow-address>|<deployed.hex> <runtime.bin>",
+        )
+        return 2
+    }
+    let dir = args.get(2)
+    var like = MemBuffer::empty()
+    let Option::Some(address) = shadow_target(args.get(4), mut like) else {
+        return 1
+    }
+    let Option::Some(code) = read_shadow(args.get(5)) else {
+        return 1
+    }
+    let Option::Some(chain) = load_response(dir, "chain.json") else {
+        return 1
+    }
+    let Option::Some(block) = load_response(dir, "block.json") else {
+        return 1
+    }
+    let Option::Some(prestates) = load_response(dir, "prestate.json") else {
+        return 1
+    }
+    let header = ref block["result"]
+    let index: usize = core::text::parse_uint(args.get(3).span())
+        .unwrap_or(default: 0)
+        .downcast_unchecked()
+    let txs = header["transactions"].items()
+    if index >= txs.len() {
+        println!("ERROR no transaction ", index, " in ", dir)
+        return 1
+    }
+    let env = load_block(
+        header,
+        chain_id: field(chain, "result"),
+        blobbasefee: fetch::blob_base_fee(
+            excess: field(header, "excessBlobGas"),
+            fraction: fetch::update_fraction(field(header, "timestamp")),
+        ),
+    )
+    let extras = match load_json(dir, "delegates.json") {
+        Option::Some(doc) => doc,
+        Option::None => Value::object(),
+    }
+    var text = MemBuffer::empty()
+    with (mut text) {
+        replay::trace_tx(
+            env,
+            parent_hash: field(header, "parentHash"),
+            extras,
+            txs[index],
+            prestates["result"][index]["result"],
+            shadow_address: address,
+            shadow_code: code.span(),
+            shadow_like: like.span(),
+        )
+    }
+    print!(text)
+    0
+}
+
 fn block_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
     if args.count() != 3 && args.count() != 5 {
         println!(
@@ -1203,7 +1298,7 @@ uses (args: Args, fs: std::fs::Fs, out: mut Stdout)
             chain_id: field(chain, "result"),
             blobbasefee: fetch::blob_base_fee(
                 excess: field(header, "excessBlobGas"),
-                fraction: fetch::BPO2_UPDATE_FRACTION,
+                fraction: fetch::update_fraction(field(header, "timestamp")),
             ),
         )
         let extras = match load_json(dir, "delegates.json") {

@@ -17,13 +17,13 @@
 
 use core::{MemBuffer, MemSpan, MemVec}
 use json::Value
-use fevm::{BlockEnv, Buffers, Config, LogBuffer, WorldState, transact}
+use fevm::{BlockEnv, Buffers, Config, WorldState, transact}
 use fevm::trace::{CallEnd, CallStart, Tracer}
 use fevm::status::{ERR_OUT_OF_GAS, OK}
 use ingot::fuzz::{same_bytes, same_logs, same_reason, same_state_except, same_status}
 use ingot::load::{field, hex_bytes, load_tx_with, load_world}
 use ingot::replay::{build_world, shadow_targets}
-use ingot::watch::{GasWatch, first_parting, gas_reader, merge_coverage}
+use ingot::watch::{GasWatch, differing_owner, explain_gas, first_parting, merge_coverage}
 
 /// A contract that read the gas left where two runs part, and in how many
 /// runs.
@@ -468,21 +468,14 @@ fn compare_run(
         return what + 10
     }
     if !call_differs && watch_b.observed {
-        // With every call alike, the difference sits in a log or state of
-        // its own: explained if the account it belongs to read the gas left.
-        var reader = gas_reader(watch_a, watch_b)
-        if reader.is_none() {
-            let owner = differing_owner(
-                ran_a.receipt.logs,
-                ran_b.receipt.logs,
-                ran_a.state,
-                ran_b.state,
-            )
-            if owner != 0 && (read_gas_in(watch_a, owner) || read_gas_in(watch_b, owner)) {
-                reader = Option::Some(owner)
-            }
-        }
-        match reader {
+        match explain_gas(
+            watch_a,
+            watch_b,
+            ran_a.receipt.logs,
+            ran_b.receipt.logs,
+            ran_a.state,
+            ran_b.state,
+        ) {
             Option::Some(reader) => {
                 found.gas_explained += 1
                 add_reader(mut found.readers, reader, runs: 1)
@@ -566,64 +559,6 @@ pub fn ran_out_first(_ a: GasWatch, _ b: GasWatch) -> bool {
         },
         Option::None => false,
     }
-}
-
-// The account a difference between two runs belongs to: the emitter of the
-// first log that differs, or else the first account whose balance, nonce or
-// storage differs; 0 if none does.
-fn differing_owner(_ a: LogBuffer, _ b: LogBuffer, _ x: WorldState, _ y: WorldState) -> u256 {
-    var i: u64 = 0
-    while i < a.len() || i < b.len() {
-        if i >= a.len() {
-            return b.entry(i).address
-        }
-        if i >= b.len() {
-            return a.entry(i).address
-        }
-        let one = a.entry(i)
-        let two = b.entry(i)
-        var differs = one.address != two.address
-            || one.topic_count != two.topic_count
-            || !same_bytes(a.payload(i), b.payload(i))
-        for t in 0 .. 4 {
-            if one.topics[t] != two.topics[t] {
-                differs = true
-            }
-        }
-        if differs {
-            return one.address
-        }
-        i += 1
-    }
-    for position in 0 .. x.account_count() {
-        let address = x.account_at(position).address
-        if x.balance(address) != y.balance(address) || x.nonce(address) != y.nonce(address) {
-            return address
-        }
-    }
-    for slot in 0 .. x.storage_slots() {
-        let entry = x.storage_at(slot)
-        if entry.occupied && y.storage_load(entry.address, entry.slot) != entry.value {
-            return entry.address
-        }
-    }
-    for slot in 0 .. y.storage_slots() {
-        let entry = y.storage_at(slot)
-        if entry.occupied && x.storage_load(entry.address, entry.slot) != entry.value {
-            return entry.address
-        }
-    }
-    0
-}
-
-// Whether code at `address` read the gas left in `run`.
-fn read_gas_in(_ run: GasWatch, _ address: u256) -> bool {
-    for i in 0 .. run.calls.len() {
-        if run.calls[i].read_gas && run.calls[i].context == address {
-            return true
-        }
-    }
-    false
 }
 
 // Where the code under test runs when a proxy stands in front of it.

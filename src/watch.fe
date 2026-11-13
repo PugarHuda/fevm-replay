@@ -2,6 +2,7 @@
 //! by costing different gas.
 
 use core::{MemBuffer, MemSpan, MemVec}
+use fevm::{LogBuffer, WorldState}
 use fevm::trace::{CallEnd, CallStart, Step, Tracer}
 
 const OP_GAS: u8 = 0x5a
@@ -46,6 +47,16 @@ pub struct CallRecord {
     pub parent: usize,
     pub read_gas: bool,
     pub context: u256,
+    /// The opcode that made it, the gas it got and used, and with
+    /// `GasWatch::keep`, where its calldata and output (their first
+    /// `KEPT` bytes) sit in `GasWatch::bytes`.
+    pub kind: u8,
+    pub gas: u64,
+    pub used: u64,
+    pub input_at: usize,
+    pub input_len: usize,
+    pub output_at: usize,
+    pub output_len: usize,
     pub to: u256,
     pub selector: u32,
     pub input: u64,
@@ -56,6 +67,9 @@ pub struct CallRecord {
 impl Copy for CallRecord {}
 
 pub const NO_PARENT: usize = 0xffffffff
+
+/// How many bytes of a call's calldata and output a keeping watch keeps.
+pub const KEPT: usize = 256
 
 // FNV-1a: enough to tell two byte strings apart in a report.
 fn fingerprint(_ bytes: MemSpan) -> u64 {
@@ -168,6 +182,101 @@ pub fn instructions(_ code: MemSpan) -> usize {
     count
 }
 
+// The account a difference between two runs belongs to: the emitter of the
+// first log that differs, or else the first account whose balance, nonce or
+// storage differs; 0 if none does.
+pub fn differing_owner(_ a: LogBuffer, _ b: LogBuffer, _ x: WorldState, _ y: WorldState) -> u256 {
+    var i: u64 = 0
+    while i < a.len() || i < b.len() {
+        if i >= a.len() {
+            return b.entry(i).address
+        }
+        if i >= b.len() {
+            return a.entry(i).address
+        }
+        let one = a.entry(i)
+        let two = b.entry(i)
+        var differs = one.address != two.address
+            || one.topic_count != two.topic_count
+            || !same_payload(a.payload(i), b.payload(i))
+        for t in 0 .. 4 {
+            if one.topics[t] != two.topics[t] {
+                differs = true
+            }
+        }
+        if differs {
+            return one.address
+        }
+        i += 1
+    }
+    for position in 0 .. x.account_count() {
+        let address = x.account_at(position).address
+        if x.balance(address) != y.balance(address) || x.nonce(address) != y.nonce(address) {
+            return address
+        }
+    }
+    for slot in 0 .. x.storage_slots() {
+        let entry = x.storage_at(slot)
+        if entry.occupied && y.storage_load(entry.address, entry.slot) != entry.value {
+            return entry.address
+        }
+    }
+    for slot in 0 .. y.storage_slots() {
+        let entry = y.storage_at(slot)
+        if entry.occupied && x.storage_load(entry.address, entry.slot) != entry.value {
+            return entry.address
+        }
+    }
+    0
+}
+
+// Whether code at `address` read the gas left in `run`.
+fn read_gas_in(_ run: GasWatch, _ address: u256) -> bool {
+    for i in 0 .. run.calls.len() {
+        if run.calls[i].read_gas && run.calls[i].context == address {
+            return true
+        }
+    }
+    false
+}
+
+/// Why two runs that differ where code read the gas left differ: the
+/// account whose code read it, when the runs part at or under its call (see
+/// `gas_reader`) or, with every call alike, when the first log or state
+/// that differs is its own. None if no gas reading explains the difference.
+pub fn explain_gas(
+    _ a: GasWatch,
+    _ b: GasWatch,
+    _ a_logs: LogBuffer,
+    _ b_logs: LogBuffer,
+    _ a_state: WorldState,
+    _ b_state: WorldState,
+) -> Option<u256> {
+    match gas_reader(a, b) {
+        Option::Some(reader) => Option::Some(reader),
+        Option::None => {
+            let owner = differing_owner(a_logs, b_logs, a_state, b_state)
+            if owner != 0 && (read_gas_in(a, owner) || read_gas_in(b, owner)) {
+                Option::Some(owner)
+            } else {
+                Option::None
+            }
+        },
+    }
+}
+
+fn same_payload(_ a: MemSpan, _ b: MemSpan) -> bool {
+    if a.len() != b.len() {
+        return false
+    }
+    for i in 0 .. a.len() {
+        if a[i] != b[i] {
+            return false
+        }
+    }
+    true
+}
+
 /// Adds the calls and gas of each function in `from` to `into`.
 pub fn add_profile(_ into: mut MemVec<SelectorGas>, _ from: MemVec<SelectorGas>) {
     for i in 0 .. from.len() {
@@ -221,6 +330,9 @@ pub struct GasWatch {
     /// program counter they ran, a 1 (a byte per offset).
     pub cover: MemVec<u256>,
     pub covered: MemVec<u8>,
+    /// Whether to keep each call's calldata and output in `bytes`.
+    pub keep: bool,
+    pub bytes: MemBuffer,
     /// Gas used per function of the code at the watched address, whichever
     /// code runs there: the deployed contract or the shadow port.
     pub profile: MemVec<SelectorGas>,
@@ -247,6 +359,8 @@ impl GasWatch {
             ended: MemVec::new(),
             cover: MemVec::new(),
             covered: MemVec::new(),
+            keep: false,
+            bytes: MemBuffer::empty(),
             profile: MemVec::new(),
         }
     }
@@ -299,6 +413,15 @@ impl Tracer for GasWatch {
             }
         }
         let record = self.calls.len()
+        let input_at = self.bytes.len()
+        if self.keep {
+            for i in 0 .. input.len() {
+                if i < KEPT {
+                    self.bytes.push(input[i])
+                }
+            }
+        }
+        let input_len = self.bytes.len() - input_at
         let parent = match self.frames.last() {
             Option::Some(ref frame) => frame.record,
             Option::None => NO_PARENT,
@@ -314,6 +437,13 @@ impl Tracer for GasWatch {
                     } else {
                         call.to
                     },
+                    kind: call.kind,
+                    gas: call.gas,
+                    used: 0,
+                    input_at,
+                    input_len,
+                    output_at: 0,
+                    output_len: 0,
                     to: call.to,
                     selector,
                     input: fingerprint(input),
@@ -333,6 +463,19 @@ impl Tracer for GasWatch {
             Option::Some(frame) => {
                 self.calls[frame.record].status = call.status
                 self.calls[frame.record].output = fingerprint(output)
+                if frame.gas >= call.gas {
+                    self.calls[frame.record].used = frame.gas - call.gas
+                }
+                if self.keep {
+                    self.calls[frame.record].output_at = self.bytes.len()
+                    for i in 0 .. output.len() {
+                        if i < KEPT {
+                            self.bytes.push(output[i])
+                        }
+                    }
+                    self.calls[frame.record].output_len = self.bytes.len() -
+                        self.calls[frame.record].output_at
+                }
                 self.ended.push(frame.record)
                 if self.focus != 0 && !self.focused && frame.to == self.focus {
                     self.focused = true

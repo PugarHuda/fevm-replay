@@ -55,7 +55,7 @@ pub contract Factory uses (create: mut Create, call: mut Call) {
                 addr: pair,
                 gas: 100000,
                 value: Wei::zero(),
-                message: PairMsg::Initialize { token0, token1 },
+                message: PairMsg::Initialize { token0: token0.word(), token1: token1.word() },
             )
             pair
         }
@@ -110,7 +110,7 @@ uses (evm: mut Evm)
         addr: pair,
         gas: 500000,
         value: Wei::zero(),
-        message: PairMsg::Mint { to: evm.address() },
+        message: PairMsg::Mint { to: evm.address().word() },
     )
 }
 
@@ -149,7 +149,12 @@ fn swap_pays_out_what_the_constant_product_allows() uses (evm: mut Evm) {
         addr: pair,
         gas: 500000,
         value: Wei::zero(),
-        message: PairMsg::Swap { amount0_out: 0, amount1_out: 2_486, to: me, data: Bytes::empty() },
+        message: PairMsg::Swap {
+            amount0_out: 0,
+            amount1_out: 2_486,
+            to: me.word(),
+            data: Bytes::empty(),
+        },
     )
     assert!(held(token1, me) == before + 2_486)
 }
@@ -166,7 +171,7 @@ fn swap_taking_one_more_breaks_k() uses (evm: mut Evm) {
         message: PairMsg::Swap {
             amount0_out: 0,
             amount1_out: 2_487,
-            to: evm.address(),
+            to: evm.address().word(),
             data: Bytes::empty(),
         },
     )
@@ -182,7 +187,7 @@ fn burn_returns_the_share_of_both_reserves() uses (evm: mut Evm) {
             addr: pair,
             gas: 100000,
             value: Wei::zero(),
-            message: PairMsg::Transfer { to: pair, value: liquidity },
+            message: PairMsg::Transfer { to: pair.word(), value: liquidity },
         )
     assert!(ok)
     let (amount0, amount1): (u256, u256) = evm
@@ -190,7 +195,7 @@ fn burn_returns_the_share_of_both_reserves() uses (evm: mut Evm) {
             addr: pair,
             gas: 500000,
             value: Wei::zero(),
-            message: PairMsg::Burn { to: me },
+            message: PairMsg::Burn { to: me.word() },
         )
     // 1,999,000 of 2,000,000 shares.
     assert!(amount0 == 3_998_000 && amount1 == 999_500)

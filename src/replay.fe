@@ -15,7 +15,7 @@ use fevm::{BlockEnv, Buffers, Config, WorldState, transact}
 use ingot::compare::{Mismatches, apply_diff, compare}
 use ingot::load::{add_extras, field, load_block, load_tx, load_world}
 use core::MemVec
-use ingot::watch::{GasWatch, SelectorGas, add_profile, first_parting}
+use ingot::watch::{GasWatch, SelectorGas, add_profile, explain_gas, first_parting}
 
 /// Replays transaction `tx` in fevm against its `prestate`, in the block
 /// `block` whose parent's hash is `parent_hash`, and compares the outcome
@@ -85,6 +85,41 @@ uses (text: mut MemBuffer)
             mut tracer,
         )
     }
+    // Code read the gas left after the port ran: the same transaction on the
+    // deployed code tells whether that reading explains any difference.
+    var reader: u256 = 0
+    if shadowed && watch.observed {
+        var deployed = GasWatch::new(shadows: targets)
+        var again = Buffers::new()
+        let ran = transact(
+            build_world(
+                prestate,
+                block,
+                parent_hash,
+                extras,
+                MemVec::new(),
+                shadow_code,
+            ),
+            load_tx(tx),
+            block,
+            Config::osaka(),
+            mut again,
+            mut deployed,
+        )
+        match explain_gas(
+            deployed,
+            watch,
+            ran.receipt.logs,
+            applied.receipt.logs,
+            ran.state,
+            applied.state,
+        ) {
+            Option::Some(address) => {
+                reader = address
+            },
+            Option::None => {},
+        }
+    }
     if shadowed {
         settle_gas_difference(
             mut expected,
@@ -104,6 +139,7 @@ uses (text: mut MemBuffer)
         gas_must_match: !shadowed,
     )
     found.gas_observed = watch.observed
+    found.gas_reader = reader
     found.code_observed = watch.read_code
     found.read_blockhash = watch.read_blockhash
     // A behavior difference: the same transaction on the deployed code,
@@ -207,6 +243,130 @@ uses (text: mut MemBuffer)
         found.read_blockhash = probe.read_blockhash
     }
     found
+}
+
+/// Runs transaction `tx` on the deployed code and with the shadow code (see
+/// `replay_tx`) and writes both runs' calls as JSON to `text`: for each run,
+/// every call in the order it began, with its depth, opcode, the account it
+/// runs as, target, gas given and used, status, the first bytes of its
+/// calldata and output, and its place in the order calls ended; and where
+/// the runs part (see `watch::first_parting`), as that place, or null.
+pub fn trace_tx(
+    _ block: BlockEnv,
+    parent_hash: u256,
+    _ extras: Value,
+    _ tx: Value,
+    _ prestate: Value,
+    shadow_address: u256,
+    shadow_code: MemSpan,
+    shadow_like: MemSpan,
+)
+uses (text: mut MemBuffer)
+{
+    let targets = shadow_targets(load_world(prestate), shadow_address, shadow_like)
+    var deployed = GasWatch::new(shadows: targets)
+    deployed.keep = true
+    var shadow = GasWatch::new(shadows: targets)
+    shadow.keep = true
+    var buffers = Buffers::new()
+    transact(
+        build_world(
+            prestate,
+            block,
+            parent_hash,
+            extras,
+            MemVec::new(),
+            shadow_code,
+        ),
+        load_tx(tx),
+        block,
+        Config::osaka(),
+        mut buffers,
+        mut deployed,
+    )
+    var more = Buffers::new()
+    transact(
+        build_world(
+            prestate,
+            block,
+            parent_hash,
+            extras,
+            targets,
+            shadow_code,
+        ),
+        load_tx(tx),
+        block,
+        Config::osaka(),
+        mut more,
+        mut shadow,
+    )
+    "{\"hash\":\"".fmt(mut text)
+    tx["hash"].text().fmt(mut text)
+    "\",\"shadowed\":[".fmt(mut text)
+    for i in 0 .. targets.len() {
+        if i > 0 { ",".fmt(mut text) }
+        "\"0x".fmt(mut text)
+        core::text::hex(targets[i], 20).fmt(mut text)
+        "\"".fmt(mut text)
+    }
+    "],\"parting\":".fmt(mut text)
+    match first_parting(deployed, shadow) {
+        Option::Some(k) => {
+            k.fmt(mut text)
+        },
+        Option::None => {
+            "null".fmt(mut text)
+        },
+    }
+    ",\"deployed\":".fmt(mut text)
+    write_calls(deployed)
+    ",\"shadow\":".fmt(mut text)
+    write_calls(shadow)
+    "}\n".fmt(mut text)
+}
+
+fn write_calls(_ run: GasWatch) uses (text: mut MemBuffer) {
+    "[".fmt(mut text)
+    for i in 0 .. run.calls.len() {
+        let call = run.calls[i]
+        if i > 0 { ",".fmt(mut text) }
+        "{\"depth\":".fmt(mut text)
+        call.depth.fmt(mut text)
+        ",\"kind\":".fmt(mut text)
+        call.kind.fmt(mut text)
+        ",\"as\":\"0x".fmt(mut text)
+        core::text::hex(call.context, 20).fmt(mut text)
+        "\",\"to\":\"0x".fmt(mut text)
+        core::text::hex(call.to, 20).fmt(mut text)
+        "\",\"gas\":".fmt(mut text)
+        call.gas.fmt(mut text)
+        ",\"used\":".fmt(mut text)
+        call.used.fmt(mut text)
+        ",\"status\":\"".fmt(mut text)
+        status_name(call.status).fmt(mut text)
+        "\",\"input\":\"0x".fmt(mut text)
+        write_bytes(run.bytes.span(), at: call.input_at, len: call.input_len)
+        "\",\"output\":\"0x".fmt(mut text)
+        write_bytes(run.bytes.span(), at: call.output_at, len: call.output_len)
+        "\",\"ended\":".fmt(mut text)
+        var ended: usize = 0
+        for k in 0 .. run.ended.len() {
+            if run.ended[k] == i {
+                ended = k
+            }
+        }
+        ended.fmt(mut text)
+        "}".fmt(mut text)
+    }
+    "]".fmt(mut text)
+}
+
+fn write_bytes(_ bytes: MemSpan, at: usize, len: usize)
+uses (text: mut MemBuffer)
+{
+    for i in 0 .. len {
+        core::text::hex(bytes[at + i] as u256, 1).fmt(mut text)
+    }
 }
 
 // The accounts of `world` to shadow: `address` if present, and every account

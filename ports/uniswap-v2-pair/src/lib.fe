@@ -26,31 +26,36 @@ msg PairMsg {
     Decimals -> u8,
     #[selector = sol("totalSupply()")]
     TotalSupply -> u256,
-    #[selector = sol("balanceOf(address)")]
-    BalanceOf { owner: Address } -> u256,
-    #[selector = sol("allowance(address,address)")]
-    Allowance { owner: Address, spender: Address } -> u256,
+    // balanceOf(address)
+    #[selector = 0x70a08231]
+    BalanceOf { owner: u256 } -> u256,
+    // allowance(address,address)
+    #[selector = 0xdd62ed3e]
+    Allowance { owner: u256, spender: u256 } -> u256,
     #[selector = sol("DOMAIN_SEPARATOR()")]
     DomainSeparator -> u256,
     #[selector = sol("PERMIT_TYPEHASH()")]
     PermitTypehash -> u256,
-    #[selector = sol("nonces(address)")]
-    Nonces { owner: Address } -> u256,
-    #[selector = sol("approve(address,uint256)")]
-    Approve { spender: Address, value: u256 } -> bool,
-    #[selector = sol("transfer(address,uint256)")]
-    Transfer { to: Address, value: u256 } -> bool,
-    #[selector = sol("transferFrom(address,address,uint256)")]
-    TransferFrom { from: Address, to: Address, value: u256 } -> bool,
-    #[selector = sol(
-        "permit(address,address,uint256,uint256,uint8,bytes32,bytes32)",
-    )]
+    // nonces(address)
+    #[selector = 0x7ecebe00]
+    Nonces { owner: u256 } -> u256,
+    // approve(address,uint256)
+    #[selector = 0x095ea7b3]
+    Approve { spender: u256, value: u256 } -> bool,
+    // transfer(address,uint256)
+    #[selector = 0xa9059cbb]
+    Transfer { to: u256, value: u256 } -> bool,
+    // transferFrom(address,address,uint256)
+    #[selector = 0x23b872dd]
+    TransferFrom { from: u256, to: u256, value: u256 } -> bool,
+    // permit(address,address,uint256,uint256,uint8,bytes32,bytes32)
+    #[selector = 0xd505accf]
     Permit {
-        owner: Address,
-        spender: Address,
+        owner: u256,
+        spender: u256,
         value: u256,
         deadline: u256,
-        v: u8,
+        v: u256,
         r: Bytes32,
         s: Bytes32,
     },
@@ -70,16 +75,21 @@ msg PairMsg {
     Price1CumulativeLast -> u256,
     #[selector = sol("kLast()")]
     KLast -> u256,
-    #[selector = sol("initialize(address,address)")]
-    Initialize { token0: Address, token1: Address },
-    #[selector = sol("mint(address)")]
-    Mint { to: Address } -> u256,
-    #[selector = sol("burn(address)")]
-    Burn { to: Address } -> (u256, u256),
-    #[selector = sol("swap(uint256,uint256,address,bytes)")]
-    Swap { amount0_out: u256, amount1_out: u256, to: Address, data: Bytes },
-    #[selector = sol("skim(address)")]
-    Skim { to: Address },
+    // initialize(address,address)
+    #[selector = 0x485cc955]
+    Initialize { token0: u256, token1: u256 },
+    // mint(address)
+    #[selector = 0x6a627842]
+    Mint { to: u256 } -> u256,
+    // burn(address)
+    #[selector = 0x89afcb44]
+    Burn { to: u256 } -> (u256, u256),
+    // swap(uint256,uint256,address,bytes)
+    #[selector = 0x022c0d9f]
+    Swap { amount0_out: u256, amount1_out: u256, to: u256, data: Bytes },
+    // skim(address)
+    #[selector = 0xbc25cf77]
+    Skim { to: u256 },
     #[selector = sol("sync()")]
     Sync,
 }
@@ -154,6 +164,13 @@ struct Swap {
 // logged by hand. The data is the same two padded words.
 const SYNC_TOPIC: u256 = 0x1c411e9a96e071241c2f21f7726b17ae89e3cab4c78be50e062b03a9fffbbad1
 
+// An address argument as solc 0.5's ABI decoder reads it: the low 160 bits
+// of its word, whatever the rest holds. Real callers set the rest: a bot
+// packing data into a swap's `to` would see any stricter port revert.
+fn address(_ word: u256) -> Address {
+    Address::new(word & ((1 << 160) - 1))
+}
+
 // keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)")
 const PERMIT_TYPEHASH: u256 = 0x6e71edae12b1b97f4d1f60370fef10105fa2faae0126114a169c64845d6126c9
 // keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")
@@ -219,10 +236,13 @@ pub contract UniswapV2Pair uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Lo
         }
 
         BalanceOf { owner } -> u256 uses (evm, balance_of) {
+            let owner = address(owner)
             balance_of.get(key: owner)
         }
 
         Allowance { owner, spender } -> u256 uses (evm, allowance) {
+            let owner = address(owner)
+            let spender = address(spender)
             allowance[owner][spender]
         }
 
@@ -235,15 +255,18 @@ pub contract UniswapV2Pair uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Lo
         }
 
         Nonces { owner } -> u256 uses (evm, nonces) {
+            let owner = address(owner)
             nonces.get(key: owner)
         }
 
         Approve { spender, value } -> bool uses (evm, ctx, mut allowance, mut log) {
+            let spender = address(spender)
             approve(owner: ctx.caller(), spender, value)
             true
         }
 
         Transfer { to, value } -> bool uses (evm, ctx, mut balance_of, mut log) {
+            let to = address(to)
             transfer(from: ctx.caller(), to, value)
             true
         }
@@ -255,6 +278,8 @@ pub contract UniswapV2Pair uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Lo
             mut allowance,
             mut log,
         ) {
+            let from = address(from)
+            let to = address(to)
             let spender = ctx.caller()
             let allowed = allowance[from][spender]
             if allowed != u256::max() {
@@ -267,6 +292,9 @@ pub contract UniswapV2Pair uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Lo
         Permit { owner, spender, value, deadline, v, r, s }
         uses (evm, ctx, mut allowance, mut nonces, domain_separator, mut log)
         {
+            let owner = address(owner)
+            let spender = address(spender)
+            let v: u8 = (v & 0xff).downcast_truncate()
             if deadline < ctx.timestamp().as_seconds() {
                 fail(EXPIRED)
             }
@@ -329,6 +357,8 @@ pub contract UniswapV2Pair uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Lo
         Initialize { token0: first, token1: second }
         uses (evm, ctx, factory, mut token0, mut token1)
         {
+            let first = address(first)
+            let second = address(second)
             if ctx.caller() != factory {
                 fail(FORBIDDEN)
             }
@@ -352,6 +382,7 @@ pub contract UniswapV2Pair uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Lo
             mut k_last,
             mut unlocked,
         ) {
+            let to = address(to)
             lock()
             let reserve0 = reserve0_of(reserves)
             let reserve1 = reserve1_of(reserves)
@@ -400,6 +431,7 @@ pub contract UniswapV2Pair uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Lo
             mut k_last,
             mut unlocked,
         ) {
+            let to = address(to)
             lock()
             let reserve0 = reserve0_of(reserves)
             let reserve1 = reserve1_of(reserves)
@@ -446,6 +478,7 @@ pub contract UniswapV2Pair uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Lo
             mut unlocked,
         )
         {
+            let to = address(to)
             lock()
             if amount0_out == 0 && amount1_out == 0 {
                 fail(INSUFFICIENT_OUTPUT_AMOUNT)
@@ -497,6 +530,7 @@ pub contract UniswapV2Pair uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Lo
         }
 
         Skim { to } uses (evm, ctx, mut call, mut log, token0, token1, reserves, mut unlocked) {
+            let to = address(to)
             lock()
             let first = token0
             let second = token1

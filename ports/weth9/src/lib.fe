@@ -16,20 +16,25 @@ msg Weth9Msg {
     Decimals -> u8,
     #[selector = sol("totalSupply()")]
     TotalSupply -> u256,
-    #[selector = sol("balanceOf(address)")]
-    BalanceOf { owner: Address } -> u256,
-    #[selector = sol("allowance(address,address)")]
-    Allowance { owner: Address, spender: Address } -> u256,
+    // balanceOf(address)
+    #[selector = 0x70a08231]
+    BalanceOf { owner: u256 } -> u256,
+    // allowance(address,address)
+    #[selector = 0xdd62ed3e]
+    Allowance { owner: u256, spender: u256 } -> u256,
     #[selector = sol("deposit()")]
     Deposit,
     #[selector = sol("withdraw(uint256)")]
     Withdraw { wad: u256 },
-    #[selector = sol("approve(address,uint256)")]
-    Approve { guy: Address, wad: u256 } -> bool,
-    #[selector = sol("transfer(address,uint256)")]
-    Transfer { dst: Address, wad: u256 } -> bool,
-    #[selector = sol("transferFrom(address,address,uint256)")]
-    TransferFrom { src: Address, dst: Address, wad: u256 } -> bool,
+    // approve(address,uint256)
+    #[selector = 0x095ea7b3]
+    Approve { guy: u256, wad: u256 } -> bool,
+    // transfer(address,uint256)
+    #[selector = 0xa9059cbb]
+    Transfer { dst: u256, wad: u256 } -> bool,
+    // transferFrom(address,address,uint256)
+    #[selector = 0x23b872dd]
+    TransferFrom { src: u256, dst: u256, wad: u256 } -> bool,
 }
 
 #[event]
@@ -78,6 +83,12 @@ fn short_string(_ word: u256) -> DynString {
 /// `string symbol`, `uint8 decimals`, `mapping(address => uint) balanceOf`,
 /// `mapping(address => mapping(address => uint)) allowance`. The first three
 /// are read whole and decoded; nothing but `init` writes them.
+ // An address argument as solc 0.4's ABI decoder reads it: the low 160 bits
+// of its word, whatever the rest holds.
+fn address(_ word: u256) -> Address {
+    Address::new(word & ((1 << 160) - 1))
+}
+
 pub contract WETH9 uses (ctx: Ctx, call: mut Call, log: mut Log) {
     mut name: u256,
     mut symbol: u256,
@@ -113,10 +124,13 @@ pub contract WETH9 uses (ctx: Ctx, call: mut Call, log: mut Log) {
         }
 
         BalanceOf { owner } -> u256 uses (balance_of) {
+            let owner = address(owner)
             balance_of.get(key: owner)
         }
 
         Allowance { owner, spender } -> u256 uses (allowance) {
+            let owner = address(owner)
+            let spender = address(spender)
             allowance[owner][spender]
         }
 
@@ -145,6 +159,7 @@ pub contract WETH9 uses (ctx: Ctx, call: mut Call, log: mut Log) {
         }
 
         Approve { guy, wad } -> bool uses (ctx, mut allowance, mut log) {
+            let guy = address(guy)
             let src = ctx.caller()
             allowance[src][guy] = wad
             log.emit(Approval { src, guy, wad })
@@ -152,10 +167,13 @@ pub contract WETH9 uses (ctx: Ctx, call: mut Call, log: mut Log) {
         }
 
         Transfer { dst, wad } -> bool uses (ctx, mut balance_of, mut allowance, mut log) {
+            let dst = address(dst)
             transfer_from(src: ctx.caller(), dst, wad)
         }
 
         TransferFrom { src, dst, wad } -> bool uses (ctx, mut balance_of, mut allowance, mut log) {
+            let src = address(src)
+            let dst = address(dst)
             transfer_from(src, dst, wad)
         }
     }

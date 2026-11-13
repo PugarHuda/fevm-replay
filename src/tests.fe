@@ -170,6 +170,13 @@ fn runs_part_at_the_first_differing_call() {
             },
             read_gas: false,
             context: 0xb0,
+            kind: 0,
+            gas: 0,
+            used: 0,
+            input_at: 0,
+            input_len: 0,
+            output_at: 0,
+            output_len: 0,
             to: 0xb0,
             selector: 1,
             input: 7,
@@ -202,6 +209,13 @@ fn running_out_of_gas_first_is_a_cost() {
         parent: ingot::watch::NO_PARENT,
         read_gas: false,
         context: 0xb0,
+        kind: 0,
+        gas: 0,
+        used: 0,
+        input_at: 0,
+        input_len: 0,
+        output_at: 0,
+        output_len: 0,
         to: 0xb0,
         selector: 1,
         input: 7,
@@ -228,4 +242,13 @@ fn mapping_slots_match_solidity() {
         ingot::fuzz::mapping_slot(1, 0)
             == 0xada5013122d395ba3c54772283fb069b10426056ef8ca54750cb9bb552a59e7d,
     )
+}
+
+// The blob fee schedule follows mainnet's forks: Prague's fraction until
+// BPO1, BPO1's until BPO2, then BPO2's.
+#[test]
+fn blob_fee_fraction_follows_the_forks() {
+    assert!(ingot::fetch::update_fraction(1764798551) == 5007716)
+    assert!(ingot::fetch::update_fraction(1765290071) == 8346193)
+    assert!(ingot::fetch::update_fraction(1767747671) == 11684671)
 }
