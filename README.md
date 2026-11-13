@@ -741,15 +741,15 @@ over the 200 blocks with all 74 mutants, took about 25 minutes:
 | &nbsp;&nbsp;labeled, all explained (362 gas, 49 code hash) | 411 |
 | &nbsp;&nbsp;only the deployed code ran out of gas | 17 |
 | &nbsp;&nbsp;**differ** | **0** |
-| Random well-formed calls / that differ | 49,353 / **0** |
+| Random well-formed calls / that differ | 49,464 / **0** |
 | Invariants broken | 0 |
 | Port instructions reached: mainnet mutations / random calls | 74% / 95% |
-| Mutants killed | 57 of 74 (77%) |
+| Mutants killed | 61 of 74 (82%) |
 
 ### Verified ports and a GitHub Action
 
 [The verified page](https://fevm-replay.vercel.app/verified.html) puts the
-three ports side by side, each with its certificate. Any Fe project can run
+four ports side by side, each with its certificate. Any Fe project can run
 the same checks in CI with this repository's action, which builds Fe,
 fetches blocks, certifies the port and uploads the page (fails if the port
 behaves differently):

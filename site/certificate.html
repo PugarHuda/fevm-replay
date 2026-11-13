@@ -72,23 +72,23 @@ th,td{text-align:left;padding:.45rem .6rem .45rem 0;border-bottom:1px solid var(
 <h2>Random calls</h2>
 <p>1,000 sessions of up to 60 random calls each, against both codes in step, checking the pair's invariants after every call.</p>
 <table>
-<tr><th>Well-formed calls</th><td class="n">49409</td></tr>
+<tr><th>Well-formed calls</th><td class="n">49464</td></tr>
 <tr><th><strong>Well-formed calls that differ</strong></th><td class="n">0</td></tr>
 <tr><th>Calls with short calldata that differ</th><td class="n">0</td></tr>
 <tr><th>Calls with dirty addresses that differ</th><td class="n">0</td></tr>
 <tr><th>Invariants broken</th><td class="n">0</td></tr>
 </table>
-<p>The port ran 3289 of its 3466 instructions (94.8%).</p>
+<p>The port ran 3299 of its 3466 instructions (95.1%).</p>
 <h2>How sharp the checks are</h2>
 <p>Mutants of the port's source, one operator changed each, built with <code>fe</code> and put through random calls and then mutations of the first ten blocks. The unchanged port passed the same checks first.</p>
 <table>
 <tr><th>Operators in the source</th><td class="n">74</td></tr>
 <tr><th>Mutants built</th><td class="n">74</td></tr>
-<tr><th>Killed by random calls</th><td class="n">58</td></tr>
+<tr><th>Killed by random calls</th><td class="n">61</td></tr>
 <tr><th>Killed by mainnet mutations</th><td class="n">0</td></tr>
-<tr><th>Survived</th><td class="n">16</td></tr>
+<tr><th>Survived</th><td class="n">13</td></tr>
 </table>
-<p>78.3% killed. A survivor is a blind spot of the checks or a change that means the same; each deserves a look:</p>
+<p>82.4% killed. A survivor is a blind spot of the checks or a change that means the same; each deserves a look:</p>
 <pre>line 522: if mul(adjusted0, adjusted1) &lt;= mul(mul(reserve0, reserve1), 1_000_000) {
 line 675: let size: usize = (if reason.len &gt;= 32 { 132 } else { 100 })
 line 681: if reason.len &gt;= 32 {
@@ -97,9 +97,6 @@ line 740: if y &gt;= 3 {
 line 742: var x = y / 2 - 1
 line 749: if y == 0 { 1 } else { 0 }
 line 754: if balance &gt;= left {
-line 804: if balance0 &gt;= UINT112_MAX || balance1 &gt; UINT112_MAX {
-line 804: if balance0 &gt; UINT112_MAX &amp;&amp; balance1 &gt; UINT112_MAX {
-line 804: if balance0 &gt; UINT112_MAX || balance1 &gt;= UINT112_MAX {
 line 809: if elapsed &gt;= 0 &amp;&amp; reserve0 != 0 &amp;&amp; reserve1 != 0 {
 line 847: if root_k &gt;= root_k_last {
 line 851: if liquidity &gt;= 0 {
