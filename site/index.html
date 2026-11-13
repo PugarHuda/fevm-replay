@@ -78,6 +78,19 @@
     </div>
   </section>
 
+  <section id="proven" class="wrap">
+    <h2>Proven against the state root, not the node</h2>
+    <p class="intro">A node's traces are the starting point of every replay. With <code>fetch-proofs</code>, they no longer have to be trusted: fevm-replay saves the Merkle-Patricia proofs (<code>eth_getProof</code>) of every account and slot a block touched, at the parent and at the block, and <code>chain</code> checks them offline. Both headers must hash to the block's hash and its parent hash; the pre-state must match the parent's state root and the state fevm reaches after every transaction must match the block's.</p>
+<pre><code>$ fevm-replay fetch-block 0x192f3cb blocks/0x192f3cb
+$ fevm-replay fetch-proofs blocks/0x192f3cb
+$ fevm-replay chain blocks/0x192f3cb
+headers: block 0x19f04411…696b and its parent hash to themselves
+pre-state: 206 accounts and 673 slots proven against the parent's state root, 0 differ
+chain blocks/0x192f3cb: 122/122 transactions MATCH (100%)
+end state: 207 accounts and 673 slots proven against the block's state root, 0 differ</code></pre>
+    <p>A clean run rests on one 32-byte block hash. Change one balance in the saved traces by one wei, or one byte of a proof, and the run fails. The verifier is about 300 lines of Fe on std's RLP and core's Keccak, and like the replay it cannot reach the network.</p>
+  </section>
+
   <section id="shadow" class="wrap">
     <h2>Is a Fe port a drop-in replacement? Ask mainnet.</h2>
     <div class="story">
@@ -140,6 +153,20 @@
     shadow_code: MemSpan,
 ) -&gt; Mismatches
 uses (text: mut MemBuffer)</code></pre>
+    </div>
+    <div class="split">
+      <div>
+        <h2>The compiler checks the blob fee against mainnet</h2>
+        <p>EIP-4844's blob base fee is a <code>const fn</code> typed with std's units: a <code>Timestamp</code> picks the fork's update fraction and the fee comes out in <code>Wei</code>. <code>static_assert</code>s run the formula at compile time on a real block, so a wrong constant does not build.</p>
+        <p>Percentages are <code>core::fixed</code> numbers, <code>UFixed&lt;1&gt;</code> and <code>Fixed&lt;1&gt;</code>: the scale is in the type.</p>
+      </div>
+<pre><code>pub const fn blob_base_fee(excess: u256, fraction: u256) -&gt; Wei
+
+// Block 26,393,604 priced its blobs at 0xb58b03 wei.
+static_assert(
+    blob_base_fee(excess: 0xb58bccf, fraction: BPO2_UPDATE_FRACTION)
+        .as_wei() == 0xb58b03
+)</code></pre>
     </div>
   </section>
 </main>

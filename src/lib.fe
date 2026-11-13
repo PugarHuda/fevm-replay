@@ -850,15 +850,15 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         let at = if end == 0 { number - 1 } else { number }
         var k: usize = 0
         while k < keys.account_count() {
-            let count = if keys.account_count() - k < 3 {
+            let count = if keys.account_count() - k < 12 {
                 keys.account_count() - k
             } else {
-                3
+                12
             }
             let answers = if args.count() == 4 {
-                fetch::proofs(args.get(3), keys, first: k, count, number: at)
+                fetch::proofs(args.get(3), keys, first: k, count, number: at, dir)
             } else {
-                fetch::proofs(DEFAULT_RPC, keys, first: k, count, number: at)
+                fetch::proofs(DEFAULT_RPC, keys, first: k, count, number: at, dir)
             }
             let Option::Some(answers) = answers else {
                 println!(
@@ -872,24 +872,20 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                 )
                 return 1
             }
-            for i in 0 .. count {
-                // In the order asked, whatever order they came in.
-                var found = false
-                for ref answer in answers.items() {
-                    if !found && field(answer, "id") == i as u256 && answer.has("result") {
-                        if k + i > 0 {
-                            ",".fmt(mut text)
-                        }
-                        answer["result"].write(mut text)
-                        found = true
-                    }
-                }
-                if !found {
-                    println!("ERROR no proof for account ", k + i, " at block ", at)
-                    return 1
-                }
-            }
+            if k > 0 { ",".fmt(mut text) }
+            answers.span().fmt(mut text)
             k += count
+            if k % 120 == 0 || k == keys.account_count() {
+                println!(
+                    "  block ",
+                    at,
+                    ": ",
+                    k,
+                    " of ",
+                    keys.account_count(),
+                    " accounts",
+                )
+            }
         }
     }
     "]}".fmt(mut text)

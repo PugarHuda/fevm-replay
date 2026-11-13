@@ -711,8 +711,11 @@ buffer for its report, so like the replay it cannot reach the network. Its
 tests run on a real proof and header from block 26,407,882.
 
 Nodes keep state for proofs for about 128 blocks (25 minutes), so
-`fetch-proofs` must follow `fetch-block` closely; it asks three accounts a
-request, as free endpoints allow. The end-of-block request contracts
+`fetch-proofs` must follow `fetch-block` closely. It asks three accounts a
+request and four requests at once, which the free endpoint allows for a
+block of a few hundred accounts; it then starts answering 429 and holding
+answers back, so a busy block (over a thousand accounts) needs an endpoint
+of your own, passed as the last argument. The end-of-block request contracts
 (EIP-7002, EIP-7251) are not compared, since their system calls are not
 run.
 
