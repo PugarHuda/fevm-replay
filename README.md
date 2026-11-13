@@ -335,7 +335,25 @@ The report pointed at it:
 The port now writes its reasons straight to memory as constant words and
 reverts with them, as solc does. The first run over 200 blocks (42,800
 runs) found 32 differences; this one is fixed and that block now has none.
-Re-running all 200 blocks after the fix is still to do.
+
+The rest were the other way round: the deployed pair, costlier, ran out of
+gas where the port got through. A change can leave a swap with just enough
+gas for the port, or a bot can call with a fixed amount. Such a run is
+counted apart when, in flight, both agree given twice the gas, or when the
+runs part at a call, same calldata, that ran out of gas on the deployed code
+alone. The port running out stays a difference, as above.
+
+| All 200 blocks, 50 mutations per transaction (seed 7) | Runs |
+| --- | ---: |
+| Mutated | 42,800 |
+| Identical | 41,411 |
+| Differ where other code reads the gas left or code hashes | 1,276 |
+| Differ after an address-shaped word got upper bits | 79 |
+| Only the deployed code ran out of gas | 34 |
+| **Differ** | **0** |
+
+Of the 20,926 in-flight changes, 19,037 got past the pair's own checks. The
+planted bug still shows 23 differences under the same rules.
 
 ## Fe highlight
 

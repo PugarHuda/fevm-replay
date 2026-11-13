@@ -1217,6 +1217,8 @@ uses (args: Args, fs: std::fs::Fs, out: mut Stdout)
         " code hashes), ",
         found.dirtied,
         " differ after an address-shaped word got upper bits, ",
+        found.cheaper,
+        " where only the deployed code ran out of gas, ",
         found.differ,
         " differ",
     )
