@@ -16,6 +16,7 @@ use ingot::compare::{Mismatches, apply_diff, compare}
 use ingot::load::{add_extras, field, load_block, load_tx, load_world}
 use core::MemVec
 use ingot::watch::{GasWatch, SelectorGas, add_profile, explain_gas, first_parting}
+use ingot::fuzz::{same_logs, same_state_except, same_status}
 
 /// Replays transaction `tx` in fevm against its `prestate`, in the block
 /// `block` whose parent's hash is `parent_hash`, and compares the outcome
@@ -140,6 +141,23 @@ uses (text: mut MemBuffer)
     )
     found.gas_observed = watch.observed
     found.gas_reader = reader
+    found.shadow_ran = watch.shadow_ran
+    // Code read code hashes: find the accounts whose hash it checked by
+    // running the port at one target at a time (see `code_targets`).
+    if shadowed && watch.read_code && found.total() > 0 {
+        let (first, count) = code_targets(
+            block,
+            parent_hash,
+            extras,
+            tx,
+            prestate,
+            targets,
+            shadow_code,
+        )
+        found.code_target = first
+        found.code_targets = count
+        found.shadow_targets = targets.len().downcast_unchecked()
+    }
     found.code_observed = watch.read_code
     found.read_blockhash = watch.read_blockhash
     // A behavior difference: the same transaction on the deployed code,
@@ -338,6 +356,8 @@ fn write_calls(_ run: GasWatch) uses (text: mut MemBuffer) {
         core::text::hex(call.context, 20).fmt(mut text)
         "\",\"to\":\"0x".fmt(mut text)
         core::text::hex(call.to, 20).fmt(mut text)
+        "\",\"value\":\"".fmt(mut text)
+        call.value.fmt(mut text)
         "\",\"gas\":".fmt(mut text)
         call.gas.fmt(mut text)
         ",\"used\":".fmt(mut text)
@@ -367,6 +387,66 @@ uses (text: mut MemBuffer)
     for i in 0 .. len {
         core::text::hex(bytes[at + i] as u256, 1).fmt(mut text)
     }
+}
+
+// Which targets' code hashes the transaction checks: each target in turn
+// runs `shadow_code` alone, the rest the deployed code. Returns the first
+// target whose port alone changes the transaction (status, logs or state)
+// and how many do; a target whose port alone leaves it as deployed is shown
+// to behave identically there.
+fn code_targets(
+    _ block: BlockEnv,
+    parent_hash: u256,
+    _ extras: Value,
+    _ tx: Value,
+    _ prestate: Value,
+    _ targets: MemVec<u256>,
+    _ shadow_code: MemSpan,
+) -> (u256, u64) {
+    var none = ()
+    var buffers = Buffers::new()
+    let deployed = transact(
+        build_world(
+            prestate,
+            block,
+            parent_hash,
+            extras,
+            MemVec::new(),
+            shadow_code,
+        ),
+        load_tx(tx),
+        block,
+        Config::osaka(),
+        mut buffers,
+        mut none,
+    )
+    var first: u256 = 0
+    var count: u64 = 0
+    for i in 0 .. targets.len() {
+        var alone: MemVec<u256> = MemVec::new()
+        alone.push(targets[i])
+        var tracer = ()
+        var more = Buffers::new()
+        let ran = transact(
+            build_world(prestate, block, parent_hash, extras, alone, shadow_code),
+            load_tx(tx),
+            block,
+            Config::osaka(),
+            mut more,
+            mut tracer,
+        )
+        let same = ran.receipt.invalid == deployed.receipt.invalid
+            && same_status(ran.receipt.status, deployed.receipt.status)
+            && same_logs(ran.receipt.logs, deployed.receipt.logs)
+            && same_state_except(ran.state, deployed.state, targets)
+        if !same {
+            if count == 0 {
+                first = targets[i]
+            }
+            count += 1
+        }
+    }
+    (first, count)
 }
 
 // The accounts of `world` to shadow: `address` if present, and every account

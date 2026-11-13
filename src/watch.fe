@@ -51,6 +51,7 @@ pub struct CallRecord {
     /// `GasWatch::keep`, where its calldata and output (their first
     /// `KEPT` bytes) sit in `GasWatch::bytes`.
     pub kind: u8,
+    pub value: u256,
     pub gas: u64,
     pub used: u64,
     pub input_at: usize,
@@ -81,7 +82,7 @@ fn fingerprint(_ bytes: MemSpan) -> u64 {
 }
 
 /// Where two runs part: the first call, in the order calls ended, with a
-/// different target, calldata, status or output. Calls that enclose it end
+/// different target, value, calldata, status or output. Calls that enclose it end
 /// later, so this is the innermost cause. The result indexes `a.ended` and
 /// `b.ended`; None if the runs agree as far as both go.
 pub fn first_parting(_ a: GasWatch, _ b: GasWatch) -> Option<usize> {
@@ -93,7 +94,11 @@ pub fn first_parting(_ a: GasWatch, _ b: GasWatch) -> Option<usize> {
     for k in 0 .. shorter {
         let x = a.calls[a.ended[k]]
         let y = b.calls[b.ended[k]]
-        if x.to != y.to || x.input != y.input || x.status != y.status || x.output != y.output {
+        if x.to != y.to
+            || x.value != y.value
+            || x.input != y.input
+            || x.status != y.status
+            || x.output != y.output {
             return Option::Some(k)
         }
     }
@@ -305,7 +310,8 @@ pub struct GasWatch {
     shadows: MemVec<u256>,
     // The open call frames, innermost last.
     frames: MemVec<Frame>,
-    shadow_ran: bool,
+    /// Whether a call into a shadow account ran.
+    pub shadow_ran: bool,
     pub observed: bool,
     /// Whether any code ran BLOCKHASH. A replay holds the parent's hash
     /// only, so a transaction that differs after reading another one most
@@ -438,6 +444,7 @@ impl Tracer for GasWatch {
                         call.to
                     },
                     kind: call.kind,
+                    value: call.value,
                     gas: call.gas,
                     used: 0,
                     input_at,

@@ -527,13 +527,27 @@ uses (fs: std::fs::Fs, out: mut Stdout)
             }
         } else if found.shadowed && found.code_observed {
             totals.code_sensitive += 1
-            println!(
+            print!(
                 "DIFF  tx ",
                 index,
                 " ",
                 txs[index]["hash"].text(),
-                " (reads code hashes, and the shadow code is other code)",
+                " (reads code hashes, and the shadow code is other code",
             )
+            if !found.shadow_ran {
+                print!("; it stops before calling the port")
+            }
+            if found.code_target != 0 {
+                print!(
+                    "; the port alone changes it at ",
+                    found.code_targets,
+                    " of ",
+                    found.shadow_targets,
+                    " pairs, first 0x",
+                    core::text::hex(found.code_target, 20),
+                )
+            }
+            println!(")")
         } else if found.read_blockhash {
             totals.old_hashes += 1
             println!(
