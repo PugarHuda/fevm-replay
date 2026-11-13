@@ -76,7 +76,8 @@
 
   <section class="why">
     <h2>What it shows</h2>
-    <p><strong>Fe moves fewer values around the stack.</strong> The largest saving in both functions is stack shuffling: fewer <code>POP</code>, <code>DUP</code> and <code>SWAP</code>. solc 0.4 and 0.5 keep many temporaries on the stack; Fe's Sonatina backend allocates them more tightly.</p>
+    <p><strong>Six functions of four ports, one pattern.</strong> Over all six, Fe spends 44% less gas on stack shuffling, 66% less on arithmetic and logic and 28% less on control flow, and 25% <em>more</em> on memory. Memory is the one group where Fe costs more, and it does in every function, from <code>withdraw</code> (−10.8% overall) to the proxy (+1.9%).</p>
+    <p><strong>Fe moves fewer values around the stack.</strong> The largest saving in every function but the proxy is stack shuffling: fewer <code>POP</code>, <code>DUP</code> and <code>SWAP</code>. solc 0.4 and 0.5 keep many temporaries on the stack; Fe's Sonatina backend allocates them more tightly.</p>
     <p><strong>Arithmetic is leaner</strong>: no <code>EXP</code> to compute <code>2**112</code>, fewer masks with <code>AND</code>. In <code>swap</code> the port also reads storage less often (<code>SLOAD</code>), keeping the packed reserves it has already read, though it takes more jumps between its smaller functions.</p>
     <p><strong>Fe spends more on memory</strong>: it copies calldata and return data into its own buffers (<code>CALLDATACOPY</code>, <code>RETURNDATACOPY</code>, <code>MSTORE</code>), where solc reads them in place. On a proxy, which does little else, that is the whole difference: the Fe proxy of USDC costs 40 to 60 gas more per call.</p>
     <p class="note">Measured with <code>fevm_replay opgas</code> over blocks 26,400,000 to 26,400,199. An opcode's cost is the gas left before it minus the gas left before the next opcode in the same call.</p>

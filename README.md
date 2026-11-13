@@ -561,6 +561,30 @@ it copies calldata and return data into buffers where solc reads them in
 place, which is all a proxy does, so the Fe proxy is the one port that costs
 more.
 
+The same measurement on all four ports, six functions (blocks 26,400,000 to
+26,400,199):
+
+| Function | Calls measured over | Fe vs solc |
+| --- | ---: | ---: |
+| WETH9 `withdraw` | 3,950 txs | −10.8% |
+| USDT `transfer` | 16,217 txs | −3.8% |
+| WETH9 `transfer` | 3,950 txs | −3.8% |
+| Uniswap V2 `swap` | 856 txs | −2.6% |
+| WETH9 `deposit` | 3,950 txs | −0.8% |
+| USDC proxy, `transfer` forwarded | 12,850 txs | +1.9% |
+
+| Opcode group, all six | Fe minus solc |
+| --- | ---: |
+| Stack shuffling | −44.0% |
+| Arithmetic and logic | −65.7% |
+| Control flow | −28.4% |
+| Storage | −0.2% |
+| **Memory** | **+25.3%** |
+
+Memory is the one group where Fe spends more, and it does in every one of
+the six functions. That is a concrete target for the compiler: the copies of
+calldata and return data into `MemBuffer`s that solc avoids.
+
 ### Who reads the gas left
 
 [The gas map](https://fevm-replay.vercel.app/gas.html) lists every contract
