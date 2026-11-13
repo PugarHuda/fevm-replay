@@ -22,6 +22,8 @@ use fevm::trace::{CallEnd, CallStart, Tracer}
 use fevm::status::{ERR_OUT_OF_GAS, OK}
 use ingot::fuzz::{same_bytes, same_logs, same_reason, same_state_except, same_status}
 use ingot::load::{field, hex_bytes, load_tx_with, load_world}
+use core::text::parse_hex_uint
+use std::process::Spawn
 use ingot::replay::{build_world, shadow_targets}
 use ingot::watch::{
     GasWatch,
@@ -47,6 +49,246 @@ pub fn add_reader(_ readers: mut MemVec<Reader>, _ address: u256, runs: u64) {
         }
     }
     readers.push(Reader { address, runs })
+}
+
+/// State a mutation reaches that its transaction never touched, fetched
+/// from a node (see `fetch_missing`): accounts with their balance, nonce
+/// and code (in `codes`, at `code_at` for `code_len` bytes), and slots.
+pub struct Extra {
+    pub accounts: MemVec<u256>,
+    pub balances: MemVec<u256>,
+    pub nonces: MemVec<u256>,
+    pub code_at: MemVec<usize>,
+    pub code_len: MemVec<usize>,
+    pub codes: MemBuffer,
+    pub slot_accounts: MemVec<u256>,
+    pub slots: MemVec<u256>,
+    pub values: MemVec<u256>,
+}
+
+impl Extra {
+    pub fn new() -> Self {
+        Extra {
+            accounts: MemVec::new(),
+            balances: MemVec::new(),
+            nonces: MemVec::new(),
+            code_at: MemVec::new(),
+            code_len: MemVec::new(),
+            codes: MemBuffer::empty(),
+            slot_accounts: MemVec::new(),
+            slots: MemVec::new(),
+            values: MemVec::new(),
+        }
+    }
+
+    pub fn size(self) -> u64 {
+        (self.accounts.len() + self.slots.len()).downcast_unchecked()
+    }
+}
+
+fn apply_extra(_ world: mut WorldState, _ extra: Extra) {
+    for i in 0 .. extra.accounts.len() {
+        world.set_balance(extra.accounts[i], extra.balances[i])
+        world.set_nonce(extra.accounts[i], extra.nonces[i])
+        var code = MemBuffer::empty()
+        for j in 0 .. extra.code_len[i] {
+            code.push(extra.codes.span()[extra.code_at[i] + j])
+        }
+        world.set_code(address: extra.accounts[i], code: code.span())
+    }
+    for i in 0 .. extra.slots.len() {
+        world.storage_store(extra.slot_accounts[i], extra.slots[i], extra.values[i])
+    }
+}
+
+/// What a mutated transaction would touch beyond its own prestate, from the
+/// node at `url`: `eth_createAccessList` names the accounts and slots, their
+/// values come from the end of the parent block, and the state diffs of the
+/// block's earlier transactions (`diffs`, before `index`) bring them to the
+/// moment the transaction ran.
+pub fn fetch_missing(
+    _ url: MemBuffer,
+    _ tx: Value,
+    _ data: MemSpan,
+    _ prestate: Value,
+    _ diffs: Value,
+    index: u64,
+    parent: u256,
+) -> Extra
+uses (proc: mut Spawn)
+{
+    var extra = Extra::new()
+    let Option::Some(response) = ingot::fetch::access_list(
+        url,
+        from: field(tx, "from"),
+        to: field(tx, "to"),
+        data,
+        value: field(tx, "value"),
+        gas: field(tx, "gas"),
+        number: parent,
+    ) else {
+        return extra
+    }
+    if !response["result"].has("accessList") {
+        return extra
+    }
+    for ref entry in response["result"]["accessList"].items() {
+        let address = field(entry, "address")
+        if !lists_account(prestate, address) {
+            var params = MemBuffer::empty()
+            "[\"0x".fmt(mut params)
+            core::text::hex(address, 20).fmt(mut params)
+            "\",\"".fmt(mut params)
+            ingot::fetch::quantity(parent).fmt(mut params)
+            "\"]".fmt(mut params)
+            let balance = ingot::fetch::word_at(url, "eth_getBalance", params).unwrap_or(default: 0)
+            let nonce = ingot::fetch::word_at(url, "eth_getTransactionCount", params)
+                .unwrap_or(default: 0)
+            let code = ingot::fetch::code_at(url, address, number: parent)
+                .unwrap_or(default: MemBuffer::empty())
+            let (b, n, c) = account_after(diffs, index, address, balance, nonce, code)
+            extra.accounts.push(address)
+            extra.balances.push(b)
+            extra.nonces.push(n)
+            extra.code_at.push(extra.codes.len())
+            extra.code_len.push(c.len())
+            for i in 0 .. c.len() {
+                extra.codes.push(c.span()[i])
+            }
+        }
+        if entry.has("storageKeys") {
+            for ref key in entry["storageKeys"].items() {
+                let slot = parse_hex_uint(key.text()).unwrap_or(default: 0)
+                if !lists_slot(prestate, address, slot) {
+                    var params = MemBuffer::empty()
+                    "[\"0x".fmt(mut params)
+                    core::text::hex(address, 20).fmt(mut params)
+                    "\",\"0x".fmt(mut params)
+                    core::text::hex(slot, 32).fmt(mut params)
+                    "\",\"".fmt(mut params)
+                    ingot::fetch::quantity(parent).fmt(mut params)
+                    "\"]".fmt(mut params)
+                    let value = ingot::fetch::word_at(url, "eth_getStorageAt", params)
+                        .unwrap_or(default: 0)
+                    extra.slot_accounts.push(address)
+                    extra.slots.push(slot)
+                    extra.values.push(slot_after(diffs, index, address, slot, value))
+                }
+            }
+        }
+    }
+    extra
+}
+
+fn lists_account(_ prestate: Value, _ address: u256) -> bool {
+    for ref member in prestate.members() {
+        if parse_hex_uint(member.key.span()).unwrap_or(default: 0) == address {
+            return true
+        }
+    }
+    false
+}
+
+fn lists_slot(_ prestate: Value, _ address: u256, _ slot: u256) -> bool {
+    for ref member in prestate.members() {
+        if parse_hex_uint(member.key.span()).unwrap_or(default: 0) == address
+            && member.value.has("storage") {
+            for ref s in member.value["storage"].members() {
+                if parse_hex_uint(s.key.span()).unwrap_or(default: 0) == slot {
+                    return true
+                }
+            }
+        }
+    }
+    false
+}
+
+// An account's balance, nonce and code after the block's transactions
+// before `index`, from its values at the parent block.
+fn account_after(
+    _ diffs: Value,
+    index: u64,
+    _ address: u256,
+    _ balance: u256,
+    _ nonce: u256,
+    _ code: MemBuffer,
+) -> (u256, u256, MemBuffer) {
+    var b = balance
+    var n = nonce
+    var c = MemBuffer::from_span(code.span())
+    var j: u64 = 0
+    while j < index {
+        let at: usize = j.downcast_unchecked()
+        let diff = ref diffs["result"][at]["result"]
+        var in_pre = false
+        var in_post = false
+        for ref member in diff["pre"].members() {
+            if parse_hex_uint(member.key.span()).unwrap_or(default: 0) == address {
+                in_pre = true
+            }
+        }
+        for ref member in diff["post"].members() {
+            if parse_hex_uint(member.key.span()).unwrap_or(default: 0) == address {
+                in_post = true
+                if member.value.has("balance") {
+                    b = field(member.value, "balance")
+                }
+                if member.value.has("nonce") {
+                    n = field(member.value, "nonce")
+                }
+                if member.value.has("code") {
+                    c = hex_bytes(member.value["code"].text())
+                }
+            }
+        }
+        if in_pre && !in_post {
+            b = 0
+            n = 0
+            c = MemBuffer::empty()
+        }
+        j += 1
+    }
+    (b, n, c)
+}
+
+// The value a prestate-shaped `part` lists for `slot` of `address`.
+fn slot_in(_ part: Value, _ address: u256, _ slot: u256) -> Option<u256> {
+    for ref member in part.members() {
+        if parse_hex_uint(member.key.span()).unwrap_or(default: 0) == address
+            && member.value.has("storage") {
+            for ref s in member.value["storage"].members() {
+                if parse_hex_uint(s.key.span()).unwrap_or(default: 0) == slot {
+                    return Option::Some(ingot::load::hex_word(s.value))
+                }
+            }
+        }
+    }
+    Option::None
+}
+
+// A slot's value after the block's transactions before `index`.
+fn slot_after(_ diffs: Value, index: u64, _ address: u256, _ slot: u256, _ value: u256) -> u256 {
+    var v = value
+    var j: u64 = 0
+    while j < index {
+        let at: usize = j.downcast_unchecked()
+        let diff = ref diffs["result"][at]["result"]
+        // A slot in `pre` alone was cleared; `post` holds its new value.
+        match slot_in(diff["pre"], address, slot) {
+            Option::Some(_) => {
+                v = 0
+            },
+            Option::None => {},
+        }
+        match slot_in(diff["post"], address, slot) {
+            Option::Some(x) => {
+                v = x
+            },
+            Option::None => {},
+        }
+        j += 1
+    }
+    v
 }
 
 /// What mutating a block's transactions found.
@@ -85,6 +327,11 @@ pub struct Mutations {
     /// runs part at a call, same calldata, that ran out of gas only on the
     /// deployed code (its caller gave it a fixed amount).
     pub cheaper: u64,
+    /// With a node to ask (see `fetch_missing`): the mutated runs that
+    /// reached state their transaction never touched, and how many accounts
+    /// and slots were fetched for them.
+    pub fetched_runs: u64,
+    pub fetched_keys: u64,
     /// Runs that differ after a word shaped like an address (upper twelve
     /// bytes zero) got upper bits: Fe's decoder rejects what solc cleaned.
     pub dirtied: u64,
@@ -138,6 +385,8 @@ impl Mutations {
             flight_succeeded: 0,
             differ: 0,
             cheaper: 0,
+            fetched_runs: 0,
+            fetched_keys: 0,
             dirtied: 0,
             shortened: 0,
             tx_runs: 0,
@@ -233,8 +482,12 @@ pub fn mutate_tx(
     port: MemSpan,
     count: u64,
     seed: u64,
+    fetch: MemBuffer,
+    _ diffs: Value,
     _ found: mut Mutations,
-) {
+)
+uses (proc: mut Spawn)
+{
     // Blob transactions need a blob fee; they never reach a pair anyway.
     if field(tx, "type") == 3 {
         return
@@ -308,6 +561,24 @@ pub fn mutate_tx(
         } else {
             MemBuffer::from_span(data.span())
         }
+        // A changed calldata may reach state the transaction never touched;
+        // with a node to ask, fetch it (see `fetch_missing`).
+        var extra = Extra::new()
+        if !direct && run > 0 && fetch.len() > 0 {
+            extra = fetch_missing(
+                fetch,
+                tx,
+                input.span(),
+                prestate,
+                diffs,
+                index,
+                parent: block.number - 1,
+            )
+            if extra.size() > 0 {
+                found.fetched_runs += 1
+                found.fetched_keys += extra.size()
+            }
+        }
         let what = compare_run(
             free,
             parent_hash,
@@ -323,6 +594,7 @@ pub fn mutate_tx(
             patch,
             input.span(),
             index,
+            extra,
             more_gas: false,
             mut found,
         )
@@ -370,6 +642,7 @@ fn compare_run(
     _ patch: Patch,
     _ data: MemSpan,
     index: u64,
+    _ extra: Extra,
     more_gas: bool,
     _ found: mut Mutations,
 ) -> u8 {
@@ -394,6 +667,8 @@ fn compare_run(
         copy_list(targets),
         port,
     )
+    apply_extra(mut world_a, extra)
+    apply_extra(mut world_b, extra)
     if direct {
         let wrapper = proxy(patch)
         world_a.set_code(address: to, code: wrapper.span())
@@ -469,6 +744,7 @@ fn compare_run(
             patch,
             data,
             index,
+            extra,
             more_gas: true,
             mut found,
         )

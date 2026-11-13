@@ -35,6 +35,14 @@ const FORWARDER_ACCEPTS: u256 = 0x2000
 // deprecated token forwards to: one answering every call with a word, one
 // reverting every call.
 pub const USDT: u256 = 0xdac17f958d2ee523a2206206994597c13d831ec7
+// The proxy scenario: USDC's proxy at its mainnet address, two
+// implementations (WETH9's code) to upgrade between, and a plain account
+// that is no contract.
+pub const PROXY: u256 = 0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48
+const IMPL_A: u256 = 0x3020
+const IMPL_B: u256 = 0x3021
+const IMPLEMENTATION_SLOT: u256 = 0x7050c9e0f4ca769c69bd3a8ef740bc37934f8e2c036e5a723fd8ee048ed3f8c3
+const ADMIN_SLOT: u256 = 0x10d6a54a4754c8869d6886b5f5d7fbfa5b4522237ea5c60d11bc4e7a1ff9390b
 const SUCCESSOR_ANSWERS: u256 = 0x3010
 const SUCCESSOR_REVERTS: u256 = 0x3011
 const FORWARDER_REJECTS: u256 = 0x2001
@@ -297,6 +305,121 @@ struct Call { to: u256, value: u256, category: u8, selector: u32 }
 impl Copy for Call {}
 
 // A call to WETH9's interface, made directly or through a forwarder.
+/// Whether `token` selects the proxy scenario: the byte `P`, then the code
+/// of the implementation behind the proxy.
+pub fn is_proxy(_ token: MemSpan) -> bool {
+    token.len() > 1 && token[0] == 0x50
+}
+
+// USDC's proxy as deployed, administered by the first account, in front of
+// WETH9's code; a second copy of that code to upgrade to.
+fn proxy_genesis(_ code: MemSpan, _ token: MemSpan) -> WorldState {
+    var world = WorldState::empty()
+    world.set_code(address: PROXY, code: code)
+    var implementation = MemBuffer::empty()
+    for i in 1 .. token.len() {
+        implementation.push(token[i])
+    }
+    world.set_code(address: IMPL_A, code: implementation.span())
+    world.set_code(address: IMPL_B, code: implementation.span())
+    world.storage_store(PROXY, IMPLEMENTATION_SLOT, IMPL_A)
+    world.storage_store(PROXY, ADMIN_SLOT, eoa(0))
+    for i in 0 .. 3 {
+        world.set_balance(eoa(i.downcast_unchecked()), 1000 * ETHER)
+    }
+    world
+}
+
+fn proxy_actor(_ rng: mut Rng) -> u256 {
+    match rng.below(6) {
+        0 => eoa(0),
+        1 => eoa(1),
+        2 => eoa(2),
+        3 => IMPL_A,
+        4 => IMPL_B,
+        _ => 0,
+    }
+}
+
+// A call on the proxy: the admin's functions from anyone (the admin's run;
+// anyone else's are forwarded), and the token's through it.
+fn proxy_call(_ rng: mut Rng, _ data: mut MemBuffer) -> Call {
+    let dirty = rng.below(10) == 0
+    let short = !dirty && rng.below(12) == 0
+    let category = if dirty {
+        DIRTY_ADDRESS
+    } else if short { SHORT_CALLDATA } else { WELL_FORMED }
+    var value: u256 = 0
+    let op = rng.below(16)
+    if op < 6 {
+        // The token behind it.
+        let call = random_call(mut rng, mut data)
+        return Call {
+            to: PROXY,
+            value: call.value,
+            category: call.category,
+            selector: call.selector,
+        }
+    }
+    let selector: u32 = match op {
+        6 => 0xf851a440,
+        7 => 0x5c60da1b,
+        8 => 0x3659cfe6,
+        9 => 0x3659cfe6,
+        10 => 0x4f1ef286,
+        11 => 0x4f1ef286,
+        12 => 0x8f283970,
+        13 => 0x8f283970,
+        _ => 0,
+    }
+    if selector != 0 {
+        push_selector(mut data, selector)
+    }
+    if selector == 0x3659cfe6 || selector == 0x8f283970 {
+        push_word(
+            mut data,
+            address_word(proxy_actor(mut rng), dirty, mut rng),
+        )
+    } else if selector == 0x4f1ef286 {
+        push_word(
+            mut data,
+            address_word(proxy_actor(mut rng), dirty, mut rng),
+        )
+        push_word(mut data, 0x40)
+        // deposit(), balanceOf(an account), nothing, or a selector nobody has
+        let inner: u32 = match rng.below(4) {
+            0 => 0xd0e30db0,
+            1 => 0x70a08231,
+            2 => 0,
+            _ => 0x12345678,
+        }
+        let len: u256 = if inner == 0 {
+            0
+        } else if inner == 0x70a08231 { 36 } else { 4 }
+        push_word(mut data, len)
+        if inner != 0 {
+            var tail = MemBuffer::empty()
+            push_selector(mut tail, inner)
+            if inner == 0x70a08231 {
+                push_word(mut tail, eoa(rng.below(3)))
+            }
+            while tail.len() % 32 != 0 {
+                tail.push(0)
+            }
+            for i in 0 .. tail.len() {
+                data.push(tail.span()[i])
+            }
+        }
+        if rng.below(2) == 0 {
+            value = 1 + rng.below(1000) as u256
+        }
+    }
+    if short {
+        cut_short(mut rng, mut data)
+    }
+    Call { to: PROXY, value, category, selector }
+}
+
 /// Whether `token` selects the USDT scenario: the one byte `U`.
 pub fn is_usdt(_ token: MemSpan) -> bool {
     token.len() == 1 && token[0] == 0x55
@@ -598,6 +721,11 @@ const BOUNDARY: u256 = 1 << 255
 // A swap amount from this up to `BOUNDARY` takes sixteenths of the reserve
 // out: what a flash swap borrows (see `resolve`).
 const SIXTEENTHS: u256 = 1 << 254
+// A transfer into the pair from this up to `SIXTEENTHS` tops the pair's
+// balance up to UINT112_MAX - 1 plus the excess: the edge of the overflow
+// check in `_update`.
+const TOP_UP: u256 = 1 << 253
+const UINT112_MAX: u256 = (1 << 112) - 1
 const FEE_TO: u256 = 0x1003
 
 // Code answering any call with the word `value`.
@@ -702,6 +830,10 @@ fn pair_genesis(_ pair: MemSpan, _ token: MemSpan, fee_on: bool) -> WorldState {
         world = deposit(world, eoa(i.downcast_unchecked()), TOKEN0)
         world = deposit(world, eoa(i.downcast_unchecked()), TOKEN1)
     }
+    // The third account also holds more of each token than a pair's reserve
+    // can (2^113), to reach the overflow check.
+    world.storage_store(TOKEN0, mapping_slot(eoa(2), 3), 1 << 113)
+    world.storage_store(TOKEN1, mapping_slot(eoa(2), 3), 1 << 113)
     // So does the paying callee, before it gets its code.
     world.set_balance(CALLEE_PAYS, 1000 * ETHER)
     world = deposit(world, CALLEE_PAYS, TOKEN0)
@@ -799,7 +931,23 @@ fn pay_back(_ code: mut MemBuffer, _ at: u8, _ token: u256) {
 /// constant product allows for what has been paid in, plus the excess
 /// (0 is exactly at the boundary, 1 is one past it). Run on the deployed
 /// code's world, which agrees with the port's until the runs differ.
-pub fn resolve(_ world: WorldState, _ data: mut MemBuffer) {
+pub fn resolve(_ world: WorldState, _ to: u256, _ data: mut MemBuffer) {
+    // A top-up: transfer(PAIR, TOP_UP + k) on a token.
+    if data.len() >= 68
+        && read_selector(data.span()) == 0xa9059cbb
+        && (to == TOKEN0 || to == TOKEN1) {
+        let word = word_at(data.span(), 36)
+        if word >= TOP_UP && word < SIXTEENTHS {
+            let held = world.storage_load(to, mapping_slot(PAIR, 3))
+            let target = UINT112_MAX - 1 + (word - TOP_UP)
+            set_word(
+                mut data,
+                36,
+                if target > held { target - held } else { 0 },
+            )
+        }
+        return
+    }
     if data.len() < 68 || read_selector(data.span()) != 0x022c0d9f {
         return
     }
@@ -995,10 +1143,18 @@ fn pair_call(_ rng: mut Rng, _ data: mut MemBuffer, step: u64) -> Call {
         push_selector(mut data, selector)
     }
     if op < 4 {
-        // Tokens into the pair, ahead of a mint, swap or skim.
+        // Tokens into the pair, ahead of a mint, swap or skim; now and then
+        // up to the edge of what the reserves can hold (see `resolve`).
         to = if op % 2 == 0 { TOKEN0 } else { TOKEN1 }
         push_word(mut data, address_word(PAIR, dirty, mut rng))
-        push_word(mut data, pair_amount(mut rng))
+        push_word(
+            mut data,
+            if rng.below(8) == 0 {
+                TOP_UP + rng.below(3) as u256
+            } else {
+                pair_amount(mut rng)
+            },
+        )
     } else if op == 6 {
         // Liquidity tokens into the pair, ahead of a burn.
         push_word(mut data, address_word(PAIR, dirty, mut rng))
@@ -1254,6 +1410,7 @@ fn same_state(_ a: WorldState, _ b: WorldState) -> bool {
     tested.push(TARGET)
     tested.push(PAIR)
     tested.push(USDT)
+    tested.push(PROXY)
     same_state_except(a, b, tested)
 }
 
@@ -1307,13 +1464,16 @@ pub fn fuzz(
     var run: u64 = 0
     while run < runs {
         var rng = Rng { state: (seed + run).wrapping_mul(0x9e3779b97f4a7c15) | 1 }
-        let pair = token.len() > 1
+        let proxied = is_proxy(token)
+        let pair = token.len() > 1 && !proxied
         let usdt = is_usdt(token)
         let fee_on = pair && rng.below(2) == 0
         var a = if pair {
             pair_genesis(deployed, token, fee_on)
         } else if usdt {
             usdt_genesis(deployed)
+        } else if proxied {
+            proxy_genesis(deployed, token)
         } else {
             genesis(deployed)
         }
@@ -1321,14 +1481,22 @@ pub fn fuzz(
             pair_genesis(port, token, fee_on)
         } else if usdt {
             usdt_genesis(port)
+        } else if proxied {
+            proxy_genesis(port, token)
         } else {
             genesis(port)
         }
         // The port's runs, watched for the code they cover.
         var watch = GasWatch::new(shadows: MemVec::new())
-        watch.cover.push(if pair {
+        watch
+            .cover
+            .push(
+                if pair {
                     PAIR
-                } else if usdt { USDT } else { TARGET })
+                } else if usdt {
+                    USDT
+                } else if proxied { PROXY } else { TARGET },
+            )
         var step: u64 = 0
         while step < steps {
             step += 1
@@ -1338,6 +1506,8 @@ pub fn fuzz(
             } else {
                 if usdt {
                     usdt_call(mut rng, mut data)
+                } else if proxied {
+                    proxy_call(mut rng, mut data)
                 } else {
                     weth_call(mut rng, mut data)
                 }
@@ -1348,7 +1518,7 @@ pub fn fuzz(
             let p0_before = b.storage_load(PAIR, 9)
             let p1_before = b.storage_load(PAIR, 10)
             if pair {
-                resolve(a, mut data)
+                resolve(a, to, mut data)
             }
             let tx_a = request(a, sender, to, call, data.span())
             let tx_b = request(b, sender, to, call, data.span())
@@ -1530,7 +1700,8 @@ impl Copy for Sent {}
 // cut down: each call but the last is dropped if the run still differs
 // without it, until no more can go.
 fn shrink(_ deployed: MemSpan, _ port: MemSpan, _ token: MemSpan, _ found: mut Findings) {
-    let pair = token.len() > 1
+    let proxied = is_proxy(token)
+    let pair = token.len() > 1 && !proxied
     let usdt = is_usdt(token)
     var rng = Rng { state: found.first_seed.wrapping_mul(0x9e3779b97f4a7c15) | 1 }
     let fee_on = pair && rng.below(2) == 0
@@ -1545,6 +1716,8 @@ fn shrink(_ deployed: MemSpan, _ port: MemSpan, _ token: MemSpan, _ found: mut F
         } else {
             if usdt {
                 usdt_call(mut rng, mut data)
+            } else if proxied {
+                proxy_call(mut rng, mut data)
             } else {
                 weth_call(mut rng, mut data)
             }
@@ -1618,12 +1791,15 @@ fn diverges(
     _ inputs: MemSpan,
     _ keep: MemVec<bool>,
 ) -> bool {
-    let pair = token.len() > 1
+    let proxied = is_proxy(token)
+    let pair = token.len() > 1 && !proxied
     let usdt = is_usdt(token)
     var a = if pair {
         pair_genesis(deployed, token, fee_on)
     } else if usdt {
         usdt_genesis(deployed)
+    } else if proxied {
+        proxy_genesis(deployed, token)
     } else {
         genesis(deployed)
     }
@@ -1631,6 +1807,8 @@ fn diverges(
         pair_genesis(port, token, fee_on)
     } else if usdt {
         usdt_genesis(port)
+    } else if proxied {
+        proxy_genesis(port, token)
     } else {
         genesis(port)
     }
@@ -1643,7 +1821,7 @@ fn diverges(
         }
         let call = Call { to: sent.to, value: sent.value, category: WELL_FORMED, selector: 0 }
         if pair {
-            resolve(a, mut data)
+            resolve(a, sent.to, mut data)
         }
         let tx_a = request(a, sender: sent.sender, to: sent.to, call, data.span())
         let tx_b = request(b, sender: sent.sender, to: sent.to, call, data.span())

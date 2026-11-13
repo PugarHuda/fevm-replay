@@ -14,6 +14,44 @@ pub use watch::{SelectorGas, add_profile}
 
 const DEFAULT_RPC: String<21> = "https://eth.drpc.org"
 
+// `proxy:<file>`: the proxy scenario, with the implementation's code read
+// from the file.
+fn starts_with_proxy(_ arg: Arg) -> bool {
+    let bytes = arg.span()
+    let prefix: [u8; 6] = [0x70, 0x72, 0x6f, 0x78, 0x79, 0x3a]
+    if bytes.len() <= 6 {
+        return false
+    }
+    for i in 0 .. 6 {
+        if bytes[i] != prefix[i] {
+            return false
+        }
+    }
+    true
+}
+
+#[cfg(target_family = "unix")]
+fn read_proxy_token(_ arg: Arg) -> Option<MemBuffer>
+uses (fs: std::fs::Fs, out: mut Stdout)
+{
+    var path = MemBuffer::empty()
+    let bytes = arg.span()
+    for i in 6 .. bytes.len() {
+        path.push(bytes[i])
+    }
+    let Result::Ok(hex) = fs.read(path) else {
+        println!("ERROR ", path, ": cannot read")
+        return Option::None
+    }
+    var token = MemBuffer::empty()
+    token.push(0x50)
+    let code = hex_bytes(hex.span())
+    for i in 0 .. code.len() {
+        token.push(code.span()[i])
+    }
+    Option::Some(token)
+}
+
 fn is_word<const N: usize>(_ arg: Arg, _ word: [u8; N]) -> bool {
     let bytes = arg.span()
     if bytes.len() != N {
@@ -89,6 +127,10 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     if is_word(args.get(1), [0x6d, 0x75, 0x74, 0x61, 0x6e, 0x74, 0x73]) {
         return mutants_command()
     }
+    // "opgas"
+    if is_word(args.get(1), [0x6f, 0x70, 0x67, 0x61, 0x73]) {
+        return opgas_command()
+    }
     // "trace"
     if is_word(args.get(1), [0x74, 0x72, 0x61, 0x63, 0x65]) {
         return trace_command()
@@ -104,6 +146,13 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     if is_word(
         args.get(1),
         [0x66, 0x75, 0x7a, 0x7a, 0x2d, 0x70, 0x61, 0x69, 0x72],
+    ) {
+        return fuzz_command(pair: true)
+    }
+    // "fuzz-proxy"
+    if is_word(
+        args.get(1),
+        [0x66, 0x75, 0x7a, 0x7a, 0x2d, 0x70, 0x72, 0x6f, 0x78, 0x79],
     ) {
         return fuzz_command(pair: true)
     }
@@ -1081,7 +1130,12 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     let Option::Some(deployed) = read_shadow(args.get(3)) else {
         return 1
     }
-    let token = if is_word(args.get(6), [0x75, 0x73, 0x64, 0x74]) {
+    let token = if starts_with_proxy(args.get(6)) {
+        let Option::Some(code) = read_proxy_token(args.get(6)) else {
+            return 1
+        }
+        code
+    } else if is_word(args.get(6), [0x75, 0x73, 0x64, 0x74]) {
         // `usdt`: the USDT scenario (see `fuzz::is_usdt`).
         var marker = MemBuffer::empty()
         marker.push(0x55)
@@ -1139,6 +1193,7 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
             mut found,
             mut first_block,
             mut first_hash,
+            fetch: MemBuffer::empty(),
         )
     }
     // Random calls.
@@ -1315,6 +1370,33 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         return 1
     }
     println!("wrote ", args.get(2))
+    // The badge beside the page: the same path with `.svg` for `.html`.
+    var badge_path = MemBuffer::empty()
+    let out_path = args.get(2).span()
+    let html: [u8; 5] = [0x2e, 0x68, 0x74, 0x6d, 0x6c]
+    var keep = out_path.len()
+    if keep > 5 {
+        var ends = true
+        for i in 0 .. 5 {
+            if out_path[keep - 5 + i] != html[i] {
+                ends = false
+            }
+        }
+        if ends { keep -= 5 }
+    }
+    for i in 0 .. keep {
+        badge_path.push(out_path[i])
+    }
+    ".svg".fmt(mut badge_path)
+    var svg = MemBuffer::empty()
+    with (mut svg) {
+        certify::badge(args.get(5), clean)
+    }
+    let Result::Ok(_) = fs.write(badge_path, svg.span()) else {
+        println!("ERROR ", badge_path, ": cannot write")
+        return 1
+    }
+    println!("wrote ", badge_path)
     if clean { 0 } else { 1 }
 }
 
@@ -1535,6 +1617,7 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                     mut found,
                     mut first_block,
                     mut first_hash,
+                    fetch: MemBuffer::empty(),
                 )
             }
             mainnet = found.differ > 0
@@ -1595,7 +1678,12 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     let Option::Some(deployed) = read_shadow(args.get(4)) else {
         return 1
     }
-    let token = if is_word(args.get(5), [0x75, 0x73, 0x64, 0x74]) {
+    let token = if starts_with_proxy(args.get(5)) {
+        let Option::Some(code) = read_proxy_token(args.get(5)) else {
+            return 1
+        }
+        code
+    } else if is_word(args.get(5), [0x75, 0x73, 0x64, 0x74]) {
         // `usdt`: the USDT scenario (see `fuzz::is_usdt`).
         var marker = MemBuffer::empty()
         marker.push(0x55)
@@ -1657,6 +1745,243 @@ fn print_score(_ score: MutantScore) uses (out: mut Stdout) {
             " of the ",
             score.built,
         )
+    }
+}
+
+/// `opgas <address|deployed.hex> <port.bin> <selector> <dir>...`: the gas
+/// the deployed code and the port spend on each opcode in calls to
+/// `selector` (`0x022c0d9f`, say; 0 for every call), over the transactions of
+/// the saved blocks that run the deployed code. Each transaction runs once
+/// with each code, as in shadow replay. Calls the code makes are left out.
+fn opgas_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
+    if args.count() < 6 {
+        println!(
+            "usage: fevm-replay opgas <shadow-address>|<deployed.hex> <port.bin> <selector> <dir>...",
+        )
+        return 2
+    }
+    var like = MemBuffer::empty()
+    let Option::Some(address) = shadow_target(args.get(2), mut like) else {
+        return 1
+    }
+    let Option::Some(port) = read_shadow(args.get(3)) else {
+        return 1
+    }
+    let selector: u32 = core::text::parse_hex_uint(args.get(4).span())
+        .unwrap_or(default: 0)
+        .downcast_truncate()
+    var deployed_gas: core::MemVec<u64> = core::MemVec::new()
+    var port_gas: core::MemVec<u64> = core::MemVec::new()
+    for _ in 0 .. 256 {
+        deployed_gas.push(0)
+        port_gas.push(0)
+    }
+    var runs: u64 = 0
+    for d in 5 .. args.count() {
+        let dir = args.get(d)
+        let Option::Some(chain) = load_response(dir, "chain.json") else {
+            continue
+        }
+        let Option::Some(block) = load_response(dir, "block.json") else {
+            continue
+        }
+        let Option::Some(prestates) = load_response(dir, "prestate.json") else {
+            continue
+        }
+        let header = ref block["result"]
+        let env = load_block(
+            header,
+            chain_id: field(chain, "result"),
+            blobbasefee: fetch::blob_base_fee(
+                excess: field(header, "excessBlobGas"),
+                fraction: fetch::update_fraction(field(header, "timestamp")),
+            ),
+        )
+        let extras = match load_json(dir, "delegates.json") {
+            Option::Some(doc) => doc,
+            Option::None => Value::object(),
+        }
+        let txs = header["transactions"].items()
+        for index in 0 .. txs.len() {
+            let entry = ref prestates["result"][index]
+            if !entry.as_object().is_some() || !entry.has("result") {
+                continue
+            }
+            let prestate = ref entry["result"]
+            let targets = replay::shadow_targets(load_world(prestate), address, like.span())
+            if targets.len() == 0 {
+                continue
+            }
+            runs += 1
+            for side in 0 .. 2 {
+                var watch = watch::GasWatch::new(shadows: targets)
+                watch.cover = replay::copy_targets(targets)
+                watch.op_selector = selector
+                var buffers = fevm::Buffers::new()
+                let world = replay::build_world(
+                    prestate,
+                    env,
+                    field(header, "parentHash"),
+                    extras,
+                    if side == 0 {
+                        core::MemVec::new()
+                    } else {
+                        replay::copy_targets(targets)
+                    },
+                    port.span(),
+                )
+                fevm::transact(
+                    world,
+                    load_tx(txs[index]),
+                    env,
+                    fevm::Config::osaka(),
+                    mut buffers,
+                    mut watch,
+                )
+                for op in 0 .. watch.op_gas.len() {
+                    if side == 0 {
+                        deployed_gas[op] += watch.op_gas[op]
+                    } else {
+                        port_gas[op] += watch.op_gas[op]
+                    }
+                }
+            }
+        }
+    }
+    var deployed_total: u64 = 0
+    var port_total: u64 = 0
+    for op in 0 .. 256 {
+        deployed_total += deployed_gas[op]
+        port_total += port_gas[op]
+    }
+    println!(
+        "gas per opcode in calls to 0x",
+        core::text::hex(selector as u256, 4),
+        " over ",
+        runs,
+        " transactions: deployed ",
+        deployed_total,
+        ", port ",
+        port_total,
+    )
+    println!("opcode deployed port")
+    for op in 0 .. 256 {
+        if deployed_gas[op] != 0 || port_gas[op] != 0 {
+            let code: u8 = op.downcast_truncate()
+            if code >= 0x60 && code <= 0x7f {
+                print!("PUSH", code - 0x5f)
+            } else if code >= 0x80 && code <= 0x8f {
+                print!("DUP", code - 0x7f)
+            } else if code >= 0x90 && code <= 0x9f {
+                print!("SWAP", code - 0x8f)
+            } else if code >= 0xa0 && code <= 0xa4 {
+                print!("LOG", code - 0xa0)
+            } else {
+                print!(op_name(code))
+            }
+            println!(" ", deployed_gas[op], " ", port_gas[op])
+        }
+    }
+    0
+}
+
+// The mnemonic of opcode `op`.
+fn op_name(_ op: u8) -> String<14> {
+    if op >= 0x60 && op <= 0x7f {
+        return "PUSH1-32"
+    }
+    if op >= 0x80 && op <= 0x8f {
+        return "DUP1-16"
+    }
+    if op >= 0x90 && op <= 0x9f {
+        return "SWAP1-16"
+    }
+    if op >= 0xa0 && op <= 0xa4 {
+        return "LOG0-4"
+    }
+    match op {
+        0x00 => "STOP",
+        0x01 => "ADD",
+        0x02 => "MUL",
+        0x03 => "SUB",
+        0x04 => "DIV",
+        0x05 => "SDIV",
+        0x06 => "MOD",
+        0x07 => "SMOD",
+        0x08 => "ADDMOD",
+        0x09 => "MULMOD",
+        0x0a => "EXP",
+        0x0b => "SIGNEXTEND",
+        0x10 => "LT",
+        0x11 => "GT",
+        0x12 => "SLT",
+        0x13 => "SGT",
+        0x14 => "EQ",
+        0x15 => "ISZERO",
+        0x16 => "AND",
+        0x17 => "OR",
+        0x18 => "XOR",
+        0x19 => "NOT",
+        0x1a => "BYTE",
+        0x1b => "SHL",
+        0x1c => "SHR",
+        0x1d => "SAR",
+        0x1e => "CLZ",
+        0x20 => "KECCAK256",
+        0x30 => "ADDRESS",
+        0x31 => "BALANCE",
+        0x32 => "ORIGIN",
+        0x33 => "CALLER",
+        0x34 => "CALLVALUE",
+        0x35 => "CALLDATALOAD",
+        0x36 => "CALLDATASIZE",
+        0x37 => "CALLDATACOPY",
+        0x38 => "CODESIZE",
+        0x39 => "CODECOPY",
+        0x3a => "GASPRICE",
+        0x3b => "EXTCODESIZE",
+        0x3c => "EXTCODECOPY",
+        0x3d => "RETURNDATASIZE",
+        0x3e => "RETURNDATACOPY",
+        0x3f => "EXTCODEHASH",
+        0x40 => "BLOCKHASH",
+        0x41 => "COINBASE",
+        0x42 => "TIMESTAMP",
+        0x43 => "NUMBER",
+        0x44 => "PREVRANDAO",
+        0x45 => "GASLIMIT",
+        0x46 => "CHAINID",
+        0x47 => "SELFBALANCE",
+        0x48 => "BASEFEE",
+        0x49 => "BLOBHASH",
+        0x4a => "BLOBBASEFEE",
+        0x50 => "POP",
+        0x51 => "MLOAD",
+        0x52 => "MSTORE",
+        0x53 => "MSTORE8",
+        0x54 => "SLOAD",
+        0x55 => "SSTORE",
+        0x56 => "JUMP",
+        0x57 => "JUMPI",
+        0x58 => "PC",
+        0x59 => "MSIZE",
+        0x5a => "GAS",
+        0x5b => "JUMPDEST",
+        0x5c => "TLOAD",
+        0x5d => "TSTORE",
+        0x5e => "MCOPY",
+        0x5f => "PUSH0",
+        0xf0 => "CREATE",
+        0xf1 => "CALL",
+        0xf2 => "CALLCODE",
+        0xf3 => "RETURN",
+        0xf4 => "DELEGATECALL",
+        0xf5 => "CREATE2",
+        0xfa => "STATICCALL",
+        0xfd => "REVERT",
+        0xfe => "INVALID",
+        0xff => "SELFDESTRUCT",
+        _ => "OTHER",
     }
 }
 
@@ -1974,7 +2299,17 @@ uses (args: Args, fs: std::fs::Fs, out: mut Stdout)
         let Option::Some(code) = read_shadow(args.get(4)) else {
             return 1
         }
-        token = code
+        // fuzz-proxy: the implementation's code behind the marker `P` (see
+        // `fuzz::is_proxy`).
+        if is_word(
+            args.get(1),
+            [0x66, 0x75, 0x7a, 0x7a, 0x2d, 0x70, 0x72, 0x6f, 0x78, 0x79],
+        ) {
+            token.push(0x50)
+        }
+        for i in 0 .. code.len() {
+            token.push(code.span()[i])
+        }
     } else if is_word(
         args.get(1),
         [0x66, 0x75, 0x7a, 0x7a, 0x2d, 0x75, 0x73, 0x64, 0x74],
@@ -2199,8 +2534,9 @@ fn mutate_dir<D: Display>(
     _ found: mut mutate::Mutations,
     _ first_block: mut MemBuffer,
     _ first_hash: mut MemBuffer,
+    fetch: MemBuffer,
 )
-uses (fs: std::fs::Fs, out: mut Stdout)
+uses (fs: std::fs::Fs, proc: mut std::process::Spawn, out: mut Stdout)
 {
     let Option::Some(chain) = load_response(dir, "chain.json") else {
         return
@@ -2210,6 +2546,15 @@ uses (fs: std::fs::Fs, out: mut Stdout)
     }
     let Option::Some(prestates) = load_response(dir, "prestate.json") else {
         return
+    }
+    // The block's state diffs, to bring fetched state up to each transaction.
+    let diffs = if fetch.len() > 0 {
+        match load_response(dir, "diff.json") {
+            Option::Some(doc) => doc,
+            Option::None => Value::object(),
+        }
+    } else {
+        Value::object()
     }
     let header = ref block["result"]
     var problem = MemBuffer::empty()
@@ -2255,6 +2600,8 @@ uses (fs: std::fs::Fs, out: mut Stdout)
             port,
             count,
             seed,
+            fetch: MemBuffer::from_span(fetch.span()),
+            diffs,
             mut found,
         )
         if before == 0 && found.first_tx != 0 {
@@ -2294,10 +2641,19 @@ fn print_readers(_ readers: MemVec<mutate::Reader>) uses (out: mut Stdout) {
 }
 
 fn fuzz_block_command() -> i32
-uses (args: Args, fs: std::fs::Fs, out: mut Stdout)
+uses (args: Args, fs: std::fs::Fs, proc: mut std::process::Spawn, out: mut Stdout)
 {
-    // Trailing numbers: up to two.
+    // A node to fetch untouched state from, last (see `mutate::fetch_missing`).
     var end = args.count()
+    var fetch_url = MemBuffer::empty()
+    let last = args.get(end - 1).span()
+    if last.len() > 4 && last[0] == 0x68 && last[1] == 0x74 && last[2] == 0x74 && last[3] == 0x70 {
+        for i in 0 .. last.len() {
+            fetch_url.push(last[i])
+        }
+        end -= 1
+    }
+    // Trailing numbers: up to two.
     var numbers: usize = 0
     while numbers < 2 && end > 5 && is_number(args.get(end - 1)) {
         end -= 1
@@ -2338,6 +2694,7 @@ uses (args: Args, fs: std::fs::Fs, out: mut Stdout)
             mut found,
             mut first_block,
             mut first_hash,
+            fetch: MemBuffer::from_span(fetch_url.span()),
         )
     }
     println!(
@@ -2380,6 +2737,15 @@ uses (args: Args, fs: std::fs::Fs, out: mut Stdout)
         " part at or under a call whose code read it",
     )
     print_readers(found.readers)
+    if fetch_url.len() > 0 {
+        println!(
+            "  ",
+            found.fetched_runs,
+            " mutated runs reached state their transaction never touched; ",
+            found.fetched_keys,
+            " accounts and slots fetched for them",
+        )
+    }
     if found.unexplained_tx != 0 {
         println!(
             "  first other: tx ",

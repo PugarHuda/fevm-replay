@@ -1,0 +1,695 @@
+{
+ "swap": {
+  "label": "Uniswap V2 pair swap",
+  "selector": "0x022c0d9f",
+  "transactions": 856,
+  "solidity": 25916414,
+  "fe": 25239050,
+  "groups": {
+   "Arithmetic and logic": {
+    "solidity": 756930,
+    "fe": 567587
+   },
+   "Environment and other": {
+    "solidity": 239254,
+    "fe": 245554
+   },
+   "Memory": {
+    "solidity": 194350,
+    "fe": 287529
+   },
+   "Stack shuffling": {
+    "solidity": 2162321,
+    "fe": 1635705
+   },
+   "Storage": {
+    "solidity": 18028300,
+    "fe": 17810700
+   },
+   "Control flow": {
+    "solidity": 1006707,
+    "fe": 1186139
+   },
+   "Logs": {
+    "solidity": 3528552,
+    "fe": 3505836
+   }
+  },
+  "ops": [
+   {
+    "op": "ADD",
+    "solidity": 113508,
+    "fe": 74616
+   },
+   {
+    "op": "MUL",
+    "solidity": 62205,
+    "fe": 40160
+   },
+   {
+    "op": "SUB",
+    "solidity": 44841,
+    "fe": 27795
+   },
+   {
+    "op": "DIV",
+    "solidity": 59070,
+    "fe": 47910
+   },
+   {
+    "op": "EXP",
+    "solidity": 55920,
+    "fe": 0
+   },
+   {
+    "op": "LT",
+    "solidity": 30603,
+    "fe": 49743
+   },
+   {
+    "op": "GT",
+    "solidity": 41958,
+    "fe": 47166
+   },
+   {
+    "op": "SLT",
+    "solidity": 0,
+    "fe": 2781
+   },
+   {
+    "op": "EQ",
+    "solidity": 33558,
+    "fe": 39864
+   },
+   {
+    "op": "ISZERO",
+    "solidity": 126831,
+    "fe": 87696
+   },
+   {
+    "op": "AND",
+    "solidity": 163341,
+    "fe": 43437
+   },
+   {
+    "op": "OR",
+    "solidity": 16779,
+    "fe": 5556
+   },
+   {
+    "op": "NOT",
+    "solidity": 5472,
+    "fe": 41613
+   },
+   {
+    "op": "SHL",
+    "solidity": 45,
+    "fe": 18591
+   },
+   {
+    "op": "SHR",
+    "solidity": 2799,
+    "fe": 40659
+   },
+   {
+    "op": "ADDRESS",
+    "solidity": 3728,
+    "fe": 3704
+   },
+   {
+    "op": "CALLER",
+    "solidity": 1894,
+    "fe": 1882
+   },
+   {
+    "op": "CALLVALUE",
+    "solidity": 1866,
+    "fe": 1854
+   },
+   {
+    "op": "CALLDATALOAD",
+    "solidity": 16794,
+    "fe": 16686
+   },
+   {
+    "op": "CALLDATASIZE",
+    "solidity": 3732,
+    "fe": 11148
+   },
+   {
+    "op": "CALLDATACOPY",
+    "solidity": 2362,
+    "fe": 34649
+   },
+   {
+    "op": "CODECOPY",
+    "solidity": 12,
+    "fe": 0
+   },
+   {
+    "op": "EXTCODESIZE",
+    "solidity": 192900,
+    "fe": 191700
+   },
+   {
+    "op": "RETURNDATASIZE",
+    "solidity": 10854,
+    "fe": 11142
+   },
+   {
+    "op": "RETURNDATACOPY",
+    "solidity": 5262,
+    "fe": 25547
+   },
+   {
+    "op": "TIMESTAMP",
+    "solidity": 1864,
+    "fe": 1852
+   },
+   {
+    "op": "POP",
+    "solidity": 208508,
+    "fe": 27004
+   },
+   {
+    "op": "MLOAD",
+    "solidity": 77889,
+    "fe": 41640
+   },
+   {
+    "op": "MSTORE",
+    "solidity": 108825,
+    "fe": 184463
+   },
+   {
+    "op": "SLOAD",
+    "solidity": 8019400,
+    "fe": 7866200
+   },
+   {
+    "op": "SSTORE",
+    "solidity": 10008900,
+    "fe": 9944500
+   },
+   {
+    "op": "JUMP",
+    "solidity": 273176,
+    "fe": 383208
+   },
+   {
+    "op": "JUMPI",
+    "solidity": 639940,
+    "fe": 711390
+   },
+   {
+    "op": "GAS",
+    "solidity": 5622,
+    "fe": 5586
+   },
+   {
+    "op": "JUMPDEST",
+    "solidity": 93591,
+    "fe": 91541
+   },
+   {
+    "op": "MCOPY",
+    "solidity": 0,
+    "fe": 1230
+   },
+   {
+    "op": "PUSH0",
+    "solidity": 0,
+    "fe": 55610
+   },
+   {
+    "op": "PUSH1",
+    "solidity": 254961,
+    "fe": 307812
+   },
+   {
+    "op": "PUSH2",
+    "solidity": 302817,
+    "fe": 404466
+   },
+   {
+    "op": "PUSH3",
+    "solidity": 2796,
+    "fe": 2781
+   },
+   {
+    "op": "PUSH4",
+    "solidity": 59793,
+    "fe": 25059
+   },
+   {
+    "op": "PUSH5",
+    "solidity": 5598,
+    "fe": 0
+   },
+   {
+    "op": "PUSH8",
+    "solidity": 0,
+    "fe": 2781
+   },
+   {
+    "op": "PUSH14",
+    "solidity": 42012,
+    "fe": 0
+   },
+   {
+    "op": "PUSH15",
+    "solidity": 10275,
+    "fe": 0
+   },
+   {
+    "op": "PUSH20",
+    "solidity": 22506,
+    "fe": 0
+   },
+   {
+    "op": "PUSH28",
+    "solidity": 19632,
+    "fe": 0
+   },
+   {
+    "op": "PUSH29",
+    "solidity": 8391,
+    "fe": 0
+   },
+   {
+    "op": "PUSH32",
+    "solidity": 27963,
+    "fe": 5559
+   },
+   {
+    "op": "DUP1",
+    "solidity": 188838,
+    "fe": 70080
+   },
+   {
+    "op": "DUP2",
+    "solidity": 163860,
+    "fe": 155778
+   },
+   {
+    "op": "DUP3",
+    "solidity": 173829,
+    "fe": 130566
+   },
+   {
+    "op": "DUP4",
+    "solidity": 75144,
+    "fe": 18999
+   },
+   {
+    "op": "DUP5",
+    "solidity": 55488,
+    "fe": 21324
+   },
+   {
+    "op": "DUP6",
+    "solidity": 16368,
+    "fe": 24039
+   },
+   {
+    "op": "DUP7",
+    "solidity": 19209,
+    "fe": 7077
+   },
+   {
+    "op": "DUP8",
+    "solidity": 13572,
+    "fe": 9279
+   },
+   {
+    "op": "DUP9",
+    "solidity": 11229,
+    "fe": 8379
+   },
+   {
+    "op": "DUP10",
+    "solidity": 16779,
+    "fe": 0
+   },
+   {
+    "op": "DUP11",
+    "solidity": 8388,
+    "fe": 0
+   },
+   {
+    "op": "DUP12",
+    "solidity": 8388,
+    "fe": 45
+   },
+   {
+    "op": "DUP13",
+    "solidity": 4206,
+    "fe": 0
+   },
+   {
+    "op": "DUP14",
+    "solidity": 4362,
+    "fe": 0
+   },
+   {
+    "op": "SWAP1",
+    "solidity": 171495,
+    "fe": 180558
+   },
+   {
+    "op": "SWAP2",
+    "solidity": 159405,
+    "fe": 78168
+   },
+   {
+    "op": "SWAP3",
+    "solidity": 87804,
+    "fe": 29697
+   },
+   {
+    "op": "SWAP4",
+    "solidity": 10272,
+    "fe": 31059
+   },
+   {
+    "op": "SWAP5",
+    "solidity": 5592,
+    "fe": 15354
+   },
+   {
+    "op": "SWAP6",
+    "solidity": 2796,
+    "fe": 10704
+   },
+   {
+    "op": "SWAP7",
+    "solidity": 45,
+    "fe": 7881
+   },
+   {
+    "op": "SWAP8",
+    "solidity": 0,
+    "fe": 5556
+   },
+   {
+    "op": "SWAP9",
+    "solidity": 0,
+    "fe": 45
+   },
+   {
+    "op": "SWAP11",
+    "solidity": 0,
+    "fe": 45
+   },
+   {
+    "op": "LOG1",
+    "solidity": 1176184,
+    "fe": 1168612
+   },
+   {
+    "op": "LOG3",
+    "solidity": 2352368,
+    "fe": 2337224
+   }
+  ]
+ },
+ "transfer": {
+  "label": "USDT transfer",
+  "selector": "0xa9059cbb",
+  "transactions": 16217,
+  "solidity": 467715299,
+  "fe": 449921611,
+  "groups": {
+   "Arithmetic and logic": {
+    "solidity": 7799956,
+    "fe": 1933562
+   },
+   "Memory": {
+    "solidity": 4426872,
+    "fe": 4766955
+   },
+   "Environment and other": {
+    "solidity": 385829,
+    "fe": 318766
+   },
+   "Stack shuffling": {
+    "solidity": 16436883,
+    "fe": 7620220
+   },
+   "Storage": {
+    "solidity": 400642100,
+    "fe": 400642100
+   },
+   "Control flow": {
+    "solidity": 8605391,
+    "fe": 5214716
+   },
+   "Logs": {
+    "solidity": 29418268,
+    "fe": 29425292
+   }
+  },
+  "ops": [
+   {
+    "op": "ADD",
+    "solidity": 754614,
+    "fe": 197307
+   },
+   {
+    "op": "MUL",
+    "solidity": 83850,
+    "fe": 83850
+   },
+   {
+    "op": "SUB",
+    "solidity": 150888,
+    "fe": 100611
+   },
+   {
+    "op": "DIV",
+    "solidity": 503275,
+    "fe": 167720
+   },
+   {
+    "op": "EXP",
+    "solidity": 2180970,
+    "fe": 0
+   },
+   {
+    "op": "LT",
+    "solidity": 150948,
+    "fe": 302139
+   },
+   {
+    "op": "GT",
+    "solidity": 201249,
+    "fe": 151653
+   },
+   {
+    "op": "EQ",
+    "solidity": 1208046,
+    "fe": 187521
+   },
+   {
+    "op": "ISZERO",
+    "solidity": 1459257,
+    "fe": 338901
+   },
+   {
+    "op": "AND",
+    "solidity": 1106859,
+    "fe": 151176
+   },
+   {
+    "op": "NOT",
+    "solidity": 0,
+    "fe": 50844
+   },
+   {
+    "op": "SHL",
+    "solidity": 0,
+    "fe": 100839
+   },
+   {
+    "op": "SHR",
+    "solidity": 0,
+    "fe": 101001
+   },
+   {
+    "op": "KECCAK256",
+    "solidity": 3521364,
+    "fe": 3521364
+   },
+   {
+    "op": "CALLER",
+    "solidity": 134154,
+    "fe": 67106
+   },
+   {
+    "op": "CALLVALUE",
+    "solidity": 33558,
+    "fe": 33558
+   },
+   {
+    "op": "CALLDATALOAD",
+    "solidity": 151011,
+    "fe": 150996
+   },
+   {
+    "op": "CALLDATASIZE",
+    "solidity": 67106,
+    "fe": 67106
+   },
+   {
+    "op": "POP",
+    "solidity": 1240710,
+    "fe": 134378
+   },
+   {
+    "op": "MLOAD",
+    "solidity": 100554,
+    "fe": 110355
+   },
+   {
+    "op": "MSTORE",
+    "solidity": 804954,
+    "fe": 1093989
+   },
+   {
+    "op": "MSTORE8",
+    "solidity": 0,
+    "fe": 37914
+   },
+   {
+    "op": "SLOAD",
+    "solidity": 214243700,
+    "fe": 214243700
+   },
+   {
+    "op": "SSTORE",
+    "solidity": 186398400,
+    "fe": 186398400
+   },
+   {
+    "op": "JUMP",
+    "solidity": 1878160,
+    "fe": 1635752
+   },
+   {
+    "op": "JUMPI",
+    "solidity": 6207360,
+    "fe": 3144150
+   },
+   {
+    "op": "JUMPDEST",
+    "solidity": 519871,
+    "fe": 434814
+   },
+   {
+    "op": "MCOPY",
+    "solidity": 0,
+    "fe": 3333
+   },
+   {
+    "op": "PUSH0",
+    "solidity": 0,
+    "fe": 192356
+   },
+   {
+    "op": "PUSH1",
+    "solidity": 2817612,
+    "fe": 2174397
+   },
+   {
+    "op": "PUSH2",
+    "solidity": 2768010,
+    "fe": 1744362
+   },
+   {
+    "op": "PUSH4",
+    "solidity": 1409328,
+    "fe": 251685
+   },
+   {
+    "op": "PUSH20",
+    "solidity": 653949,
+    "fe": 0
+   },
+   {
+    "op": "PUSH29",
+    "solidity": 50337,
+    "fe": 0
+   },
+   {
+    "op": "PUSH32",
+    "solidity": 50277,
+    "fe": 50283
+   },
+   {
+    "op": "DUP1",
+    "solidity": 1711170,
+    "fe": 238038
+   },
+   {
+    "op": "DUP2",
+    "solidity": 955761,
+    "fe": 930039
+   },
+   {
+    "op": "DUP3",
+    "solidity": 654039,
+    "fe": 187854
+   },
+   {
+    "op": "DUP4",
+    "solidity": 301827,
+    "fe": 137655
+   },
+   {
+    "op": "DUP5",
+    "solidity": 402435,
+    "fe": 50289
+   },
+   {
+    "op": "DUP6",
+    "solidity": 50322,
+    "fe": 180
+   },
+   {
+    "op": "DUP8",
+    "solidity": 100611,
+    "fe": 0
+   },
+   {
+    "op": "DUP9",
+    "solidity": 50289,
+    "fe": 0
+   },
+   {
+    "op": "SWAP1",
+    "solidity": 2012736,
+    "fe": 979371
+   },
+   {
+    "op": "SWAP2",
+    "solidity": 905604,
+    "fe": 375318
+   },
+   {
+    "op": "SWAP3",
+    "solidity": 301866,
+    "fe": 123693
+   },
+   {
+    "op": "SWAP4",
+    "solidity": 0,
+    "fe": 50322
+   },
+   {
+    "op": "LOG3",
+    "solidity": 29418268,
+    "fe": 29425292
+   }
+  ]
+ }
+}

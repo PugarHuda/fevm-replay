@@ -1,0 +1,222 @@
+//! FiatTokenProxy, USDC's proxy (mainnet 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48),
+//! in Fe: zos's AdminUpgradeabilityProxy as solc 0.4.24 compiled it. Its
+//! state lives at two hashed slots, so every other slot belongs to the
+//! implementation it `DELEGATECALL`s. The admin's functions run for the
+//! admin only; anyone else calling them is forwarded like any other call,
+//! and the admin may not use the fallback.
+
+use std::evm::{copy_returndata, revert_empty, wei}
+
+msg ProxyMsg {
+    #[selector = sol("admin()")]
+    Admin -> Address,
+    #[selector = sol("implementation()")]
+    Implementation -> Address,
+    // upgradeTo(address)
+    #[selector = 0x3659cfe6]
+    UpgradeTo,
+    // upgradeToAndCall(address,bytes)
+    #[selector = 0x4f1ef286]
+    UpgradeToAndCall,
+    // changeAdmin(address)
+    #[selector = 0x8f283970]
+    ChangeAdmin,
+}
+
+#[event]
+struct Upgraded { implementation: Address }
+
+#[event]
+struct AdminChanged { previous_admin: Address, new_admin: Address }
+
+// keccak256("org.zeppelinos.proxy.implementation")
+const IMPLEMENTATION_SLOT: u256 = 0x7050c9e0f4ca769c69bd3a8ef740bc37934f8e2c036e5a723fd8ee048ed3f8c3
+// keccak256("org.zeppelinos.proxy.admin")
+const ADMIN_SLOT: u256 = 0x10d6a54a4754c8869d6886b5f5d7fbfa5b4522237ea5c60d11bc4e7a1ff9390b
+const ADDRESS_MASK: u256 = 0xffffffffffffffffffffffffffffffffffffffff
+
+// The three reasons, as `Error(string)` words: the first 32 bytes, the rest,
+// and the length.
+struct Reason { hi: u256, lo: u256, len: u256 }
+
+impl Copy for Reason {}
+
+// "Cannot change the admin of a proxy to the zero address"
+const ZERO_ADMIN: Reason = Reason {
+    hi: 0x43616e6e6f74206368616e6765207468652061646d696e206f6620612070726f,
+    lo: 0x787920746f20746865207a65726f206164647265737300000000000000000000,
+    len: 54,
+}
+// "Cannot call fallback function from the proxy admin"
+const ADMIN_FALLBACK: Reason = Reason {
+    hi: 0x43616e6e6f742063616c6c2066616c6c6261636b2066756e6374696f6e206672,
+    lo: 0x6f6d207468652070726f78792061646d696e0000000000000000000000000000,
+    len: 50,
+}
+// "Cannot set a proxy implementation to a non-contract address"
+const NOT_A_CONTRACT: Reason = Reason {
+    hi: 0x43616e6e6f742073657420612070726f787920696d706c656d656e746174696f,
+    lo: 0x6e20746f2061206e6f6e2d636f6e747261637420616464726573730000000000,
+    len: 59,
+}
+
+pub contract FiatTokenProxy uses (ctx: Ctx, evm: mut Evm, call: mut Call, log: mut Log) {
+    // As deployed: the creator administers the proxy of `implementation`.
+    init(implementation: Address)
+    uses (ctx, mut evm)
+    {
+        unsafe {
+            evm.sstore(slot: IMPLEMENTATION_SLOT, value: implementation.word())
+            evm.sstore(slot: ADMIN_SLOT, value: ctx.caller().word())
+        }
+    }
+
+    recv ProxyMsg {
+        Admin -> Address uses (ctx, mut evm, mut call) {
+            if_admin()
+            Address::new(admin())
+        }
+
+        Implementation -> Address uses (ctx, mut evm, mut call) {
+            if_admin()
+            Address::new(implementation())
+        }
+
+        UpgradeTo uses (ctx, mut evm, mut call, mut log) {
+            if_admin()
+            upgrade_to(evm.calldataload(4) & ADDRESS_MASK)
+        }
+
+        #[payable]
+        UpgradeToAndCall uses (ctx, mut evm, mut call, mut log) {
+            if_admin()
+            upgrade_to(evm.calldataload(4) & ADDRESS_MASK)
+            // abi.decode of `bytes data`, then this.call.value(msg.value)(data)
+            let at: u256 = evm.calldataload(36) + 4
+            let len = evm.calldataload(at)
+            let data = calldata_slice(at + 32, len)
+            var ret = MemBuffer::empty()
+            if !call.raw_call(
+                addr: ctx.address(),
+                gas: ctx.gas(),
+                value: ctx.value(),
+                args: data.span(),
+                ret: mut ret,
+            )
+                .success() {
+                revert_empty()
+            }
+        }
+
+        ChangeAdmin uses (ctx, mut evm, mut call, mut log) {
+            if_admin()
+            let new_admin = evm.calldataload(4) & ADDRESS_MASK
+            if new_admin == 0 {
+                fail(ZERO_ADMIN)
+            }
+            log.emit(
+                AdminChanged {
+                    previous_admin: Address::new(admin()),
+                    new_admin: Address::new(new_admin),
+                },
+            )
+            unsafe {
+                evm.sstore(slot: ADMIN_SLOT, value: new_admin)
+            }
+        }
+    }
+
+    // Every other call: forwarded, unless it comes from the admin.
+    recv {
+        #[payable]
+        _ uses (ctx, mut evm, mut call) {
+            fallback()
+        }
+    }
+}
+
+fn admin() -> u256 uses (evm: Evm) {
+    unsafe {
+        evm.sload(ADMIN_SLOT)
+    }
+}
+
+fn implementation() -> u256 uses (evm: Evm) {
+    unsafe {
+        evm.sload(IMPLEMENTATION_SLOT)
+    }
+}
+
+// `ifAdmin`: the admin goes on into the function; anyone else is forwarded.
+fn if_admin() uses (ctx: Ctx, evm: mut Evm, call: mut Call) {
+    if ctx.caller().word() != admin() {
+        fallback()
+    }
+}
+
+// `_fallback`: `_willFallback`, then `_delegate(_implementation())`.
+fn fallback() -> ! uses (ctx: Ctx, evm: mut Evm, call: mut Call) {
+    if ctx.caller().word() == admin() {
+        fail(ADMIN_FALLBACK)
+    }
+    // CALLDATACOPY, as the deployed proxy copies its calldata.
+    let size = evm.calldatasize()
+    var args = MemBuffer::with_capacity(size.downcast_unchecked())
+    evm.calldatacopy(dest: mut args, dest_offset: 0, src_offset: 0, len: size)
+    var ret = MemBuffer::empty()
+    let ok = call
+        .raw_delegatecall(
+            addr: Address::new(implementation()),
+            gas: ctx.gas(),
+            args: args.span(),
+            ret: mut ret,
+        )
+        .success()
+    let data = copy_returndata()
+    if ok {
+        evm.return_data(data: data.span())
+    }
+    evm.revert(data: data.span())
+}
+
+// `_upgradeTo`: the new implementation must hold code.
+fn upgrade_to(_ new_implementation: u256)
+uses (ctx: Ctx, evm: mut Evm, log: mut Log)
+{
+    if ctx.extcodesize(Address::new(new_implementation)) == 0 {
+        fail(NOT_A_CONTRACT)
+    }
+    unsafe {
+        evm.sstore(slot: IMPLEMENTATION_SLOT, value: new_implementation)
+    }
+    log.emit(
+        Upgraded { implementation: Address::new(new_implementation) },
+    )
+}
+
+// `len` bytes of calldata from `at`, zeros past its end.
+fn calldata_slice(_ at: u256, _ len: u256) -> MemBuffer uses (evm: Evm) {
+    let size: usize = len.downcast_unchecked()
+    let words = (size + 31) / 32
+    var out = MemBuffer::with_capacity(words * 32)
+    for i in 0 .. words {
+        out.write_word(
+            offset: i * 32,
+            value: evm.calldataload(at + (i * 32) as u256),
+        )
+    }
+    out.truncate(size)
+    out
+}
+
+// `require(condition, reason)` failing: `Error(string)` written straight to
+// memory, as solc does.
+fn fail(_ reason: Reason) -> ! uses (evm: Evm) {
+    var data = MemBuffer::with_capacity(132)
+    data.write_word(offset: 0, value: 0x08c379a0 << 224)
+    data.write_word(offset: 4, value: 32)
+    data.write_word(offset: 36, value: reason.len)
+    data.write_word(offset: 68, value: reason.hi)
+    data.write_word(offset: 100, value: reason.lo)
+    evm.revert(data: data.span())
+}

@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Where Fe saves gas · fevm-replay</title>
+<meta name="description" content="The same mainnet calls run on solc's code and on the Fe port, with the gas each opcode took: where Fe spends less and where it spends more.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=2">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='3' fill='%23f2f4f3' stroke='%231f2624' stroke-width='2'/%3E%3Ctext x='16' y='22' font-family='sans-serif' font-weight='700' font-size='14' text-anchor='middle' fill='%231f2624'%3EFe%3C/text%3E%3C/svg%3E">
+<style>
+  :root { --less: #0f8a5c; --more: #b8860b; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --less: #4fb894; --more: #e0b03a; } }
+  :root[data-theme="dark"] { --less: #4fb894; --more: #e0b03a; }
+  .o-head { padding-block: 1.5rem 0.5rem; }
+  .o-head h1 { font-size: clamp(2rem, 4.5vw, 3rem); letter-spacing: -0.03em; line-height: 1.05; margin: 0 0 0.75rem; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 1.5rem 0 1rem; }
+  .tabs button { font: inherit; cursor: pointer; color: inherit; background: transparent; border: 1px solid var(--rule); border-radius: 3px; padding: 0.35rem 0.8rem; }
+  .tabs button[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  .headline { font-size: 1.15rem; margin: 0 0 1.25rem; max-width: var(--measure); }
+  .headline b { font-variant-numeric: tabular-nums; }
+  .chart { display: grid; grid-template-columns: 11rem 1fr; gap: 0.55rem 1rem; align-items: center; max-width: 52rem; }
+  .chart .name { font-size: 0.92rem; text-align: right; }
+  .track { position: relative; height: 26px; }
+  .track::before { content: ""; position: absolute; left: 50%; top: -4px; bottom: -4px; width: 1px; background: var(--rule); }
+  .bar { position: absolute; top: 5px; height: 16px; }
+  .bar.less { right: 50%; background: var(--less); border-radius: 4px 0 0 4px; }
+  .bar.more { left: 50%; background: var(--more); border-radius: 0 4px 4px 0; }
+  .val { position: absolute; top: 4px; font-size: 0.8rem; font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
+  .axis { display: grid; grid-template-columns: 11rem 1fr; gap: 1rem; max-width: 52rem; color: var(--steel); font-size: 0.82rem; margin-top: 0.4rem; }
+  .axis div:last-child { display: flex; justify-content: space-between; }
+  .tip { position: fixed; pointer-events: none; background: var(--ink); color: var(--paper); font-size: 0.82rem; padding: 0.45rem 0.6rem; border-radius: 4px; display: none; z-index: 10; max-width: 18rem; }
+  .scroll { overflow-x: auto; margin-top: 2rem; }
+  table.ops { border-collapse: collapse; width: 100%; max-width: 52rem; font-variant-numeric: tabular-nums; font-size: 0.9rem; }
+  table.ops th, table.ops td { text-align: right; padding: 0.4rem 0.75rem 0.4rem 0; border-bottom: 1px solid var(--rule); }
+  table.ops th:first-child, table.ops td:first-child { text-align: left; font-family: var(--mono); font-size: 0.82rem; }
+  table.ops th { color: var(--steel); font-weight: 600; }
+  .why { max-width: var(--measure); }
+</style>
+</head>
+<body>
+<header class="wrap site-head">
+  <a class="mark" href="./" aria-label="fevm-replay home">
+    <span class="tile" aria-hidden="true"><small>26</small><b>Fe</b></span>
+    <span>fevm-replay</span>
+  </a>
+  <nav aria-label="Main">
+    <a href="./">Overview</a>
+    <a href="docs.html">Docs</a>
+    <a href="explorer.html">Explorer</a>
+    <a href="verified.html">Verified</a>
+    <a href="https://github.com/PugarHuda/fevm-replay">GitHub</a>
+  </nav>
+</header>
+
+<main class="wrap">
+  <section class="o-head">
+    <h1>Where Fe saves gas</h1>
+    <p class="intro">Every mainnet call to a function ran twice: once on the code solc compiled, once on the Fe port. fevm-replay's tracer charged each opcode the gas it took, inside that function only (the calls it makes are left out). Same inputs, same results; the difference is the compiler.</p>
+  </section>
+
+  <div class="tabs" role="group" aria-label="Function" id="tabs"></div>
+  <p class="headline" id="headline"></p>
+  <div class="chart" id="chart" role="img" aria-label="Gas difference per opcode group, Fe minus Solidity"></div>
+  <div class="axis"><div></div><div><span>◀ Fe spends less</span><span>Fe spends more ▶</span></div></div>
+  <div class="tip" id="tip"></div>
+
+  <div class="scroll">
+    <table class="ops">
+      <thead><tr><th scope="col">Opcode</th><th scope="col">Solidity</th><th scope="col">Fe</th><th scope="col">Fe − Solidity</th></tr></thead>
+      <tbody id="ops"></tbody>
+    </table>
+  </div>
+
+  <section class="why">
+    <h2>What it shows</h2>
+    <p><strong>Fe moves fewer values around the stack.</strong> The largest saving in both functions is stack shuffling: fewer <code>POP</code>, <code>DUP</code> and <code>SWAP</code>. solc 0.4 and 0.5 keep many temporaries on the stack; Fe's Sonatina backend allocates them more tightly.</p>
+    <p><strong>Arithmetic is leaner</strong>: no <code>EXP</code> to compute <code>2**112</code>, fewer masks with <code>AND</code>. In <code>swap</code> the port also reads storage less often (<code>SLOAD</code>), keeping the packed reserves it has already read, though it takes more jumps between its smaller functions.</p>
+    <p><strong>Fe spends more on memory</strong>: it copies calldata and return data into its own buffers (<code>CALLDATACOPY</code>, <code>RETURNDATACOPY</code>, <code>MSTORE</code>), where solc reads them in place. On a proxy, which does little else, that is the whole difference: the Fe proxy of USDC costs 40 to 60 gas more per call.</p>
+    <p class="note">Measured with <code>fevm_replay opgas</code> over blocks 26,400,000 to 26,400,199. An opcode's cost is the gas left before it minus the gas left before the next opcode in the same call.</p>
+  </section>
+</main>
+
+<footer class="wrap site-foot">
+  <span>Built for the Fe Builders Challenge 2026. Apache-2.0.</span>
+  <span><a href="./">Overview</a>, <a href="docs.html">docs</a> and <a href="https://github.com/PugarHuda/fevm-replay">source</a></span>
+</footer>
+
+<script>
+const ORDER = ["Stack shuffling", "Arithmetic and logic", "Storage", "Control flow", "Memory", "Logs", "Environment and other"];
+let data = null;
+const fmt = (n) => (n > 0 ? "+" : n < 0 ? "−" : "") + Math.abs(n).toLocaleString("en");
+const tip = document.getElementById("tip");
+function show(key) {
+  document.querySelectorAll("#tabs button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.key === key)));
+  const d = data[key];
+  const saved = d.solidity - d.fe;
+  document.getElementById("headline").innerHTML =
+    `${d.label}, ${d.transactions.toLocaleString("en")} mainnet transactions: Fe spent <b>${d.fe.toLocaleString("en")}</b> gas where solc spent <b>${d.solidity.toLocaleString("en")}</b>, <b>${(100 * saved / d.solidity).toFixed(1)}% less</b>.`;
+  const rows = ORDER.filter((g) => d.groups[g]).map((g) => ({ g, s: d.groups[g].solidity, f: d.groups[g].fe, diff: d.groups[g].fe - d.groups[g].solidity }));
+  const max = Math.max(...rows.map((r) => Math.abs(r.diff)), 1);
+  const chart = document.getElementById("chart");
+  chart.replaceChildren();
+  rows.forEach((r) => {
+    const name = document.createElement("div");
+    name.className = "name"; name.textContent = r.g;
+    const track = document.createElement("div");
+    track.className = "track";
+    const w = 36 * Math.abs(r.diff) / max;
+    const bar = document.createElement("div");
+    bar.className = "bar " + (r.diff < 0 ? "less" : "more");
+    bar.style.width = Math.max(w, r.diff === 0 ? 0 : 0.4) + "%";
+    const val = document.createElement("span");
+    val.className = "val"; val.textContent = fmt(r.diff);
+    if (r.diff < 0) { val.style.right = `calc(50% + ${w}% + 6px)`; } else { val.style.left = `calc(50% + ${w}% + 6px)`; }
+    track.append(bar, val);
+    const label = `${r.g}: Solidity ${r.s.toLocaleString("en")} gas, Fe ${r.f.toLocaleString("en")} gas (${fmt(r.diff)})`;
+    track.setAttribute("title", label);
+    track.addEventListener("mousemove", (e) => { tip.textContent = label; tip.style.display = "block"; tip.style.left = (e.clientX + 12) + "px"; tip.style.top = (e.clientY + 12) + "px"; });
+    track.addEventListener("mouseleave", () => { tip.style.display = "none"; });
+    chart.append(name, track);
+  });
+  const body = document.getElementById("ops");
+  body.replaceChildren();
+  d.ops.map((o) => ({ ...o, diff: o.fe - o.solidity })).sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff)).slice(0, 20).forEach((o) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${o.op}</td><td>${o.solidity.toLocaleString("en")}</td><td>${o.fe.toLocaleString("en")}</td><td>${fmt(o.diff)}</td>`;
+    body.append(tr);
+  });
+}
+fetch("data/opgas.json").then((r) => r.json()).then((d) => {
+  data = d;
+  const tabs = document.getElementById("tabs");
+  Object.entries(d).forEach(([key, v]) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.dataset.key = key; b.textContent = v.label;
+    b.onclick = () => show(key);
+    tabs.append(b);
+  });
+  show("swap");
+});
+</script>
+</body>
+</html>

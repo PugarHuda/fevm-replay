@@ -1,0 +1,717 @@
+{
+ "blocks": 60,
+ "transactions": 13022,
+ "matched": 12974,
+ "rows": [
+  {
+   "block": 23700000,
+   "tx": "0x68e3d91f247761083eeb82cbbf8818017c341415779d5753e7dc97a12fda9d26",
+   "index": 51,
+   "gas_limit": 368623,
+   "detail": [
+    "status: chain success, fevm revert",
+    "gas used: chain 357764, fevm 363577"
+   ],
+   "precompiles": [
+    "0x5"
+   ],
+   "cause": [
+    "EIP-7883 MODEXP"
+   ]
+  },
+  {
+   "block": 23700004,
+   "tx": "0xd16ff84f774cfff17c781075fa99a47ad454644df39f2941e9eddddf70a398bd",
+   "index": 357,
+   "gas_limit": 6000000,
+   "detail": [
+    "gas used: chain 287501, fevm 296198"
+   ],
+   "precompiles": [
+    "0x5"
+   ],
+   "cause": [
+    "EIP-7883 MODEXP"
+   ]
+  },
+  {
+   "block": 23700007,
+   "tx": "0x3ceca5341dd504e66d528f6bed4056df01842d3d7b8e659db903c1624f303f27",
+   "index": 104,
+   "gas_limit": 678826,
+   "detail": [
+    "gas used: chain 355849, fevm 156608"
+   ],
+   "precompiles": [
+    "0x100"
+   ],
+   "cause": [
+    "EIP-7951 P256VERIFY"
+   ]
+  },
+  {
+   "block": 23700008,
+   "tx": "0x11a263f181b0b1640a04e8d489d58925422056935e9e1d3ae273c1512f1b02d6",
+   "index": 1,
+   "gas_limit": 37521200,
+   "detail": [
+    "status: chain success, fevm gas_limit_cap",
+    "gas used: chain 37521200, fevm 0"
+   ],
+   "precompiles": [],
+   "cause": [
+    "EIP-7825 gas cap"
+   ]
+  },
+  {
+   "block": 23700009,
+   "tx": "0x4b9226d1afa7b925f1818e93aedf2937aefaf49e4c45a42a6d04209b88b4685a",
+   "index": 76,
+   "gas_limit": 1893614,
+   "detail": [
+    "gas used: chain 876008, fevm 583303"
+   ],
+   "precompiles": [
+    "0x100"
+   ],
+   "cause": [
+    "EIP-7951 P256VERIFY"
+   ]
+  },
+  {
+   "block": 23700009,
+   "tx": "0x9c42bec686300c76d1b06762febb314ecdb323d2793268ca6f1171f9c1e34cb0",
+   "index": 106,
+   "gas_limit": 900619,
+   "detail": [
+    "gas used: chain 403910, fevm 119747"
+   ],
+   "precompiles": [
+    "0x100"
+   ],
+   "cause": [
+    "EIP-7951 P256VERIFY"
+   ]
+  },
+  {
+   "block": 23750001,
+   "tx": "0x381ce3f98a7dd82503a704835c3c9e726d0ef7ea2a9b103d1346577bacc30c26",
+   "index": 164,
+   "gas_limit": 368684,
+   "detail": [
+    "status: chain success, fevm revert",
+    "gas used: chain 357824, fevm 363638"
+   ],
+   "precompiles": [
+    "0x5"
+   ],
+   "cause": [
+    "EIP-7883 MODEXP"
+   ]
+  },
+  {
+   "block": 23750003,
+   "tx": "0xe1d410cb56287b2792af0432d7ec7ba4ff5eb82468e8c5589ff68f54a92b878b",
+   "index": 98,
+   "gas_limit": 1856236,
+   "detail": [
+    "gas used: chain 352690, fevm 150970"
+   ],
+   "precompiles": [
+    "0x100"
+   ],
+   "cause": [
+    "EIP-7951 P256VERIFY"
+   ]
+  },
+  {
+   "block": 23750003,
+   "tx": "0x58b4704b641f64f000ab1d9da6dc55388228e87059341e7214aead92690e5fd8",
+   "index": 101,
+   "gas_limit": 944249,
+   "detail": [
+    "gas used: chain 441750, fevm 151917"
+   ],
+   "precompiles": [
+    "0x100"
+   ],
+   "cause": [
+    "EIP-7951 P256VERIFY"
+   ]
+  },
+  {
+   "block": 23750005,
+   "tx": "0x461ec24b21f74d63bd068fd8ae1d5b2a05950e8859079f4a4bb4dd18a16b7d88",
+   "index": 134,
+   "gas_limit": 900632,
+   "detail": [
+    "gas used: chain 404364, fevm 119759"
+   ],
+   "precompiles": [
+    "0x100"
+   ],
+   "cause": [
+    "EIP-7951 P256VERIFY"
+   ]
+  },
+  {
+   "block": 23750005,
+   "tx": "0xd4acad65946a1c43795260a66e8059bdbdd0dee9c6c46818563eb1f6a14afb7a",
+   "index": 137,
+   "gas_limit": 907413,
+   "detail": [
+    "gas used: chain 413506, fevm 122421"
+   ],
+   "precompiles": [
+    "0x100"
+   ],
+   "cause": [
+    "EIP-7951 P256VERIFY"
+   ]
+  },
+  {
+   "block": 23800001,
+   "tx": "0xfc79aca30b4a6206d3e88c8d36c235c35d85770f2b544df254822e8bd13d5022",
+   "index": 95,
+   "gas_limit": 6000000,
+   "detail": [
+    "gas used: chain 287477, fevm 296174"
+   ],
+   "precompiles": [
+    "0x5"
+   ],
+   "cause": [
+    "EIP-7883 MODEXP"
+   ]
+  },
+  {
+   "block": 23800004,
+   "tx": "0x9a1ec58923d6b8e64b8132891fc4f38162564d40b857c32ebd9e8d7cf2b9eb6e",
+   "index": 59,
+   "gas_limit": 1112341,
+   "detail": [
+    "gas used: chain 558129, fevm 281612"
+   ],
+   "precompiles": [
+    "0x100"
+   ],
+   "cause": [
+    "EIP-7951 P256VERIFY"
+   ]
+  },
+  {
+   "block": 23800006,
+   "tx": "0xb5ecf04ffcef548c2b2e75440441a3a2589d28919bcbe45d46fcb1643064dbd5",
+   "index": 55,
+   "gas_limit": 369387,
+   "detail": [
+    "status: chain success, fevm revert",
+    "gas used: chain 361316, fevm 364339"
+   ],
+   "precompiles": [
+    "0x5"
+   ],
+   "cause": [
+    "EIP-7883 MODEXP"
+   ]
+  },
+  {
+   "block": 23850000,
+   "tx": "0x8943a0183ea68ed52d449ade50e50f2df4d60b6f2162a38e422a7e0b93a117b6",
+   "index": 83,
+   "gas_limit": 6000000,
+   "detail": [
+    "gas used: chain 287477, fevm 296174"
+   ],
+   "precompiles": [
+    "0x5"
+   ],
+   "cause": [
+    "EIP-7883 MODEXP"
+   ]
+  },
+  {
+   "block": 23850006,
+   "tx": "0xb1a193b4467f2b92cc99b0eda2e0350a4d4cc71499e973c7ac8a8ad8f374aeb6",
+   "index": 234,
+   "gas_limit": 15000000,
+   "detail": [
+    "gas used: chain 287516, fevm 296213"
+   ],
+   "precompiles": [
+    "0x5"
+   ],
+   "cause": [
+    "EIP-7883 MODEXP"
+   ]
+  },
+  {
+   "block": 23850006,
+   "tx": "0xb5c0d9fc28cd4ff79bfc7a7af8f2945a8aa5ca7981f66f1ec970886082d50422",
+   "index": 237,
+   "gas_limit": 1008022,
+   "detail": [
+    "gas used: chain 405901, fevm 210511"
+   ],
+   "precompiles": [
+    "0x100"
+   ],
+   "cause": [
+    "EIP-7951 P256VERIFY"
+   ]
+  },
+  {
+   "block": 23850009,
+   "tx": "0x653e8a3d5ed2b81a035c17472c588f2aa77bd19f92bb05fe8556e33bd40cb816",
+   "index": 38,
+   "gas_limit": 919291,
+   "detail": [
+    "gas used: chain 427570, fevm 134055"
+   ],
+   "precompiles": [
+    "0x100"
+   ],
+   "cause": [
+    "EIP-7951 P256VERIFY"
+   ]
+  },
+  {
+   "block": 23900000,
+   "tx": "0x3477e798448afb006cfec5e8ee544e81e9ea4d0a6d71193f1b5982cabbc1c677",
+   "index": 38,
+   "gas_limit": 900607,
+   "detail": [
+    "gas used: chain 396252, fevm 119735"
+   ],
+   "precompiles": [
+    "0x100"
+   ],
+   "cause": [
+    "EIP-7951 P256VERIFY"
+   ]
+  },
+  {
+   "block": 23900000,
+   "tx": "0x0bf4208d9452ee933bfab6d4adf633a2c86b8796085616b4bcce1bbf9fb961f0",
+   "index": 62,
+   "gas_limit": 44956056,
+   "detail": [
+    "status: chain success, fevm gas_limit_cap",
+    "gas used: chain 33913494, fevm 0"
+   ],
+   "precompiles": [],
+   "cause": [
+    "EIP-7825 gas cap"
+   ]
+  },
+  {
+   "block": 23900001,
+   "tx": "0xefe6894f394f243c72ea9dd45e451b76e468358c08ddf99506a70474f745568c",
+   "index": 16,
+   "gas_limit": 8000000,
+   "detail": [
+    "gas used: chain 293814, fevm 302511"
+   ],
+   "precompiles": [
+    "0x5"
+   ],
+   "cause": [
+    "EIP-7883 MODEXP"
+   ]
+  },
+  {
+   "block": 23900002,
+   "tx": "0x98ca43d16619276b1cf361c17d7063e4b3f50bb0dbac4e7addeecdb5d0f2f7b0",
+   "index": 129,
+   "gas_limit": 7800000,
+   "detail": [
+    "gas used: chain 763666, fevm 771826"
+   ],
+   "precompiles": [
+    "0x5"
+   ],
+   "cause": [
+    "EIP-7883 MODEXP"
+   ]
+  },
+  {
+   "block": 23900003,
+   "tx": "0xd2a771302d460ca233b0f0cb98ff0db9cb3253efd51077a63ffed5d7e3297be2",
+   "index": 92,
+   "gas_limit": 20958845,
+   "detail": [
+    "gas used: chain 20632551, fevm 0"
+   ],
+   "precompiles": [],
+   "cause": [
+    "EIP-7825 gas cap"
+   ]
+  },
+  {
+   "block": 23900003,
+   "tx": "0xdb32cf9bd99a1b7821376f384b4d8da95e0cd93341cb0d439a028f0809d61726",
+   "index": 164,
+   "gas_limit": 855327,
+   "detail": [
+    "gas used: chain 424494, fevm 137090"
+   ],
+   "precompiles": [
+    "0x100"
+   ],
+   "cause": [
+    "EIP-7951 P256VERIFY"
+   ]
+  },
+  {
+   "block": 23900004,
+   "tx": "0x7fa69b30067803c5739e9c15f5a2ef0c567e889132ed4518799fd2c3fd2df866",
+   "index": 177,
+   "gas_limit": 21751000,
+   "detail": [
+    "status: chain success, fevm gas_limit_cap",
+    "gas used: chain 17544733, fevm 0"
+   ],
+   "precompiles": [],
+   "cause": [
+    "EIP-7825 gas cap"
+   ]
+  },
+  {
+   "block": 23900005,
+   "tx": "0xc810dd84fe7a9b7dab05b564d93b39b8745d326ad283030bdc13a546e45ccae0",
+   "index": 0,
+   "gas_limit": 26759598,
+   "detail": [
+    "status: chain success, fevm gas_limit_cap",
+    "gas used: chain 17839732, fevm 0"
+   ],
+   "precompiles": [],
+   "cause": [
+    "EIP-7825 gas cap"
+   ]
+  },
+  {
+   "block": 23900005,
+   "tx": "0xd73aff55e843d7d4e4c6b79fb0ec8ae7f9f0059c6d4b265e479dfb31c57e2d85",
+   "index": 29,
+   "gas_limit": 30000000,
+   "detail": [
+    "status: chain success, fevm gas_limit_cap",
+    "gas used: chain 1351877, fevm 0"
+   ],
+   "precompiles": [],
+   "cause": [
+    "EIP-7825 gas cap"
+   ]
+  },
+  {
+   "block": 23900005,
+   "tx": "0x1f4bacae99ac02625284fda97c5a3ae45c032dcdb9cc00b451df86e8b1bc35f8",
+   "index": 155,
+   "gas_limit": 21751000,
+   "detail": [
+    "status: chain success, fevm gas_limit_cap",
+    "gas used: chain 17547557, fevm 0"
+   ],
+   "precompiles": [],
+   "cause": [
+    "EIP-7825 gas cap"
+   ]
+  },
+  {
+   "block": 23900007,
+   "tx": "0x675ca46ea1ece69f0d5ed3eff30eb1514dace2bacb488107f2aa6727583467e5",
+   "index": 66,
+   "gas_limit": 901791,
+   "detail": [
+    "gas used: chain 416698, fevm 121183"
+   ],
+   "precompiles": [
+    "0x100"
+   ],
+   "cause": [
+    "EIP-7951 P256VERIFY"
+   ]
+  },
+  {
+   "block": 23900007,
+   "tx": "0x49446e2ac9fd4896f9d91ecce726a581a5770cf1bc42ee58f7c1fa09f397209a",
+   "index": 179,
+   "gas_limit": 3502260,
+   "detail": [
+    "status: chain success, fevm revert",
+    "gas used: chain 2870648, fevm 3407600"
+   ],
+   "precompiles": [
+    "0x5",
+    "0xa"
+   ],
+   "cause": [
+    "EIP-7883 MODEXP"
+   ]
+  },
+  {
+   "block": 23900009,
+   "tx": "0x94da4cbd8d3b7f7165f275adbf4d147f65ca7d869c00b422e34a4a4856587e38",
+   "index": 41,
+   "gas_limit": 3456589,
+   "detail": [
+    "gas used: chain 916954, fevm 922394"
+   ],
+   "precompiles": [
+    "0x5"
+   ],
+   "cause": [
+    "EIP-7883 MODEXP"
+   ]
+  },
+  {
+   "block": 23900009,
+   "tx": "0x4927cf586d469a21823eb17429c8fcf3635988635421a52ba3268de0f746ea7d",
+   "index": 42,
+   "gas_limit": 763312,
+   "detail": [
+    "gas used: chain 572847, fevm 581007"
+   ],
+   "precompiles": [
+    "0x5"
+   ],
+   "cause": [
+    "EIP-7883 MODEXP"
+   ]
+  },
+  {
+   "block": 23900009,
+   "tx": "0xf0a6cb1c0e6b2a780e46273e30b2b053ce54611d6484c717092f05007abf09fb",
+   "index": 46,
+   "gas_limit": 1608722,
+   "detail": [
+    "gas used: chain 710915, fevm 420640"
+   ],
+   "precompiles": [
+    "0x100"
+   ],
+   "cause": [
+    "EIP-7951 P256VERIFY"
+   ]
+  },
+  {
+   "block": 23900009,
+   "tx": "0x32a4ef05bb49802234e1fbcaa8c247d9d9356b32d507265000e6bec69dbccb95",
+   "index": 109,
+   "gas_limit": 21771000,
+   "detail": [
+    "status: chain success, fevm gas_limit_cap",
+    "gas used: chain 17550382, fevm 0"
+   ],
+   "precompiles": [],
+   "cause": [
+    "EIP-7825 gas cap"
+   ]
+  },
+  {
+   "block": 23900009,
+   "tx": "0xf8cc618265da6396a945db99cf05323450759029f798fd70008c1487f7db1e28",
+   "index": 156,
+   "gas_limit": 20999799,
+   "detail": [
+    "gas used: chain 24907, fevm 0"
+   ],
+   "precompiles": [],
+   "cause": [
+    "EIP-7825 gas cap"
+   ]
+  },
+  {
+   "block": 23900009,
+   "tx": "0x5e33b5e77c45c47f6980e9ce9697fb21753c3379589f231cea982c6b028a21cf",
+   "index": 160,
+   "gas_limit": 374068,
+   "detail": [
+    "gas used: chain 304554, fevm 309910"
+   ],
+   "precompiles": [
+    "0x5"
+   ],
+   "cause": [
+    "EIP-7883 MODEXP"
+   ]
+  },
+  {
+   "block": 23930000,
+   "tx": "0x24761453b3afa17f80fcb5a5ac5f39724fc70c7569fae04d5aaad7730d17c4f5",
+   "index": 92,
+   "gas_limit": 26272995,
+   "detail": [
+    "status: chain success, fevm gas_limit_cap",
+    "gas used: chain 21720609, fevm 0"
+   ],
+   "precompiles": [],
+   "cause": [
+    "EIP-7825 gas cap"
+   ]
+  },
+  {
+   "block": 23930000,
+   "tx": "0x7ea30237888c9f715e6d48d1fa1d4e23505ddc2ec202bb3c500ef0bf72ae2576",
+   "index": 93,
+   "gas_limit": 26272995,
+   "detail": [
+    "status: chain success, fevm gas_limit_cap",
+    "gas used: chain 21720609, fevm 0"
+   ],
+   "precompiles": [],
+   "cause": [
+    "EIP-7825 gas cap"
+   ]
+  },
+  {
+   "block": 23930001,
+   "tx": "0x0122269a6f0aad58a503b6a38cc67f314ac3dd4523057af37c3fbf8ab1ec0278",
+   "index": 84,
+   "gas_limit": 942342,
+   "detail": [
+    "gas used: chain 444949, fevm 154674"
+   ],
+   "precompiles": [
+    "0x100"
+   ],
+   "cause": [
+    "EIP-7951 P256VERIFY"
+   ]
+  },
+  {
+   "block": 23930001,
+   "tx": "0x26241760ed8b11251f122728d330e2f98de7528e7634b2077e65e97495f18883",
+   "index": 85,
+   "gas_limit": 880345,
+   "detail": [
+    "gas used: chain 436267, fevm 139511"
+   ],
+   "precompiles": [
+    "0x100"
+   ],
+   "cause": [
+    "EIP-7951 P256VERIFY"
+   ]
+  },
+  {
+   "block": 23930001,
+   "tx": "0x8e84471cb945397eb54cb5aea333d4eb3963982847bb21bc80734bb2130feb20",
+   "index": 104,
+   "gas_limit": 419962,
+   "detail": [
+    "status: chain success, fevm revert",
+    "gas used: chain 407896, fevm 408514"
+   ],
+   "precompiles": [
+    "0x5"
+   ],
+   "cause": [
+    "EIP-7883 MODEXP"
+   ]
+  },
+  {
+   "block": 23930003,
+   "tx": "0xdb0ed9bb500ccfd91173960ae29beb7154c6ddde62195c813486e820d28754d2",
+   "index": 65,
+   "gas_limit": 186260,
+   "detail": [
+    "status: chain success, fevm out_of_gas",
+    "gas used: chain 171495, fevm 186260"
+   ],
+   "precompiles": [
+    "0x5"
+   ],
+   "cause": [
+    "EIP-7883 MODEXP"
+   ]
+  },
+  {
+   "block": 23930003,
+   "tx": "0x5b6aae08301873977a5c2c78c126dd98845210b87ee5e6ff49f396bd88528646",
+   "index": 164,
+   "gas_limit": 21000000,
+   "detail": [
+    "status: chain success, fevm gas_limit_cap",
+    "gas used: chain 17242864, fevm 0"
+   ],
+   "precompiles": [],
+   "cause": [
+    "EIP-7825 gas cap"
+   ]
+  },
+  {
+   "block": 23930003,
+   "tx": "0xec8ac40de7914543fae5b28997364d06ccc5e4b3f71d7fb2828d835d7631289e",
+   "index": 165,
+   "gas_limit": 21000000,
+   "detail": [
+    "status: chain success, fevm gas_limit_cap",
+    "gas used: chain 17242864, fevm 0"
+   ],
+   "precompiles": [],
+   "cause": [
+    "EIP-7825 gas cap"
+   ]
+  },
+  {
+   "block": 23930004,
+   "tx": "0xea22004eb5511a0972df5f590f857764c845d026609a756a91934b11736bb82f",
+   "index": 123,
+   "gas_limit": 918584,
+   "detail": [
+    "gas used: chain 456981, fevm 166693"
+   ],
+   "precompiles": [
+    "0x100"
+   ],
+   "cause": [
+    "EIP-7951 P256VERIFY"
+   ]
+  },
+  {
+   "block": 23930006,
+   "tx": "0xad68df26933cc3f09cd61188e7fe45f0a1fa621a2de7c25f6e0c8ec289962f74",
+   "index": 253,
+   "gas_limit": 371257,
+   "detail": [
+    "gas used: chain 302247, fevm 304925"
+   ],
+   "precompiles": [
+    "0x5"
+   ],
+   "cause": [
+    "EIP-7883 MODEXP"
+   ]
+  },
+  {
+   "block": 23930008,
+   "tx": "0xd1365a59bd3531064f88cb3164574890a4f94da7f4f2298bec1e55ebf243561c",
+   "index": 138,
+   "gas_limit": 21000000,
+   "detail": [
+    "status: chain success, fevm gas_limit_cap",
+    "gas used: chain 17242864, fevm 0"
+   ],
+   "precompiles": [],
+   "cause": [
+    "EIP-7825 gas cap"
+   ]
+  },
+  {
+   "block": 23930008,
+   "tx": "0x4a8804d2271b83084e6bcf7c658899a46afdf10df65080b904fa3d52085e78b7",
+   "index": 139,
+   "gas_limit": 21000000,
+   "detail": [
+    "status: chain success, fevm gas_limit_cap",
+    "gas used: chain 17242864, fevm 0"
+   ],
+   "precompiles": [],
+   "cause": [
+    "EIP-7825 gas cap"
+   ]
+  }
+ ]
+}

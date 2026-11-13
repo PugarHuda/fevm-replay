@@ -31,7 +31,18 @@ impl Copy for SelectorGas {}
 
 // An open call frame: the code it runs, and for calls into the watched
 // address, the function and the gas the frame started with.
-struct Frame { to: u256, selector: u32, gas: u64, record: usize, shadow: bool, covered: bool }
+struct Frame {
+    to: u256,
+    selector: u32,
+    gas: u64,
+    record: usize,
+    shadow: bool,
+    covered: bool,
+    // The last opcode the frame ran and the gas before it, while measured.
+    last_op: u8,
+    last_gas: u64,
+    has_last: bool,
+}
 
 impl Copy for Frame {}
 
@@ -353,6 +364,11 @@ pub struct GasWatch {
     /// program counter they ran, a 1 (a byte per offset).
     pub cover: MemVec<u256>,
     pub covered: MemVec<u8>,
+    /// The gas the covered code spent on each opcode (indexed by opcode),
+    /// in calls to `op_selector` (0 for any). A call's own cost is left out,
+    /// with the gas the called code used.
+    pub op_gas: MemVec<u64>,
+    pub op_selector: u32,
     /// Whether to keep each call's calldata and output in `bytes`.
     pub keep: bool,
     pub bytes: MemBuffer,
@@ -382,6 +398,8 @@ impl GasWatch {
             ended: MemVec::new(),
             cover: MemVec::new(),
             covered: MemVec::new(),
+            op_gas: MemVec::new(),
+            op_selector: 0,
             keep: false,
             bytes: MemBuffer::empty(),
             profile: MemVec::new(),
@@ -422,6 +440,24 @@ impl Tracer for GasWatch {
                 }
             },
             Option::None => {},
+        }
+        // Gas per opcode: what the frame's last opcode cost, seen from the
+        // gas left now.
+        let depth = self.frames.len()
+        if depth > 0 {
+            let top = depth - 1
+            let frame = self.frames[top]
+            if frame.covered && (self.op_selector == 0 || frame.selector == self.op_selector) {
+                if frame.has_last && frame.last_gas >= step.gas {
+                    while self.op_gas.len() < 256 {
+                        self.op_gas.push(0)
+                    }
+                    self.op_gas[frame.last_op as usize] += frame.last_gas - step.gas
+                }
+                self.frames[top].last_op = step.op
+                self.frames[top].last_gas = step.gas
+                self.frames[top].has_last = true
+            }
         }
     }
 
@@ -477,8 +513,25 @@ impl Tracer for GasWatch {
             )
         let shadow = is_shadow(self.shadows, call.to)
         let covered = is_shadow(self.cover, call.to)
-        self.frames.push(
-                Frame { to: call.to, selector, gas: call.gas, record, shadow, covered },
+        // The caller's call opcode is not measured: the gas it spends
+        // includes what the callee uses.
+        let depth = self.frames.len()
+        if depth > 0 {
+            self.frames[depth - 1].has_last = false
+        }
+        self.frames
+            .push(
+                Frame {
+                    to: call.to,
+                    selector,
+                    gas: call.gas,
+                    record,
+                    shadow,
+                    covered,
+                    last_op: 0,
+                    last_gas: 0,
+                    has_last: false,
+                },
             )
     }
 

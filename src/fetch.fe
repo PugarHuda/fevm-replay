@@ -79,6 +79,69 @@ uses (proc: mut Spawn)
     Option::Some(doc)
 }
 
+/// The accounts and slots a call would touch at the end of block `number`
+/// (`eth_createAccessList`): the response, whose `result.accessList` lists
+/// them, or None.
+pub fn access_list<U: Display>(
+    _ url: U,
+    from: u256,
+    to: u256,
+    data: MemSpan,
+    value: u256,
+    gas: u256,
+    number: u256,
+) -> Option<Value>
+uses (proc: mut Spawn)
+{
+    var params = MemBuffer::empty()
+    "[{\"from\":\"0x".fmt(mut params)
+    core::text::hex(from, 20).fmt(mut params)
+    "\",\"to\":\"0x".fmt(mut params)
+    core::text::hex(to, 20).fmt(mut params)
+    "\",\"value\":\"".fmt(mut params)
+    quantity(value).fmt(mut params)
+    "\",\"gas\":\"".fmt(mut params)
+    quantity(gas).fmt(mut params)
+    "\",\"data\":\"0x".fmt(mut params)
+    for i in 0 .. data.len() {
+        core::text::hex(data[i] as u256, 1).fmt(mut params)
+    }
+    "\"},\"".fmt(mut params)
+    quantity(number).fmt(mut params)
+    "\"]".fmt(mut params)
+    // The whole response: its `result.accessList` is the list.
+    call(url, "eth_createAccessList", params)
+}
+
+/// The word a node returns for `method` with `params` (a JSON array as
+/// text): a balance, a nonce or a storage value.
+pub fn word_at<U: Display, M: Display, P: Display>(_ url: U, _ method: M, _ params: P) -> Option<
+    u256,
+>
+uses (proc: mut Spawn)
+{
+    match call(url, method, params) {
+        Option::Some(doc) => Option::Some(field(doc, "result")),
+        Option::None => Option::None,
+    }
+}
+
+/// The code at `address` at the end of block `number`.
+pub fn code_at<U: Display>(_ url: U, _ address: u256, number: u256) -> Option<MemBuffer>
+uses (proc: mut Spawn)
+{
+    var params = MemBuffer::empty()
+    "[\"0x".fmt(mut params)
+    core::text::hex(address, 20).fmt(mut params)
+    "\",\"".fmt(mut params)
+    quantity(number).fmt(mut params)
+    "\"]".fmt(mut params)
+    match call(url, "eth_getCode", params) {
+        Option::Some(doc) => Option::Some(hex_bytes(doc["result"].text())),
+        Option::None => Option::None,
+    }
+}
+
 /// The balance of `address` at the end of block `number`, as the node at
 /// `url` reports it.
 pub fn balance_at<U: Display>(_ url: U, _ address: u256, number: u256) -> Option<u256>

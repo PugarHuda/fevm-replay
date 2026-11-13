@@ -77,3 +77,32 @@ pub fn close() uses (html: mut MemBuffer) {
         .fmt(mut html)
     "</main>\n</body>\n</html>\n".fmt(mut html)
 }
+
+/// A badge for a README: the contract's name and whether its port matched
+/// the deployed code everywhere, as a small SVG.
+pub fn badge<C: Display>(_ name: C, clean: bool) uses (svg: mut MemBuffer) {
+    "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"230\" height=\"20\" role=\"img\" aria-label=\"Fe port: "
+        .fmt(mut svg)
+    if clean {
+        "verified on mainnet".fmt(mut svg)
+    } else {
+        "differs".fmt(mut svg)
+    }
+    "\"><rect width=\"64\" height=\"20\" fill=\"#1f2624\"/><rect x=\"64\" width=\"166\" height=\"20\" fill=\""
+        .fmt(mut svg)
+    if clean {
+        "#2e8b6f".fmt(mut svg)
+    } else {
+        "#c9961a".fmt(mut svg)
+    }
+    "\"/><g fill=\"#fff\" font-family=\"Verdana,DejaVu Sans,sans-serif\" font-size=\"11\"><text x=\"8\" y=\"14\">Fe port</text><text x=\"72\" y=\"14\">"
+        .fmt(mut svg)
+    name.fmt(mut svg)
+    if clean {
+        " verified".fmt(mut svg)
+    } else {
+        " differs".fmt(mut svg)
+    }
+    "</text></g><title>fevm-replay certify</title></svg>
+".fmt(mut svg)
+}

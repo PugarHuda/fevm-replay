@@ -452,6 +452,15 @@ fn code_targets(
     (first, count)
 }
 
+/// A copy of `targets`.
+pub fn copy_targets(_ targets: MemVec<u256>) -> MemVec<u256> {
+    var out: MemVec<u256> = MemVec::new()
+    for i in 0 .. targets.len() {
+        out.push(targets[i])
+    }
+    out
+}
+
 // The accounts of `world` to shadow: `address` if present, and every account
 // whose code is `like` (when `like` is not empty).
 pub fn shadow_targets(_ world: WorldState, _ address: u256, _ like: MemSpan) -> MemVec<u256> {

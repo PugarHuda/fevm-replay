@@ -363,6 +363,16 @@ alone. The port running out stays a difference, as above.
 Of the 20,926 in-flight changes, 19,037 got past the pair's own checks. The
 planted bug still shows 23 differences under the same rules.
 
+A mutation can reach state its transaction never touched, which its
+prestate does not hold. Given an RPC URL as its last argument, `fuzz-block`
+asks the node which accounts and slots each changed calldata touches
+(`eth_createAccessList`, no debug namespace needed), reads the missing ones
+at the parent block, and applies the state diffs of the block's earlier
+transactions, so they hold their values at the moment the transaction ran.
+On a first sample of two blocks with five mutations each, 5 of the 30
+changed calldatas reached such state (6 accounts and slots fetched), and
+none differed.
+
 Run longer, with 200 mutations per transaction and three seeds over the same
 200 blocks:
 
@@ -462,6 +472,36 @@ calls everything: transfers, approvals and views from any account, and
 The run reaches 2,541 of the port's 2,610 instructions (97%); mainnet
 mutations reach 36%.
 
+### A proxy: USDC's FiatTokenProxy
+
+[`ports/usdc-proxy`](ports/usdc-proxy) is zos's `AdminUpgradeabilityProxy`
+(solc 0.4.24) in Fe, the code at USDC's address. It keeps its state at two
+hashed slots (`org.zeppelinos.proxy.implementation` and `.admin`) with raw
+`sstore`/`sload`, forwards every call to the implementation with
+`DELEGATECALL` and returns or reverts with exactly what came back, runs the
+admin's functions for the admin only (anyone else calling `admin()` is
+forwarded), refuses the admin the fallback with the deployed reason, and
+upgrades only to contracts.
+
+| Fe proxy in place of USDC's | 200 blocks | 90 blocks across the year |
+| --- | ---: | ---: |
+| Transactions that ran it | 12,850 | 3,747 |
+| Identical logs and state | 12,087 | 3,582 |
+| Differ where code reads the gas left | 761 | 165 |
+| **Behave differently** | **2** | **0** |
+
+`fuzz-proxy` puts the admin's functions to work (upgrades to contracts and
+to accounts without code, `upgradeToAndCall` with and without data and
+value, `changeAdmin`, from the admin and from anyone) in front of WETH9's
+code: 1.2 million calls, none different, 92% of the port reached.
+
+The two differences are the port's own cost. Copying calldata and return
+data through Fe's `MemBuffer` costs 40 to 60 gas a call more than solc's
+inline assembly (`transfer` +0.3%, `balanceOf` +2.1%), and two transactions
+call USDC with a gas allowance so tight that the deployed proxy fits and the
+port runs out. A port that costs more is a difference, so they stay counted;
+it is the one place a Fe port is costlier than the code it replaces.
+
 ### Every label, explained
 
 A difference labeled "reads the gas left" is only excused if the gas reading
@@ -488,6 +528,31 @@ report says whether the port ran at all. In all three, a bot reads the code
 hashes of the two pairs it is about to use and reverts with its own error
 before calling either: the port never ran, so the difference is the code's
 identity, not its behavior.
+
+### Where Fe saves gas
+
+`opgas` charges every opcode of a function the gas it took, on the deployed
+code and on the port, over the same mainnet calls (the calls the function
+makes are left out). [The chart](https://fevm-replay.vercel.app/opgas.html)
+groups them:
+
+```sh
+./out/fevm_replay opgas pair.hex out/pair/UniswapV2Pair.runtime.bin 0x022c0d9f blocks/*
+```
+
+| Fe minus solc, gas | `swap` (856 calls) | USDT `transfer` (16,217 calls) |
+| --- | ---: | ---: |
+| Stack shuffling (`POP`, `DUP`, `SWAP`, `PUSH`) | −526,616 | −8,816,663 |
+| Arithmetic and logic | −189,343 | −5,866,394 |
+| Storage | −217,600 | 0 |
+| Control flow | +179,432 | −3,390,675 |
+| Memory | +93,179 | +340,083 |
+| **Total** | **−2.6%** | **−3.8%** |
+
+Fe moves fewer values around the stack and needs no `EXP` for `2**112`;
+it copies calldata and return data into buffers where solc reads them in
+place, which is all a proxy does, so the Fe proxy is the one port that costs
+more.
 
 ### Who reads the gas left
 
@@ -533,10 +598,19 @@ fork) to 26,300,000 (November 2026), plus the 200 blocks above.
 | Differ where code reads the gas left (all explained) | 42 |
 | **Behave differently** | **0** |
 
-Before Osaka, fevm's rules are not the chain's. Replaying ten Prague
-blocks (23,800,000 to 23,800,009) under Osaka rules turns that into a
-measurement of what the fork changed for real transactions: 1,897 of 1,900
-match, and each of the three that do not is a rule Osaka changed.
+Before Osaka, fevm's rules are not the chain's. Replaying Prague blocks
+under Osaka rules turns that into a measurement of what the fork changed
+for real transactions. Over sixty Prague blocks (13,022 transactions), 48
+end differently, and every one is explained by one of three EIPs
+([the fork page](https://fevm-replay.vercel.app/fork.html) lists them all):
+
+| Under Osaka | Transactions | |
+| --- | ---: | --- |
+| EIP-7825: gas limit above 2^24, rejected | 15 | including plain transfers that named more gas than they needed |
+| EIP-7883: MODEXP costs more | 16 | five reverted or ran out of gas |
+| EIP-7951: P256VERIFY at `0x100` | 17 | smart wallets spent a third to two thirds less gas |
+
+Three examples from the first ten blocks:
 
 | Prague transaction, run under Osaka | What changed | Why |
 | --- | --- | --- |
@@ -603,6 +677,21 @@ calls and mainnet mutations. The unchanged port goes first and must pass.
 token that returns nothing: the fuzzer's tokens all return `true`, while a
 USDT pair on mainnet returns nothing.
 
+The survivors then showed what the fuzzer could not reach, and it learned to:
+an account holding 2^113 of each token and transfers that top the pair up
+to exactly `UINT112_MAX - 1`, `UINT112_MAX` and one past it, so the
+overflow check in `_update` is hit at its edge. That kills the three
+overflow mutants and the exact-`k` one: 61 by random calls, 62 with mainnet.
+
+Of the 12 left, 11 change nothing a caller can see, each for a stated
+reason: `sqrt` below 4 never runs (a first mint needs a product above 10^6),
+a revert reason is never exactly 32 bytes, `min` and `amount_in` agree at
+equality, `elapsed >= 0` adds zero to the accumulators, `root_k >=
+root_k_last` mints zero, and `last == 0` writes the zero already there. One
+is a real blind spot: `liquidity >= 0` would mint zero fee liquidity, which
+takes a fee-on pair whose `k` grew by less than six. **62 of the 63
+non-equivalent mutants are caught.**
+
 The first run killed 57 (77%). Of the 17 survivors, about half change nothing a caller can
 see: `elapsed >= 0` for `elapsed > 0` (a zero adds nothing to the price
 accumulators), `x <= y` for `x < y` in `min`, `>=` for `>` against a revert
@@ -631,7 +720,8 @@ missed, to score them on their own.
 builds the port from source with `fe` (and records both code hashes),
 replays the saved blocks with the port in place of every copy of the
 deployed code, mutates their transactions, fuzzes the port, and plants
-mutants. It exits 1 if anything differs.
+mutants. It exits 1 if anything differs, and writes a badge beside the page
+(`certificate.svg` for `certificate.html`) for a README.
 
 ```sh
 ./out/fevm_replay certify certificate.html pair.hex ports/uniswap-v2-pair UniswapV2Pair weth9.hex 74 blocks/*
@@ -742,11 +832,12 @@ Other Fe pieces doing real work:
 | `src/watch.fe` | `GasWatch`, a tracer that records every call (caller, account it runs as, value, gas, calldata and output), reads of the gas left after shadow code ran, of code hashes, `BLOCKHASH`, and the port's program counters; where two runs part and which gas reading explains it |
 | `src/mutants.fe` | mutation sites in a port's source and the mutants planted there |
 | `src/certify.fe` | the certificate page |
-| `src/lib.fe` | the CLI: `fetch`, `fetch-block`, `fetch-code`, `fetch-hashes`, `block`, `range`, `chain`, `trace`, `fuzz`, `fuzz-pair`, `fuzz-block`, `mutants`, `certify`, replaying fixture files |
+| `src/lib.fe` | the CLI: `fetch`, `fetch-block`, `fetch-code`, `fetch-hashes`, `block`, `range`, `chain`, `trace`, `opgas`, `fuzz`, `fuzz-pair`, `fuzz-usdt`, `fuzz-proxy`, `fuzz-block`, `mutants`, `certify`, replaying fixture files |
 | `src/tests.fe` | unit tests for the helpers |
 | `ports/weth9` | WETH9 in Fe, for shadow replay |
 | `ports/uniswap-v2-pair` | UniswapV2Pair in Fe, for shadow replay of every V2 pair |
 | `ports/usdt` | TetherToken (USDT) in Fe |
+| `ports/usdc-proxy` | FiatTokenProxy, USDC's upgradeable proxy, in Fe |
 
 ## Build and test
 
@@ -839,11 +930,13 @@ recorded in a headless browser. The same steps by hand:
   fevm's tracer does not expose the stack, so the target of `EXTCODEHASH` is
   found by replaying with the port at one account at a time, and a gas
   reading is tied to a difference through the call tree.
-- **Mainnet mutations cannot fetch state on demand.** A mutation that reaches
-  a slot the original transaction never touched sees it empty in both runs.
-  Fetching it would need the slot's key, which only the stack holds, or a
-  node call per mutation (`debug_traceCall` with the block's earlier diffs
-  applied); neither is done.
+- **Untouched state is fetched only on request, and only for calldata
+  changes.** Without an RPC URL a mutation that reaches a slot its
+  transaction never touched sees it empty in both runs. With one,
+  `eth_createAccessList` names what the changed calldata touches, at the
+  parent block: a slot reached only because an earlier transaction in the
+  same block changed the path is not named. In-flight changes are not
+  fetched, since the proxy that makes them is not on chain.
 - **Only Osaka.** fevm implements Osaka rules, so exact replays cover blocks
   from December 2025 on. Older blocks replay under Osaka rules as a
   measurement of the fork, not a check of fevm (see
