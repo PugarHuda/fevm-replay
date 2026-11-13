@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Where runs part · fevm-replay</title>
+<meta name="description" content="Real mainnet transactions run on the deployed Uniswap V2 pair and on the Fe port, call by call, with the call where the two runs part marked.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=2">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='3' fill='%23f2f4f3' stroke='%231f2624' stroke-width='2'/%3E%3Ctext x='16' y='22' font-family='sans-serif' font-weight='700' font-size='14' text-anchor='middle' fill='%231f2624'%3EFe%3C/text%3E%3C/svg%3E">
+<style>
+  .ex-head { padding-block: 1.5rem 0.5rem; }
+  .ex-head h1 { font-size: clamp(2rem, 4.5vw, 3rem); letter-spacing: -0.03em; line-height: 1.05; margin: 0 0 0.75rem; }
+  .cases { display: grid; grid-template-columns: repeat(auto-fit, minmax(12.5rem, 1fr)); gap: 0.75rem; margin: 1.75rem 0 1.25rem; }
+  .cases button {
+    font: inherit; text-align: left; cursor: pointer; color: inherit;
+    background: transparent; border: 1px solid var(--rule); border-top: 3px solid var(--rule);
+    border-radius: 3px; padding: 0.75rem 0.9rem;
+  }
+  .cases button b { display: block; font-weight: 700; }
+  .cases button span { display: block; color: var(--steel); font-size: 0.9rem; margin-top: 0.2rem; }
+  .cases button[aria-pressed="true"] { border-top-color: var(--diff); background: var(--paper-2); }
+  .cases button.same[aria-pressed="true"] { border-top-color: var(--match); }
+  .cases button:hover { border-color: var(--ink); }
+  .story-box { max-width: var(--measure); border-left: 3px solid var(--diff); padding-left: 1rem; margin: 0 0 1.25rem; }
+  .story-box.same { border-left-color: var(--match); }
+  .story-box p { margin: 0.4rem 0; }
+  .meta { font-family: var(--mono); font-size: 0.8rem; color: var(--steel); overflow-wrap: anywhere; margin-bottom: 1rem; }
+  .runs { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+  .runs h2 { font-size: 1rem; margin: 0 0 0.5rem; display: flex; justify-content: space-between; gap: 1rem; }
+  .runs h2 small { color: var(--steel); font-weight: 500; font-variant-numeric: tabular-nums; }
+  .calls { list-style: none; margin: 0; padding: 0; border: 1px solid var(--rule); border-radius: 4px; overflow: hidden; }
+  .calls li { border-bottom: 1px solid var(--rule); }
+  .calls li:last-child { border-bottom: 0; }
+  .calls button {
+    all: unset; box-sizing: border-box; display: grid; width: 100%; cursor: pointer;
+    grid-template-columns: minmax(0, 1fr) auto; gap: 0.25rem 0.75rem;
+    padding: 0.4rem 0.6rem; font-size: 0.86rem;
+  }
+  .calls button:hover { background: var(--paper-2); }
+  .calls button:focus-visible { outline: 3px solid var(--match); outline-offset: -3px; }
+  .calls .who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .calls .kind { font-family: var(--mono); font-size: 0.72rem; color: var(--steel); margin-right: 0.35rem; }
+  .calls .fn { font-weight: 600; }
+  .calls .addr { font-family: var(--mono); font-size: 0.78rem; color: var(--steel); }
+  .calls .pair { font-family: var(--mono); font-size: 0.68rem; border: 1px solid var(--match); color: var(--match); border-radius: 3px; padding: 0 0.25rem; margin-left: 0.3rem; }
+  .calls .end { text-align: right; font-variant-numeric: tabular-nums; font-size: 0.8rem; white-space: nowrap; }
+  .calls .status { font-family: var(--mono); font-size: 0.72rem; margin-left: 0.4rem; }
+  .calls .status.bad { color: var(--diff); font-weight: 600; }
+  .calls li.part { background: color-mix(in srgb, var(--diff) 18%, transparent); }
+  .calls li.part button::before { content: "parts here"; grid-column: 1 / -1; font-family: var(--mono); font-size: 0.68rem; font-weight: 600; color: var(--diff); letter-spacing: 0.04em; text-transform: uppercase; }
+  .calls li.open .detail { display: block; }
+  .detail { display: none; padding: 0 0.6rem 0.6rem; font-family: var(--mono); font-size: 0.72rem; overflow-wrap: anywhere; color: var(--steel); }
+  .detail div { margin-top: 0.25rem; }
+  .detail b { color: var(--ink); font-weight: 600; }
+  .legend { color: var(--steel); font-size: 0.9rem; margin-top: 1.25rem; max-width: var(--measure); }
+  @media (max-width: 820px) { .runs { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header class="wrap site-head">
+  <a class="mark" href="./" aria-label="fevm-replay home">
+    <span class="tile" aria-hidden="true"><small>26</small><b>Fe</b></span>
+    <span>fevm-replay</span>
+  </a>
+  <nav aria-label="Main">
+    <a href="./">Overview</a>
+    <a href="docs.html">Docs</a>
+    <a href="explorer.html" aria-current="page">Explorer</a>
+    <a href="https://github.com/PugarHuda/fevm-replay">GitHub</a>
+  </nav>
+</header>
+
+<main class="wrap">
+  <section class="ex-head">
+    <h1>Where two runs part</h1>
+    <p class="intro">Each transaction below is real: fevm ran it on its mainnet pre-state twice, once with the deployed Uniswap V2 pair and once with every pair replaced by the Fe port. Every call is listed in the order it began, indented by depth. The call where the runs first part, in the order calls ended, is marked. Pick a call for its calldata and output. The data comes from <code>fevm_replay trace</code>.</p>
+  </section>
+
+  <div class="cases" role="group" aria-label="Transactions">
+    <button type="button" data-case="dirty-address" aria-pressed="true"><b>A bug the port had</b><span>A bot packs data into an address argument</span></button>
+    <button type="button" data-case="code-hash" aria-pressed="false"><b>Code checked by hash</b><span>A bot refuses code it does not know</span></button>
+    <button type="button" data-case="builder-tip" aria-pressed="false"><b>A tip worked out from gas</b><span>The same calls, another amount</span></button>
+    <button type="button" class="same" data-case="identical" aria-pressed="false"><b>No difference</b><span>An ordinary swap through a pair</span></button>
+  </div>
+
+  <div class="story-box" id="story"></div>
+  <div class="meta" id="meta"></div>
+
+  <div class="runs">
+    <section>
+      <h2>Deployed pair (Solidity) <small id="count-a"></small></h2>
+      <ol class="calls" id="calls-a"></ol>
+    </section>
+    <section>
+      <h2>Fe port <small id="count-b"></small></h2>
+      <ol class="calls" id="calls-b"></ol>
+    </section>
+  </div>
+  <p class="legend">Each row shows the opcode that made the call (CALL, STATICCALL, DELEGATECALL), the function when its selector is known (<span class="mono">send</span> for a call without calldata), the target (<span class="mono">pair</span> marks an account running the shadowed code), the gas the call used and how it ended. Gas used differs between the runs wherever the port runs: that is expected, and only behavior counts.</p>
+</main>
+
+<footer class="wrap site-foot">
+  <span>Built for the Fe Builders Challenge 2026. Apache-2.0.</span>
+  <span><a href="./">Overview</a>, <a href="docs.html">docs</a> and <a href="https://github.com/PugarHuda/fevm-replay">source</a></span>
+</footer>
+
+<script>
+const STORIES = {
+  "dirty-address": {
+    block: "26,000,008, with the port as it was before the fix",
+    text: [
+      "A bot calls the USDT pair's <code>swap</code> with data packed into the upper twelve bytes of the <code>to</code> argument. Solidity's ABI decoder keeps the low 160 bits and pays out. Fe's decoder rejected the word, so the port reverted at once and the whole transaction with it.",
+      "This is the port before the fix, rebuilt from git history. The fuzzers had flagged dirty addresses as a known difference; mainnet showed that real callers depend on it. Both ports now clean address arguments as solc does."
+    ]
+  },
+  "code-hash": {
+    block: "26,400,032",
+    text: [
+      "A trading bot reads the code hash of the pairs it is about to use. With the Fe port in place the hash is different, so the bot reverts with its own error before it calls a single pair.",
+      "The port never ran here: the difference is the code's identity, not its behavior. Replaying with the port at one pair at a time shows the bot checks both pairs."
+    ]
+  },
+  "builder-tip": {
+    block: "24,200,005",
+    text: [
+      "A bot routes a swap through a pair, then pays the block builder a tip it works out from <code>gasleft()</code>. The port uses less gas, so the tip differs, though every call has the same calldata and output.",
+      "The runs part at the payment to the builder: the same call with another amount. The bot that made it read the gas left, which explains the difference."
+    ]
+  },
+  "identical": {
+    block: "23,940,000",
+    text: [
+      "An ordinary swap. Both runs make the same calls with the same calldata, values, outcomes and outputs, and leave the same logs and state. Only the gas the pair used differs."
+    ],
+    same: true
+  }
+};
+
+const SELECTORS = {
+  "0x022c0d9f": "swap", "0x0902f1ac": "getReserves", "0xa9059cbb": "transfer", "0x70a08231": "balanceOf",
+  "0x23b872dd": "transferFrom", "0x095ea7b3": "approve", "0xdd62ed3e": "allowance", "0x128acb08": "swap (V3)",
+  "0xfa461e33": "uniswapV3SwapCallback", "0x414bf389": "exactInputSingle", "0x10d1e85c": "uniswapV2Call",
+  "0x6a627842": "mint", "0x89afcb44": "burn", "0xd0e30db0": "deposit", "0x2e1a7d4d": "withdraw",
+  "0x0dfe1681": "token0", "0xd21220a7": "token1", "0x18160ddd": "totalSupply", "0x38ed1739": "swapExactTokensForTokens",
+  "0x7ff36ab5": "swapExactETHForTokens", "0x18cbafe5": "swapExactTokensForETH", "0x3593564c": "execute"
+};
+const KINDS = { 240: "CREATE", 241: "CALL", 242: "CALLCODE", 244: "DELEGATECALL", 245: "CREATE2", 250: "STATICCALL" };
+const cache = {};
+
+function short(a) { return a.slice(0, 8) + "…" + a.slice(-4); }
+function eth(wei) {
+  const v = BigInt(wei);
+  if (v === 0n) return "";
+  if (v < 10n ** 9n) return v.toLocaleString("en") + " wei";
+  if (v < 10n ** 15n) return (Number(v) / 1e9).toLocaleString("en", { maximumFractionDigits: 3 }) + " gwei";
+  const whole = v / 10n ** 18n, frac = (v % 10n ** 18n).toString().padStart(18, "0").replace(/0+$/, "");
+  return whole + (frac ? "." + frac : "") + " ETH";
+}
+
+function render(list, run, shadowed, parting) {
+  list.replaceChildren();
+  run.forEach((c) => {
+    const li = document.createElement("li");
+    if (parting !== null && c.ended === parting) li.className = "part";
+    const b = document.createElement("button");
+    b.type = "button";
+    b.setAttribute("aria-expanded", "false");
+    const sel = c.input.slice(0, 10);
+    const name = c.input.length <= 2 ? "send" : (SELECTORS[sel] || sel);
+    const who = document.createElement("span");
+    who.className = "who";
+    who.style.paddingLeft = (c.depth * 0.9) + "rem";
+    who.innerHTML = `<span class="kind">${KINDS[c.kind] || c.kind}</span><span class="fn"></span>` +
+      (shadowed.has(c.to) ? `<span class="pair">pair</span>` : "") + ` <span class="addr">${short(c.to)}</span>`;
+    who.querySelector(".fn").textContent = name;
+    const end = document.createElement("span");
+    end.className = "end";
+    const value = eth(c.value);
+    end.innerHTML = `${value ? value + " · " : ""}${c.used.toLocaleString("en")} gas<span class="status${c.status === "success" ? "" : " bad"}">${c.status}</span>`;
+    b.append(who, end);
+    const d = document.createElement("div");
+    d.className = "detail";
+    const rows = [["to", c.to], ["as", c.as], ["calldata", c.input], ["output", c.output]];
+    if (value) rows.splice(2, 0, ["value", value]);
+    rows.forEach(([k, v]) => {
+      const row = document.createElement("div");
+      const key = document.createElement("b");
+      key.textContent = k + " ";
+      row.append(key, document.createTextNode(v.length > 2 ? v : "(none)"));
+      d.append(row);
+    });
+    b.addEventListener("click", () => {
+      const open = li.classList.toggle("open");
+      b.setAttribute("aria-expanded", String(open));
+    });
+    li.append(b, d);
+    list.append(li);
+  });
+}
+
+async function show(name) {
+  document.querySelectorAll(".cases button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.case === name)));
+  const story = STORIES[name];
+  const box = document.getElementById("story");
+  box.className = "story-box" + (story.same ? " same" : "");
+  box.innerHTML = story.text.map((p) => `<p>${p}</p>`).join("");
+  let data = cache[name];
+  if (!data) {
+    try {
+      const r = await fetch(`traces/${name}.json`);
+      data = cache[name] = await r.json();
+    } catch (e) {
+      document.getElementById("meta").textContent = "Could not load the trace.";
+      return;
+    }
+  }
+  const shadowed = new Set(data.shadowed);
+  document.getElementById("meta").innerHTML =
+    `block ${story.block} · tx <a href="https://etherscan.io/tx/${data.hash}">${data.hash}</a>` +
+    ` · ${data.parting === null ? "the runs never part" : "they part at call " + (data.parting + 1) + " in the order calls ended"}`;
+  render(document.getElementById("calls-a"), data.deployed, shadowed, data.parting);
+  render(document.getElementById("calls-b"), data.shadow, shadowed, data.parting);
+  document.getElementById("count-a").textContent = data.deployed.length + " calls";
+  document.getElementById("count-b").textContent = data.shadow.length + " calls";
+}
+
+document.querySelectorAll(".cases button").forEach((b) => b.addEventListener("click", () => show(b.dataset.case)));
+show("dirty-address");
+</script>
+</body>
+</html>

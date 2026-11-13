@@ -77,6 +77,10 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     ) {
         return fetch_hashes_command()
     }
+    // "mutants"
+    if is_word(args.get(1), [0x6d, 0x75, 0x74, 0x61, 0x6e, 0x74, 0x73]) {
+        return mutants_command()
+    }
     // "trace"
     if is_word(args.get(1), [0x74, 0x72, 0x61, 0x63, 0x65]) {
         return trace_command()
@@ -707,6 +711,201 @@ uses (out: mut Stdout)
 }
 
 #[cfg(target_family = "unix")]
+/// `mutants <port-dir> <Contract> <deployed.hex> <token.hex|-> <count> [<dir>...]`:
+/// plants `count` mutants, spread over the operators in the port's
+/// `src/lib.fe` (see `mutants::sites`), builds each with `fe` and checks it
+/// as `fuzz` or `fuzz-pair` would (a well-formed call that differs, or a
+/// broken invariant, kills it), then on the saved blocks as `fuzz-block`
+/// would. Prints the survivors and the share killed: how sharp the checks
+/// are. The original port must survive, or the score means nothing.
+#[cfg(target_family = "unix")]
+fn mutants_command() -> i32
+uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut Stdout)
+{
+    if args.count() < 7 {
+        println!(
+            "usage: fevm-replay mutants <port-dir> <Contract> <deployed.hex> <token.hex|-> <count> [<dir>...]",
+        )
+        return 2
+    }
+    let port_dir = args.get(2)
+    let Option::Some(deployed) = read_shadow(args.get(4)) else {
+        return 1
+    }
+    let token = if args.get(5).span().len() == 1 {
+        MemBuffer::empty()
+    } else {
+        let Option::Some(code) = read_shadow(args.get(5)) else {
+            return 1
+        }
+        code
+    }
+    let wanted: u64 = core::text::parse_uint(args.get(6).span()).unwrap_or(default: 20).downcast_unchecked()
+    let Result::Ok(source) = fs.read(fetch::join(port_dir, "src/lib.fe")) else {
+        println!("ERROR ", port_dir, "/src/lib.fe: cannot read")
+        return 1
+    }
+    let Result::Ok(manifest) = fs.read(fetch::join(port_dir, "fe.toml")) else {
+        println!("ERROR ", port_dir, "/fe.toml: cannot read")
+        return 1
+    }
+    // The mutant's ingot: the port's manifest and one mutated source.
+    let work = "/tmp/fevm-replay-mutant"
+    let Result::Ok(_) = fs.create_dir_all(fetch::join(work, "src")) else {
+        println!("ERROR ", work, ": cannot create")
+        return 1
+    }
+    let Result::Ok(_) = fs.write(fetch::join(work, "fe.toml"), manifest.span()) else {
+        return 1
+    }
+    var binary = MemBuffer::empty()
+    work.fmt(mut binary)
+    "/out/".fmt(mut binary)
+    args.get(3).fmt(mut binary)
+    ".runtime.bin".fmt(mut binary)
+    let all = mutants::sites(source.span())
+    let total: u64 = all.len().downcast_unchecked()
+    let count = if wanted > total { total } else { wanted }
+    println!(
+        "mutating ",
+        port_dir,
+        ": ",
+        total,
+        " operators, ",
+        count,
+        " mutants",
+    )
+    var built: u64 = 0
+    var by_fuzz: u64 = 0
+    var by_mainnet: u64 = 0
+    var survived: u64 = 0
+    // The original first: it must survive.
+    var n: u64 = 0
+    while n <= count {
+        let mutated = if n == 0 {
+            MemBuffer::from_span(source.span())
+        } else {
+            let pick: usize = ((n - 1) * total / count).downcast_unchecked()
+            mutants::apply(source.span(), all[pick])
+        }
+        let Result::Ok(_) = fs.write(fetch::join(work, "src/lib.fe"), mutated.span()) else {
+            return 1
+        }
+        var out_dir = MemBuffer::empty()
+        work.fmt(mut out_dir)
+        "/out".fmt(mut out_dir)
+        let command = std::process::Command::new("fe")
+            .arg("build")
+            .arg("-O")
+            .arg("2")
+            .arg("--out-dir")
+            .arg(out_dir)
+            .arg(work)
+            .stdout(std::process::Redirect::Capture)
+            .stderr(std::process::Redirect::Capture)
+        let compiled = match proc.output(command) {
+            Result::Ok(output) => output.status.success(),
+            Result::Err(_) => false,
+        }
+        var line: usize = 0
+        var start: usize = 0
+        var end: usize = 0
+        if n > 0 {
+            let pick: usize = ((n - 1) * total / count).downcast_unchecked()
+            let (l, s, e) = mutants::line_of(mutated.span(), mutated_at(all[pick]))
+            line = l
+            start = s
+            end = e
+        }
+        if !compiled {
+            if n == 0 {
+                println!("ERROR the port itself does not build with fe")
+                return 1
+            }
+            n += 1
+            continue
+        }
+        let Result::Ok(hex) = fs.read(binary) else {
+            println!("ERROR ", binary, ": cannot read")
+            return 1
+        }
+        let port = hex_bytes(hex.span())
+        var fuzzed = fuzz::Findings::new()
+        fuzz::fuzz(
+            deployed.span(),
+            port.span(),
+            token: token.span(),
+            runs: 300,
+            steps: 60,
+            seed: 1,
+            mut fuzzed,
+        )
+        var killed = fuzzed.identical[0] != fuzzed.calls[0] || fuzzed.invariant_breaks > 0
+        var mainnet = false
+        if !killed && args.count() > 7 {
+            var found = mutate::Mutations::new()
+            var first_block = MemBuffer::empty()
+            var first_hash = MemBuffer::empty()
+            for d in 7 .. args.count() {
+                mutate_dir(
+                    args.get(d),
+                    deployed: deployed.span(),
+                    port: port.span(),
+                    count: 20,
+                    seed: 7,
+                    mut found,
+                    mut first_block,
+                    mut first_hash,
+                )
+            }
+            mainnet = found.differ > 0
+        }
+        if n == 0 {
+            if killed || mainnet {
+                println!("ERROR the unchanged port already differs; fix it first")
+                return 1
+            }
+            n += 1
+            continue
+        }
+        built += 1
+        if killed {
+            by_fuzz += 1
+        } else if mainnet {
+            by_mainnet += 1
+        } else {
+            survived += 1
+            let text = mutated.span()
+            var shown = MemBuffer::empty()
+            for i in start .. end {
+                shown.push(text[i])
+            }
+            println!("  survived: line ", line, ": ", shown)
+        }
+        n += 1
+    }
+    let killed = by_fuzz + by_mainnet
+    println!(
+        "  ",
+        built,
+        " mutants built: ",
+        by_fuzz,
+        " killed by fuzzing, ",
+        by_mainnet,
+        " by mainnet mutations, ",
+        survived,
+        " survived; ",
+        if built == 0 { 0 } else { killed * 100 / built },
+        "% killed",
+    )
+    0
+}
+
+// Where a site's replacement starts in the mutated source: the site.
+fn mutated_at(_ site: mutants::Site) -> usize {
+    site.at
+}
+
 /// `trace <dir> <index> <address|deployed.hex> <port.bin>`: both runs of one
 /// saved transaction, deployed and shadowed, call by call as JSON (see
 /// `replay::trace_tx`).
@@ -1226,6 +1425,83 @@ uses (out: mut Stdout) {
     )
 }
 
+// Mutates every transaction of the block saved in `dir` that touches
+// `deployed` (see `mutate::mutate_tx`), recording the first difference's
+// block and transaction hash.
+fn mutate_dir<D: Display>(
+    _ dir: D,
+    deployed: MemSpan,
+    port: MemSpan,
+    count: u64,
+    seed: u64,
+    _ found: mut mutate::Mutations,
+    _ first_block: mut MemBuffer,
+    _ first_hash: mut MemBuffer,
+)
+uses (fs: std::fs::Fs, out: mut Stdout)
+{
+    let Option::Some(chain) = load_response(dir, "chain.json") else {
+        return
+    }
+    let Option::Some(block) = load_response(dir, "block.json") else {
+        return
+    }
+    let Option::Some(prestates) = load_response(dir, "prestate.json") else {
+        return
+    }
+    let header = ref block["result"]
+    var problem = MemBuffer::empty()
+    if !check::header_ok(header, mut problem) || !header["transactions"].as_array().is_some() {
+        println!("ERROR ", dir, "/block.json: ", problem)
+        return
+    }
+    let env = load_block(
+        header,
+        chain_id: field(chain, "result"),
+        blobbasefee: fetch::blob_base_fee(
+            excess: field(header, "excessBlobGas"),
+            fraction: fetch::update_fraction(field(header, "timestamp")),
+        ),
+    )
+    let extras = match load_json(dir, "delegates.json") {
+        Option::Some(doc) => doc,
+        Option::None => Value::object(),
+    }
+    let txs = header["transactions"].items()
+    if !same_length(prestates["result"], txs.len()) {
+        println!(
+            "ERROR ",
+            dir,
+            ": the traces do not list one entry per transaction",
+        )
+        return
+    }
+    for index in 0 .. txs.len() {
+        let entry = ref prestates["result"][index]
+        if !entry.as_object().is_some() || !entry.has("result") {
+            return
+        }
+        let before = found.first_tx
+        mutate::mutate_tx(
+            env,
+            parent_hash: field(header, "parentHash"),
+            extras,
+            txs[index],
+            entry["result"],
+            index: index.downcast_unchecked(),
+            deployed,
+            port,
+            count,
+            seed,
+            mut found,
+        )
+        if before == 0 && found.first_tx != 0 {
+            dir.fmt(mut first_block)
+            txs[index]["hash"].text().fmt(mut first_hash)
+        }
+    }
+}
+
 // The contracts that read the gas left where runs part, most runs first,
 // at most ten.
 fn print_readers(_ readers: MemVec<mutate::Reader>) uses (out: mut Stdout) {
@@ -1291,67 +1567,16 @@ uses (args: Args, fs: std::fs::Fs, out: mut Stdout)
     var first_block = MemBuffer::empty()
     var first_hash = MemBuffer::empty()
     for d in 2 .. end - 2 {
-        let dir = args.get(d)
-        let Option::Some(chain) = load_response(dir, "chain.json") else {
-            continue
-        }
-        let Option::Some(block) = load_response(dir, "block.json") else {
-            continue
-        }
-        let Option::Some(prestates) = load_response(dir, "prestate.json") else {
-            continue
-        }
-        let header = ref block["result"]
-        var problem = MemBuffer::empty()
-        if !check::header_ok(header, mut problem) || !header["transactions"].as_array().is_some() {
-            println!("ERROR ", dir, "/block.json: ", problem)
-            continue
-        }
-        let env = load_block(
-            header,
-            chain_id: field(chain, "result"),
-            blobbasefee: fetch::blob_base_fee(
-                excess: field(header, "excessBlobGas"),
-                fraction: fetch::update_fraction(field(header, "timestamp")),
-            ),
+        mutate_dir(
+            args.get(d),
+            deployed: deployed.span(),
+            port: port.span(),
+            count,
+            seed,
+            mut found,
+            mut first_block,
+            mut first_hash,
         )
-        let extras = match load_json(dir, "delegates.json") {
-            Option::Some(doc) => doc,
-            Option::None => Value::object(),
-        }
-        let txs = header["transactions"].items()
-        if !same_length(prestates["result"], txs.len()) {
-            println!(
-                "ERROR ",
-                dir,
-                ": the traces do not list one entry per transaction",
-            )
-            continue
-        }
-        for index in 0 .. txs.len() {
-            let entry = ref prestates["result"][index]
-            if !entry.as_object().is_some() || !entry.has("result") {
-                continue
-            }
-            let before = found.first_tx
-            mutate::mutate_tx(
-                env,
-                parent_hash: field(header, "parentHash"),
-                extras,
-                txs[index],
-                entry["result"],
-                index: index.downcast_unchecked(),
-                deployed: deployed.span(),
-                port: port.span(),
-                count,
-                seed,
-                mut found,
-            )
-            if before == 0 && found.first_tx != 0 {
-                dir.fmt(mut first_block)
-                txs[index]["hash"].text().fmt(mut first_hash)
-            }
-        }
     }
     println!(
         "mutated ",

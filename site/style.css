@@ -178,7 +178,8 @@ p { max-width: var(--measure); }
 @media (max-width: 520px) {
   .pipeline { grid-template-columns: 1fr; }
   .pipeline li + li { padding-left: 0; border-left: 0; }
-  .site-head nav { gap: 0.9rem; font-size: 0.95rem; }
+  .site-head { flex-wrap: wrap; }
+  .site-head nav { gap: 0.9rem; font-size: 0.95rem; flex-wrap: wrap; }
   .mosaic { gap: 2px; }
   .mosaic button { height: 16px; }
 }

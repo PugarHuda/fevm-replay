@@ -1,0 +1,135 @@
+//! Mutation testing of the oracle: small changes planted in a port's source
+//! (an operator flipped, a comparison loosened) that a sound check should
+//! catch. A mutant that survives every check either shows a blind spot or
+//! means the same as the original.
+
+use core::{MemBuffer, MemSpan, MemVec}
+
+/// A place in the source where operator `op` (see `OPERATORS`) stands.
+pub struct Site {
+    pub at: usize,
+    pub op: usize,
+}
+
+impl Copy for Site {}
+
+/// How many operators `operator` knows.
+pub const OPERATORS: usize = 14
+
+/// Operator `k` and what a mutant puts in its place, each as up to four
+/// bytes and their count, spaces around them included.
+pub fn operator(_ k: usize) -> ([u8; 4], usize, [u8; 4], usize) {
+    match k {
+        0 => ([0x20, 0x2b, 0x20, 0], 3, [0x20, 0x2d, 0x20, 0], 3), // " + " -> " - "
+        1 => ([0x20, 0x2d, 0x20, 0], 3, [0x20, 0x2b, 0x20, 0], 3), // " - " -> " + "
+        2 => ([0x20, 0x2a, 0x20, 0], 3, [0x20, 0x2f, 0x20, 0], 3), // " * " -> " / "
+        3 => ([0x20, 0x2f, 0x20, 0], 3, [0x20, 0x2a, 0x20, 0], 3), // " / " -> " * "
+        4 => ([0x20, 0x3c, 0x20, 0], 3, [0x20, 0x3c, 0x3d, 0x20], 4), // " < " -> " <= "
+        5 => ([0x20, 0x3c, 0x3d, 0x20], 4, [0x20, 0x3c, 0x20, 0], 3), // " <= " -> " < "
+        6 => ([0x20, 0x3e, 0x20, 0], 3, [0x20, 0x3e, 0x3d, 0x20], 4), // " > " -> " >= "
+        7 => ([0x20, 0x3e, 0x3d, 0x20], 4, [0x20, 0x3e, 0x20, 0], 3), // " >= " -> " > "
+        8 => ([0x20, 0x3d, 0x3d, 0x20], 4, [0x20, 0x21, 0x3d, 0x20], 4), // " == " -> " != "
+        9 => ([0x20, 0x21, 0x3d, 0x20], 4, [0x20, 0x3d, 0x3d, 0x20], 4), // " != " -> " == "
+        10 => ([0x20, 0x26, 0x26, 0x20], 4, [0x20, 0x7c, 0x7c, 0x20], 4), // " && " -> " || "
+        11 => ([0x20, 0x7c, 0x7c, 0x20], 4, [0x20, 0x26, 0x26, 0x20], 4), // " || " -> " && "
+        12 => ([0x20, 0x2b, 0x3d, 0x20], 4, [0x20, 0x2d, 0x3d, 0x20], 4), // " += " -> " -= "
+        _ => ([0x20, 0x2d, 0x3d, 0x20], 4, [0x20, 0x2b, 0x3d, 0x20], 4), // " -= " -> " += "
+    }
+}
+
+/// Every place in `source` where an operator stands in code: not in a
+/// comment, a string, an attribute or a `use` line.
+pub fn sites(_ source: MemSpan) -> MemVec<Site> {
+    var found: MemVec<Site> = MemVec::new()
+    var start: usize = 0
+    while start < source.len() {
+        var end = start
+        while end < source.len() && source[end] != 0x0a {
+            end += 1
+        }
+        if code_line(source, start, end) {
+            var i = start
+            while i < end {
+                // A comment ends the code on its line.
+                if i + 1 < end && source[i] == 0x2f && source[i + 1] == 0x2f {
+                    break
+                }
+                for k in 0 .. OPERATORS {
+                    let (from, len, _, _) = operator(k)
+                    if i + len <= end && matches(source, i, from, len) {
+                        found.push(Site { at: i, op: k })
+                    }
+                }
+                i += 1
+            }
+        }
+        start = end + 1
+    }
+    found
+}
+
+// Whether the line from `start` to `end` is code a mutant may touch.
+fn code_line(_ source: MemSpan, _ start: usize, _ end: usize) -> bool {
+    var i = start
+    while i < end && source[i] == 0x20 {
+        i += 1
+    }
+    if i + 1 < end && source[i] == 0x2f && source[i + 1] == 0x2f {
+        return false
+    }
+    if i < end && source[i] == 0x23 {
+        return false
+    }
+    if i + 3 < end && source[i] == 0x75 && source[i + 1] == 0x73 && source[i + 2] == 0x65 && source[i + 3] == 0x20 {
+        return false
+    }
+    for j in start .. end {
+        if source[j] == 0x22 {
+            return false
+        }
+    }
+    true
+}
+
+fn matches(_ source: MemSpan, _ at: usize, _ pattern: [u8; 4], _ len: usize) -> bool {
+    for j in 0 .. len {
+        if source[at + j] != pattern[j] {
+            return false
+        }
+    }
+    true
+}
+
+/// `source` with the operator at `site` replaced.
+pub fn apply(_ source: MemSpan, _ site: Site) -> MemBuffer {
+    let (_, from_len, to, to_len) = operator(site.op)
+    var out = MemBuffer::empty()
+    for i in 0 .. site.at {
+        out.push(source[i])
+    }
+    for j in 0 .. to_len {
+        out.push(to[j])
+    }
+    for i in site.at + from_len .. source.len() {
+        out.push(source[i])
+    }
+    out
+}
+
+/// The line number (from 1) of byte `at`, and where that line starts and
+/// ends.
+pub fn line_of(_ source: MemSpan, _ at: usize) -> (usize, usize, usize) {
+    var line: usize = 1
+    var start: usize = 0
+    for i in 0 .. at {
+        if source[i] == 0x0a {
+            line += 1
+            start = i + 1
+        }
+    }
+    var end = at
+    while end < source.len() && source[end] != 0x0a {
+        end += 1
+    }
+    (line, start, end)
+}

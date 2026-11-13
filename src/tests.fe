@@ -254,3 +254,25 @@ fn blob_fee_fraction_follows_the_forks() {
     assert!(ingot::fetch::update_fraction(1765290071) == 8346193)
     assert!(ingot::fetch::update_fraction(1767747671) == 11684671)
 }
+
+// Mutation sites: operators in code, not in comments or strings; a mutant
+// swaps one.
+#[test]
+fn mutants_flip_operators_in_code_only() {
+    // "if a < b {\n// x + y\nlet s = \"a + b\"\n"
+    var source = core::MemBuffer::empty()
+    let text: [u8; 37] = [
+        0x69, 0x66, 0x20, 0x61, 0x20, 0x3c, 0x20, 0x62, 0x20, 0x7b, 0x0a,
+        0x2f, 0x2f, 0x20, 0x78, 0x20, 0x2b, 0x20, 0x79, 0x0a,
+        0x6c, 0x65, 0x74, 0x20, 0x73, 0x20, 0x3d, 0x20, 0x22, 0x61, 0x20, 0x2b, 0x20, 0x62, 0x22, 0x0a, 0x0a,
+    ]
+    for i in 0 .. 37 {
+        source.push(text[i])
+    }
+    let sites = ingot::mutants::sites(source.span())
+    assert!(sites.len() == 1)
+    assert!(sites[0].at == 4 && sites[0].op == 4)
+    let mutant = ingot::mutants::apply(source.span(), sites[0])
+    assert!(mutant.len() == 38)
+    assert!(mutant.span()[5] == 0x3c && mutant.span()[6] == 0x3d)
+}
