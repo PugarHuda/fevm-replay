@@ -205,3 +205,12 @@ fn running_out_of_gas_first_is_a_cost() {
     a.calls[0].status = fevm::status::ERR_REVERT
     assert!(!ingot::mutate::ran_out_first(a, b))
 }
+
+// Solidity mapping slots: balanceOf[0x01] in slot 0.
+#[test]
+fn mapping_slots_match_solidity() {
+    assert!(
+        ingot::fuzz::mapping_slot(1, 0)
+            == 0xada5013122d395ba3c54772283fb069b10426056ef8ca54750cb9bb552a59e7d,
+    )
+}

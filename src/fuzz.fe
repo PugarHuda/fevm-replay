@@ -11,6 +11,7 @@
 //! logs and all state. Everything follows from the seed.
 
 use core::{MemBuffer, MemSpan, MemVec}
+use keccak::Keccak256
 use fevm::{
     BlockEnv,
     Buffers,
@@ -919,6 +920,8 @@ pub fn fuzz(
             let sender = eoa(rng.below(3))
             let to = call.to
             let k_before = if pair { k_of(b) } else { 0 }
+            let p0_before = b.storage_load(PAIR, 9)
+            let p1_before = b.storage_load(PAIR, 10)
             let tx_a = request(a, sender, to, call, data.span())
             let tx_b = request(b, sender, to, call, data.span())
             var buffers_a = Buffers::new()
@@ -987,8 +990,11 @@ pub fn fuzz(
             if pair {
                 let broken = check_invariants(
                     b,
-                    swapped: succeeded && call.selector == 0x022c0d9f,
+                    selector: if succeeded { call.selector } else { 0 },
+                    fee_on,
                     k_before,
+                    p0_before,
+                    p1_before,
                 )
                 if broken != 0 {
                     found.invariant_breaks += 1
@@ -1014,21 +1020,60 @@ fn k_of(_ world: WorldState) -> u256 {
     (reserves & mask) * ((reserves >> 112) & mask)
 }
 
-// Invariants of a Uniswap V2 pair after a top-level call: 1 if the lock is
-// still held, 2 if a successful swap left k lower than before it, 3 if the
-// supply is positive but below the 1,000 locked at the first deposit.
-fn check_invariants(_ world: WorldState, swapped: bool, _ k_before: u256) -> u8 {
+// Invariants of a Uniswap V2 pair after a top-level call, which succeeded
+// as `selector` (0 if it failed): 1 if the lock is still held, 2 if a swap
+// left k lower than before it, 3 if the supply is positive but below the
+// 1,000 locked at the first deposit, 4 if the pair holds less of a token
+// than its reserve, 5 if a cumulative price fell, 6 if `kLast` disagrees
+// with the fee: zero with the fee off, the reserves' product after a mint
+// or burn with it on.
+fn check_invariants(
+    _ world: WorldState,
+    selector: u32,
+    fee_on: bool,
+    _ k_before: u256,
+    _ p0_before: u256,
+    _ p1_before: u256,
+) -> u8 {
     if world.storage_load(PAIR, 12) != 1 {
         return 1
     }
-    if swapped && k_of(world) < k_before {
+    if selector == 0x022c0d9f && k_of(world) < k_before {
         return 2
     }
     let supply = world.storage_load(PAIR, 0)
     if supply != 0 && supply < 1000 {
         return 3
     }
+    let reserves = world.storage_load(PAIR, 8)
+    let mask: u256 = (1 << 112) - 1
+    // WETH9 keeps balanceOf in slot 3.
+    let slot = mapping_slot(PAIR, 3)
+    if world.storage_load(TOKEN0, slot) < (reserves & mask)
+        || world.storage_load(TOKEN1, slot) < ((reserves >> 112) & mask) {
+        return 4
+    }
+    if world.storage_load(PAIR, 9) < p0_before || world.storage_load(PAIR, 10) < p1_before {
+        return 5
+    }
+    let k_last = world.storage_load(PAIR, 11)
+    if !fee_on && k_last != 0 {
+        return 6
+    }
+    if fee_on && (selector == 0x6a627842 || selector == 0x89afcb44) && k_last != k_of(world) {
+        return 6
+    }
     0
+}
+
+// The storage slot of `key` in a Solidity mapping at `slot`.
+pub fn mapping_slot(_ key: u256, _ slot: u256) -> u256 {
+    var words = MemBuffer::with_capacity(64)
+    words.write_word(offset: 0, value: key)
+    words.write_word(offset: 32, value: slot)
+    var hash = Keccak256::new()
+    hash.update(words, offset: 0, len: 64)
+    hash.finish_word()
 }
 
 /// One call of a fuzzing run: its sender, target, value, step number (for

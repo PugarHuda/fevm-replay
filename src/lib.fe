@@ -969,8 +969,14 @@ uses (args: Args, fs: std::fs::Fs, out: mut Stdout)
                 " (lock still held)"
             } else if found.invariant_kind == 2 {
                 " (k fell in a swap)"
-            } else {
+            } else if found.invariant_kind == 3 {
                 " (supply below the minimum)"
+            } else if found.invariant_kind == 4 {
+                " (a token balance below its reserve)"
+            } else if found.invariant_kind == 5 {
+                " (a cumulative price fell)"
+            } else {
+                " (kLast disagrees with the fee)"
             },
         )
     }

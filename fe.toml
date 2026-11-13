@@ -4,6 +4,7 @@ version = "0.1.0"
 
 [dependencies]
 fevm = { source = "https://github.com/fe-lang/fevm", rev = "433c3b6628bb23df9b36811e64ec8db92d126983", path = "ingots/evm", allow_unsafe = true }
+keccak = { source = "https://github.com/fe-lang/keccak", rev = "345d5088de986fe54b23a6aaa3a33e1c349d0960" }
 json = { source = "https://github.com/fe-lang/json", rev = "93b2935c254085558dfd96885744cdf42ac1fe71" }
 # fevm's precompiles use `unsafe`; fevm trusts them as a workspace member,
 # which does not carry over to fevm's dependents, so trust them here.
