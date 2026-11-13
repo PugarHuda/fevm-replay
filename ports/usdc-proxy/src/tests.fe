@@ -1,0 +1,136 @@
+// Run with `fe test .` in ports/usdc-proxy. Mainnet behavior is checked by
+// shadow replay (see the repository README); these cover the admin's
+// functions, which mainnet traffic almost never calls.
+
+use ingot::FiatTokenProxy
+
+msg Proxy {
+    #[selector = sol("admin()")]
+    Admin -> Address,
+    #[selector = sol("implementation()")]
+    Implementation -> Address,
+    #[selector = sol("upgradeTo(address)")]
+    UpgradeTo { implementation: Address },
+    #[selector = sol("changeAdmin(address)")]
+    ChangeAdmin { admin: Address },
+}
+
+// What the implementation answers; through the proxy it runs on the proxy's
+// storage.
+msg Logic {
+    #[selector = sol("version()")]
+    Version -> u256,
+}
+
+pub contract One {
+    recv Logic {
+        Version -> u256 {
+            1
+        }
+    }
+}
+
+pub contract Two {
+    recv Logic {
+        Version -> u256 {
+            2
+        }
+    }
+}
+
+// The test contract deploys the proxy, so it is the admin.
+fn deploy() -> Address uses (evm: mut Evm) {
+    let one = evm.create2<One>(value: Wei::zero(), args: (), salt: 0)
+    evm.create2<FiatTokenProxy>(value: Wei::zero(), args: (one,), salt: 0)
+}
+
+fn version(_ proxy: Address) -> u256 uses (evm: mut Evm) {
+    evm.call(
+        addr: proxy,
+        gas: 100000,
+        value: Wei::zero(),
+        message: Logic::Version {},
+    )
+}
+
+#[test]
+fn the_creator_administers_the_proxy() uses (evm: mut Evm) {
+    let proxy = deploy()
+    let admin: Address = evm
+        .call(
+            addr: proxy,
+            gas: 100000,
+            value: Wei::zero(),
+            message: Proxy::Admin {},
+        )
+    assert!(admin == evm.address())
+}
+
+// Once the admin is someone else, every call goes to the implementation.
+#[test]
+fn anyone_else_is_forwarded() uses (evm: mut Evm) {
+    let proxy = deploy()
+    evm.call(
+        addr: proxy,
+        gas: 100000,
+        value: Wei::zero(),
+        message: Proxy::ChangeAdmin { admin: Address::new(0xad) },
+    )
+    assert!(version(proxy) == 1)
+}
+
+#[test]
+fn an_upgrade_changes_what_runs() uses (evm: mut Evm) {
+    let proxy = deploy()
+    let two = evm.create2<Two>(value: Wei::zero(), args: (), salt: 0)
+    evm.call(
+        addr: proxy,
+        gas: 100000,
+        value: Wei::zero(),
+        message: Proxy::UpgradeTo { implementation: two },
+    )
+    let now: Address = evm
+        .call(
+            addr: proxy,
+            gas: 100000,
+            value: Wei::zero(),
+            message: Proxy::Implementation {},
+        )
+    assert!(now == two)
+    evm.call(
+        addr: proxy,
+        gas: 100000,
+        value: Wei::zero(),
+        message: Proxy::ChangeAdmin { admin: Address::new(0xad) },
+    )
+    assert!(version(proxy) == 2)
+}
+
+// The admin may not reach the implementation through the proxy.
+#[test(should_revert)]
+fn the_admin_cannot_use_the_fallback() uses (evm: mut Evm) {
+    let proxy = deploy()
+    let _ = version(proxy)
+}
+
+#[test(should_revert)]
+fn an_implementation_must_hold_code() uses (evm: mut Evm) {
+    let proxy = deploy()
+    evm.call(
+        addr: proxy,
+        gas: 100000,
+        value: Wei::zero(),
+        message: Proxy::UpgradeTo { implementation: Address::new(0xbeef) },
+    )
+}
+
+#[test(should_revert)]
+fn the_admin_cannot_be_zero() uses (evm: mut Evm) {
+    let proxy = deploy()
+    evm.call(
+        addr: proxy,
+        gas: 100000,
+        value: Wei::zero(),
+        message: Proxy::ChangeAdmin { admin: Address::new(0) },
+    )
+}
