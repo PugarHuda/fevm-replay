@@ -116,6 +116,13 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     ) {
         return fetch_hashes_command()
     }
+    // "fetch-proofs"
+    if is_word(
+        args.get(1),
+        [0x66, 0x65, 0x74, 0x63, 0x68, 0x2d, 0x70, 0x72, 0x6f, 0x6f, 0x66, 0x73],
+    ) {
+        return fetch_proofs_command()
+    }
     // "chain"
     if is_word(args.get(1), [0x63, 0x68, 0x61, 0x69, 0x6e]) {
         return chain_command()
@@ -782,6 +789,130 @@ uses (out: mut Stdout)
     }
 }
 
+/// `fetch-proofs <dir> [rpc-url]`: for a block saved by `fetch-block`, the
+/// Merkle proofs (`eth_getProof`) of every account and slot it touched, at
+/// the end of the parent block and of the block itself, and the parent's
+/// header, into `dir/proofs.json`. `chain` then checks the block's
+/// pre-state and its replayed end state against the two state roots,
+/// offline. Run it within about 128 blocks of the block: nodes keep no
+/// older state for proofs.
+#[cfg(target_family = "unix")]
+fn fetch_proofs_command() -> i32
+uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut Stdout)
+{
+    if args.count() != 3 && args.count() != 4 {
+        println!("usage: fevm-replay fetch-proofs <dir> [rpc-url]")
+        return 2
+    }
+    let dir = args.get(2)
+    let Option::Some(block) = load_response(dir, "block.json") else {
+        return 1
+    }
+    let Option::Some(prestates) = load_response(dir, "prestate.json") else {
+        return 1
+    }
+    let Option::Some(diffs) = load_response(dir, "diff.json") else {
+        return 1
+    }
+    let header = ref block["result"]
+    let number = field(header, "number")
+    let keys = proof::touched(
+        prestates["result"],
+        diffs["result"],
+        header,
+        recipients: true,
+    )
+    var text = MemBuffer::empty()
+    "{\"parent\":".fmt(mut text)
+    let parent = if args.count() == 4 {
+        fetch::header(args.get(3), number: number - 1)
+    } else {
+        fetch::header(DEFAULT_RPC, number: number - 1)
+    }
+    let Option::Some(parent) = parent else {
+        println!("ERROR the node did not send the parent's header")
+        return 1
+    }
+    parent["result"].write(mut text)
+    var slots: u64 = 0
+    for position in 0 .. keys.storage_slots() {
+        if keys.storage_at(position).occupied {
+            slots += 1
+        }
+    }
+    // The same accounts at both ends, the parent's first: it is the older.
+    for end in 0 .. 2 {
+        if end == 0 {
+            ",\"pre\":[".fmt(mut text)
+        } else {
+            "],\"post\":[".fmt(mut text)
+        }
+        let at = if end == 0 { number - 1 } else { number }
+        var k: usize = 0
+        while k < keys.account_count() {
+            let count = if keys.account_count() - k < 3 {
+                keys.account_count() - k
+            } else {
+                3
+            }
+            let answers = if args.count() == 4 {
+                fetch::proofs(args.get(3), keys, first: k, count, number: at)
+            } else {
+                fetch::proofs(DEFAULT_RPC, keys, first: k, count, number: at)
+            }
+            let Option::Some(answers) = answers else {
+                println!(
+                    "ERROR no proofs for accounts ",
+                    k,
+                    " to ",
+                    k + count,
+                    " at block ",
+                    at,
+                    " (nodes keep about 128 blocks of state)",
+                )
+                return 1
+            }
+            for i in 0 .. count {
+                // In the order asked, whatever order they came in.
+                var found = false
+                for ref answer in answers.items() {
+                    if !found && field(answer, "id") == i as u256 && answer.has("result") {
+                        if k + i > 0 {
+                            ",".fmt(mut text)
+                        }
+                        answer["result"].write(mut text)
+                        found = true
+                    }
+                }
+                if !found {
+                    println!("ERROR no proof for account ", k + i, " at block ", at)
+                    return 1
+                }
+            }
+            k += count
+        }
+    }
+    "]}".fmt(mut text)
+    let path = fetch::join(dir, "proofs.json")
+    let Result::Ok(_) = fs.write(path, text.span()) else {
+        println!("ERROR ", path, ": cannot write")
+        return 1
+    }
+    println!(
+        "saved proofs of ",
+        keys.account_count(),
+        " accounts and ",
+        slots,
+        " slots at blocks ",
+        number - 1,
+        " and ",
+        number,
+        " in ",
+        path,
+    )
+    0
+}
+
 #[cfg(target_family = "unix")]
 /// `chain <dir> [rpc-url]`: replays the saved block as a chain. The world
 /// starts as the block's pre-state (every prestate, last transaction
@@ -863,6 +994,60 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     }
     world.set_block_hash(env.number - 1, field(header, "parentHash"))
     load::add_extras(mut world, extras)
+    // With proofs saved beside the block (`fetch-proofs`), the block's
+    // pre-state is checked against the parent's state root here, and the end
+    // state against the block's own after the last transaction. Both roots
+    // come from headers whose hashes are checked, so what a MATCH rests on
+    // is the block hash, not the node.
+    var proofs = Value::object()
+    let proving = has_file(dir, "proofs.json")
+    var keys = fevm::WorldState::empty()
+    var parent_root: u256 = 0
+    var unproven: u64 = 0
+    if proving {
+        let Option::Some(doc) = load_json(dir, "proofs.json") else {
+            return 1
+        }
+        proofs = doc
+        let parent = ref proofs["parent"]
+        if proof::header_hash(header) != field(header, "hash")
+            || proof::header_hash(parent) != field(parent, "hash")
+            || field(parent, "hash") != field(header, "parentHash") {
+            println!(
+                "PROOF ",
+                dir,
+                ": the headers do not hash to the block's hash and its parent's",
+            )
+            return 1
+        }
+        parent_root = field(parent, "stateRoot")
+        keys = proof::touched(
+            prestates["result"],
+            diffs["result"],
+            header,
+            recipients: false,
+        )
+        var text = MemBuffer::empty()
+        let pre = with (mut text) {
+            proof::check(
+                world,
+                state_root: parent_root,
+                proofs["pre"],
+                keys,
+                written: proof::system_writes(header),
+                skip: core::MemVec::new(),
+                code_unknown: core::MemVec::new(),
+            )
+        }
+        print!(text)
+        println!(
+            "headers: block 0x",
+            core::text::hex(field(header, "hash"), 32),
+            " and its parent hash to themselves",
+        )
+        print_checked("pre-state", "the parent's", pre)
+        unproven += pre.differ + pre.broken + pre.unproven
+    }
     var matched: u64 = 0
     var old_hashes: u64 = 0
     var drift: u64 = 0
@@ -992,102 +1177,199 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         )
     }
     // Withdrawals: each credits its recipient, in gwei.
-    if !header.has("withdrawals") {
-        return if matched == count.downcast_unchecked() {
-            0
-        } else {
-            1
-        }
-    }
-    let withdrawals = header["withdrawals"].items()
     let rpc = args.count() == 4
     var unknown: u64 = 0
-    for w in 0 .. withdrawals.len() {
-        let address = field(withdrawals[w], "address")
-        // A recipient no transaction touched is not in the world: its
-        // balance before the withdrawals is the parent block's.
-        if !world.exists(address) {
-            if rpc {
-                match fetch::balance_at(args.get(3), address, number: env.number - 1) {
-                    Option::Some(balance) => {
-                        if !world.set_balance(address, balance) {
+    var code_unknown: core::MemVec<u256> = core::MemVec::new()
+    var paid: u64 = 0
+    if header.has("withdrawals") {
+        let withdrawals = header["withdrawals"].items()
+        paid = withdrawals.len().downcast_unchecked()
+        for w in 0 .. withdrawals.len() {
+            let address = field(withdrawals[w], "address")
+            // A recipient no transaction touched is not in the world: its
+            // balance before the withdrawals is the parent block's.
+            if !world.exists(address) {
+                if proving {
+                    match proof::find_account(proofs["pre"], state_root: parent_root, address) {
+                        Option::Some(account) => {
+                            if !world.set_balance(address, account.balance)
+                                || !world.set_nonce(address, account.nonce) {
+                                unknown += 1
+                            }
+                            // Its code, if any, is not fetched.
+                            if account.code_hash != proof::EMPTY_CODE {
+                                code_unknown.push(address)
+                            }
+                        },
+                        Option::None => {
                             unknown += 1
-                        }
-                    },
-                    Option::None => {
-                        unknown += 1
-                    },
+                        },
+                    }
+                } else if rpc {
+                    match fetch::balance_at(args.get(3), address, number: env.number - 1) {
+                        Option::Some(balance) => {
+                            if !world.set_balance(address, balance) {
+                                unknown += 1
+                            }
+                        },
+                        Option::None => {
+                            unknown += 1
+                        },
+                    }
+                } else {
+                    unknown += 1
                 }
-            } else {
+            }
+            if !world
+                .set_balance(
+                    address,
+                    world.balance(address) + field(withdrawals[w], "amount") * 1_000_000_000,
+                ) {
                 unknown += 1
             }
         }
-        if !world
-            .set_balance(
-                address,
-                world.balance(address) + field(withdrawals[w], "amount") * 1_000_000_000,
-            ) {
-            unknown += 1
-        }
     }
-    if !rpc {
-        println!(
-            "withdrawals: ",
-            withdrawals.len(),
-            " credited; pass an RPC URL to check the recipients' balances",
+    if proving {
+        // The end-of-block system calls (EIP-7002, EIP-7251) are not run, so
+        // their contracts are not compared.
+        keys = proof::touched(
+            prestates["result"],
+            diffs["result"],
+            header,
+            recipients: true,
         )
-        return if matched == count.downcast_unchecked() {
-            0
-        } else {
-            1
+        var skip: core::MemVec<u256> = core::MemVec::new()
+        skip.push(proof::WITHDRAWAL_REQUESTS)
+        skip.push(proof::CONSOLIDATION_REQUESTS)
+        var text = MemBuffer::empty()
+        let post = with (mut text) {
+            proof::check(
+                world,
+                state_root: field(header, "stateRoot"),
+                proofs["post"],
+                keys,
+                written: core::MemVec::new(),
+                skip,
+                code_unknown,
+            )
+        }
+        print!(text)
+        print_checked("end state", "the block's", post)
+        unproven += post.differ + post.broken + post.unproven
+        if paid > 0 {
+            println!(
+                "withdrawals: ",
+                paid,
+                " credited, their recipients checked by the end state's proofs",
+            )
         }
     }
     var right: u64 = 0
     var checked: u64 = 0
-    for w in 0 .. withdrawals.len() {
-        let address = field(withdrawals[w], "address")
-        // A recipient paid twice is checked once, after both.
-        var seen = false
-        for v in 0 .. w {
-            if field(withdrawals[v], "address") == address {
-                seen = true
+    if rpc && paid > 0 {
+        let withdrawals = header["withdrawals"].items()
+        for w in 0 .. withdrawals.len() {
+            let address = field(withdrawals[w], "address")
+            // A recipient paid twice is checked once, after both.
+            var seen = false
+            for v in 0 .. w {
+                if field(withdrawals[v], "address") == address {
+                    seen = true
+                }
+            }
+            if seen { continue }
+            checked += 1
+            match fetch::balance_at(args.get(3), address, number: env.number) {
+                Option::Some(balance) => {
+                    if balance == world.balance(address) {
+                        right += 1
+                    } else {
+                        println!(
+                            "DIFF  withdrawal to 0x",
+                            core::text::hex(address, 20),
+                            ": node ",
+                            balance,
+                            ", fevm ",
+                            world.balance(address),
+                        )
+                    }
+                },
+                Option::None => {
+                    println!("ERROR no balance for 0x", core::text::hex(address, 20))
+                },
             }
         }
-        if seen { continue }
-        checked += 1
-        match fetch::balance_at(args.get(3), address, number: env.number) {
-            Option::Some(balance) => {
-                if balance == world.balance(address) {
-                    right += 1
-                } else {
-                    println!(
-                        "DIFF  withdrawal to 0x",
-                        core::text::hex(address, 20),
-                        ": node ",
-                        balance,
-                        ", fevm ",
-                        world.balance(address),
-                    )
-                }
-            },
-            Option::None => {
-                println!("ERROR no balance for 0x", core::text::hex(address, 20))
-            },
-        }
+        println!(
+            "withdrawals: ",
+            paid,
+            " to ",
+            checked,
+            " recipients, ",
+            right,
+            " balances match the node at the end of the block",
+        )
+    } else if !proving && paid > 0 {
+        println!(
+            "withdrawals: ",
+            paid,
+            " credited; pass an RPC URL or fetch proofs to check the recipients' balances",
+        )
     }
-    println!(
-        "withdrawals: ",
-        withdrawals.len(),
-        " to ",
-        checked,
-        " recipients, ",
-        right,
-        " balances match the node at the end of the block",
-    )
-    if matched == count.downcast_unchecked() && right == checked && unknown == 0 {
+    if matched == count.downcast_unchecked() && right == checked && unknown == 0 && unproven == 0 {
         0
     } else {
         1
+    }
+}
+
+// Whether `dir/name` exists (and reads).
+#[cfg(target_family = "unix")]
+fn has_file<D: Display>(_ dir: D, _ name: String<16>) -> bool
+uses (fs: std::fs::Fs)
+{
+    match fs.read(fetch::join(dir, name)) {
+        Result::Ok(_) => true,
+        Result::Err(_) => false,
+    }
+}
+
+fn print_checked(_ what: String<10>, _ whose: String<12>, _ found: proof::Checked)
+uses (out: mut Stdout)
+{
+    println!(
+        what,
+        ": ",
+        found.accounts,
+        " accounts and ",
+        found.slots,
+        " slots proven against ",
+        whose,
+        " state root, ",
+        found.differ,
+        " differ",
+    )
+    if found.written > 0 {
+        println!(
+            "  ",
+            found.written,
+            " slots set by the block's first system calls, checked",
+        )
+    }
+    if found.skipped > 0 {
+        println!(
+            "  ",
+            found.skipped,
+            " request contracts (EIP-7002, EIP-7251) not compared",
+        )
+    }
+    if found.unproven > 0 || found.broken > 0 {
+        println!(
+            "  ",
+            found.unproven,
+            " touched accounts and slots without a proof, ",
+            found.broken,
+            " proofs that do not hold",
+        )
     }
 }
 

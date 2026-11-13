@@ -1,0 +1,181 @@
+// Merkle proofs from mainnet: block 26,407,882's header and the proof of
+// one account (0x3d90...6be9) and one of its slots, as eth_getProof sent
+// them. Nothing here asks the node: the hashes prove the values.
+
+use core::MemBuffer
+use std::io::Display
+use json::{Value, parse}
+use ingot::load::field
+use ingot::proof
+
+fn vector() -> Value {
+    var text = MemBuffer::empty()
+    "{\"header\":{\"hash\":\"0xf17f64d5bf15f0203c4e7b1d1ba42f590d951e16872e6855431d149d0eeb01d1\",\"parentHash\":\"0x2c88bc81d57ed2af2a17622a4450a182b25663b3c8d7c48cbcf8bdd8a5a46b91\",\"sha3Uncles\":\"0x1dcc4de8dec75d7"
+        .fmt(mut text)
+    "aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347\",\"miner\":\"0x396343362be2a4da1ce0c1c210945346fb82aa49\",\"stateRoot\":\"0x8b6e5eb9de1c43d34ccda5519475502381595bc2b13cab7895c548ce84af2fef\",\"transactionsRo"
+        .fmt(mut text)
+    "ot\":\"0x6bc223df5e78b213a8d56d2db2e97622a605cd0cefd1fffa1c364e5e58a8eb9a\",\"receiptsRoot\":\"0x56e93969266f24c44b26c174ae37c1218e6fef82713f2764e49a3dc335c73c96\",\"logsBloom\":\"0xf7fbf4fe4dfbe6fbaefbffdbffbf"
+        .fmt(mut text)
+    "fd5ef7ff596e35effb77bef51ffeff79bfe7b9aeabffebfdd36fffbff6fbcf3fffcdffff795fcff7e7fde7fedfee8feff9effebff7ffbff9edde7fccff7ebf73ffed4a5eef1bfefcbdbf3ceffebeeff3fbdbb7ff3dbeffefff6e1dfbfda5fedbfb6deeff"
+        .fmt(mut text)
+    "5fbeff6fbfbdfff7daf7fbffbfbbe9ffdeffbf7f4fdedffffef77f73ae7ffbf7feaffb9fff4badbfbf7adfdffbb9ffffffffaff3ffc7edf6f5dfddf7eefe3f9fffbeffffff1ef9dbd77f6ffd9ddbfebd7deeafbd3dffd7dffeffd5fffd7fffffeff71fee"
+        .fmt(mut text)
+    "fbdfffffffdfbf77f7b7ff3bfedf0fdffdb9ffeff7eeffaabf77ff7ae7d8ebbfef6f7efeffffefdeff2f\",\"difficulty\":\"0x0\",\"number\":\"0x192f3ca\",\"gasLimit\":\"0x3938700\",\"gasUsed\":\"0x1883c3e\",\"timestamp\":\"0x6af758e3\",\"ext"
+        .fmt(mut text)
+    "raData\":\"0xe29ca82051756173617220287175617361722e77696e2920e29ca8\",\"mixHash\":\"0x02266ed2a6a881e03d129dc337e94ea1775f09675e43c47090d555a12802c6b3\",\"nonce\":\"0x0000000000000000\",\"baseFeePerGas\":\"0x5c59a1"
+        .fmt(mut text)
+    "7\",\"withdrawalsRoot\":\"0xb21df885dc7ff18fef91dd2845a9b6d25b84d34f0ee726dd0be1993bba34781c\",\"blobGasUsed\":\"0x20000\",\"excessBlobGas\":\"0xae3599b\",\"parentBeaconBlockRoot\":\"0x0ee6f47b18d071bc2267eadf7583ec5"
+        .fmt(mut text)
+    "d3c44fc424f02cce24cc806cdf1c6b3f0\",\"requestsHash\":\"0x2b6e3da44030597a21a4d2902e3d698005528f4e5fbe5b303210b17ed5019108\"},\"address\":\"0x3d90f66b534dd8482b181e24655a9e8265316be9\",\"accountProof\":[\"0xf90211"
+        .fmt(mut text)
+    "a096b5c2ab9d2cd52292d0d4bc022fb024a04afe533ecfbfe32c6a3915b5b92617a01a5e3f35914f00bdbd3fc69e07e957637e28683783b861e422acaabe6f448981a08b0ab6da1585f1486ba8a192affc7dfef2b5aa693f37a33c9536220ecb873375a0"
+        .fmt(mut text)
+    "1b8f07ba60beef56851334e47fbf701476a7094e675de941c30a7c5e1fbf513ea036d2b2f7a8515c8c32242bdf59c87ce0fbe6fbb10aafb7fd283f77206e202cc9a099042895940e019f0e82577eb35aab1fda12b8aa776121f9a4786b5dd307c2ffa0e9"
+        .fmt(mut text)
+    "e8c4e57579c22775b2551a4709e00b9dcff1219936a054c36af2ec8278bd18a03c392b712d6021a3a549d16ab0cd7c165e0e96d331a51e5f62583245f3399320a06618f5da6c40abc504ff41e4d8c937bd3ea7a97c24cb9a629e28aeabf1c4002ea0717b"
+        .fmt(mut text)
+    "60a2ef3b53d11c351c11e2b38651c6c698b89d9243d1426ac6ea7adaf00da088dae81957d03be3215e9330e070f07819b752e848b95856d5b4734e6f60b919a076460d2ebf447fe86031b77a0f505effd846af8df8705f12bf5d72209ec31e43a0e589dd"
+        .fmt(mut text)
+    "6024ea6b30c73014d60a43abd6a38da5f6a67087e2481ccfef1a40cebba0738e7b4e6cdc9b1ec0a47f4b9259bb793574079d602c613e6b3e2abb493f8b37a0e4c2753e0d787a24c8bc1207e5ba1c929f2cf0fb4cf7a4b35014356770e799e3a0aa550d3e"
+        .fmt(mut text)
+    "fbb55c891b6d1c97fc3a1bb50c8f1d42765603fbd88ac48e07c58aab80\",\"0xf90211a0152772882117e9b7c479c941b0852d26e42ff2f32d4d43664a82555749d88adba0ef70c5ebf217cfaeba52ef51490b2cdaafd214200ac60b42cce9754bf18fd3b"
+        .fmt(mut text)
+    "5a0e5c9360434e5a050b476e3c2e3a54144a4296091208b52534363589077588429a049d2b6191b06cd4cfed2a0ad9c98595f08990ec0c061c0da70f8ebc6cc0ce57fa02e5c9e95c0733d46ae45b8f3acafbcfe506df9c3e4fe8d1f129f92e18cc022daa"
+        .fmt(mut text)
+    "0884fadc698761fbbbfe1f926ee88fb4efadcc0b0102817b847d8655e06570fbaa0cc7ab4ed5cfe0bcfa197dd132b04a7abfd405d1156dc8beb3eedf4b015cee90ba0e60a79ceeb7aca3781d553958990bac730b7e2f3464b7ec3805029b5648bb8cea05"
+        .fmt(mut text)
+    "75be7f6120f3ecc5a6357bfbe1d4661872e46dd1652941c000e5ecc53ad446ea035d2625a2eb569192ce517a3e8eced0920cfd9d044ef5c6020bcec3a0b861d92a0ca2420209703f02614e51bdf59b602f44ec171294729c4b216f5acfe31a2667aa0746"
+        .fmt(mut text)
+    "2fca6a076f7b74bb0624b1692b44380f8cc83ca2e26ddfef2c2bb5b09424da0ea23ad378323655faaa3fcc4c81841348ed68802189371dc2c3514b4aa5a30efa050970e9920158f0f3399673df831f21e6b5e4ac30c7af3c162331e028dcb3c4ea054392"
+        .fmt(mut text)
+    "79f46ab87fdfa5c013090d9e0ebf3534e8b008a53bc282c3937697aaf67a0586972110f2cc483848ccbb86faddcaee27f3fbfd6aed7263864e5470bd5cc6d80\",\"0xf90211a0354271a87ed395f02c48454ab0a5e1f1fc3775cb5b25addec6cf06356e0d"
+        .fmt(mut text)
+    "0f1aa09f35d84ed747164e6c4f70af5c87269aea00eb1f210a9fcf0ad50041abfcad6ea0b644318fc7db4a079ca936de05a0ad48f18728abe624b071cb6af106e195b3e3a0dd06368efbb122c075b5ddb0aef84e20eea612dc85e9aa0abffd06e6634c9e"
+        .fmt(mut text)
+    "07a0fe860f6ab280012d8d73a39cd50b89900e284418af252606bab202fb450408baa08f9674e5276001151f3dcd2f50a902b57257b3a2af95bfe984bc0a0e9af1713ea0141ac585361c572f07fd6dc06719b9d3aef538a47af474c92137ebb7b1f1b81a"
+        .fmt(mut text)
+    "a0dfd916f5f8ee92559665a05d9aeccb56f4db6073f693db846550953eb27851f2a06ed61e86cefe7b4f9e59a4d60f3de9ea3fb4957f9f3b2ca5ea8ef5f4871fba6ba00d0644b203b0673a0ae44b12cd4583848004ec83b22b5b2035bd5c75a2eef6e0a0"
+        .fmt(mut text)
+    "8a6a35045ba6b63e2d8a764400a2a6e260c7253e0ef7d6bbd7bee8e4b673d21ea075a2eee568eade4673f9151835a24135e5262810f458bb2dd8275c94d6a95c7ea00bb84a973c96441c18d5a07686d152d4c102063d35231a037b2929260f80b4d3a0c5"
+        .fmt(mut text)
+    "6b0ad4a645111c7933c96621414c3e0906bbd9a9803f135ee71fbf088d9519a0f7ef8903e1f10c7ed3b425cb2496b91fdcc1147943bd11f012cd60ac190129f2a0f72b47c1ceee01f4cc57e1a65b8e5508a61f0972db13d28a94f3daf38654538380\",\"0"
+        .fmt(mut text)
+    "xf90211a03c926318fb818f3227cbbca372fda2e2dc8e904889799988a0393aafb0e58796a0a666b78681f66817d4d88e5738ad28cb16b205c78c75469b5d9094d589dcd0daa06fc304de7e5b54b93567e38185c5d8bd43bcd76a5a3511c25ac3ba38591"
+        .fmt(mut text)
+    "b89b8a0d9147410f3255e06cfad809c95d64bdce159f49b9d234dbac96f9827170c5701a0139213738241207425d001934709efd4832a346bb4050c81933e104910a216e4a056e164207ba9bc9ce01407d8f58ae7085cff71d1cc159e85b700c51257053"
+        .fmt(mut text)
+    "a14a0e8e38980be3197e722615e7784fe88b8bd97c4e23a0a43e70ebcfa8a773488e1a0612444613eb3caef0efbb1334224260aa95dd4add7aaf9348e1e2080464d3305a0eb8b1414cd32f49ef61c5eff67c15f2bc68ad2b9a29cd00bb51b82fefd6a194"
+        .fmt(mut text)
+    "4a032c5fd745d57abc0bc5f5002257997386dbd83313707a0273d9c553cf9b7addca00d4beeb2b566823c3fbcce5a8573981330b5a9b3b7281118fc4af63a59ed69eea07e6460dfe36bbfa13b0d481ef47198834f1b4a6141b08d37d7207a9bc0d6d935a"
+        .fmt(mut text)
+    "01829f06a720da53cb8595bb249eda6519823f859d573d0cb5bdb71fbb0cc7373a0fca3f820fdfbbef36f27efb0f2a69c4e8df25bc6ad580570388a78b94b7b4087a0e1690fef74ec168447efabd7f988ffa6def588835b84c2b0cd9d523bdf9c348ba06"
+        .fmt(mut text)
+    "56b182121e0d83cee22615d9d73db41055498a21b9d6ac90db81b90a95d238680\",\"0xf90211a0deb3c07f46878c19abcbc531af71a8303f5c3fe3ae8dfcc0cf29880f7a0ff8c1a00f0813bfdeeeaf4c219cfe9538335853140603082d668b3db365f1b7"
+        .fmt(mut text)
+    "f8fb04a1a0fdb2c114f99bfd280fab392baa7cabd3cac60770bbdc48d30553a747c97a07c1a07934e5f71f3771927cd743c8c1dd2bb1f1a389ccdc91d63528d4c80001f31b11a04290394047dbc1012a6eef29a17d7cadff1b6dba8fa90c462bdca99581"
+        .fmt(mut text)
+    "0857dea0dd439a0db1755b28e4afe543c51cac532c687f4a93335e77f81d6ce945a6aa0ea07eed279106379010712cacc9da2a73896b0e2d762bd7508cd1822c013ebccafaa0d7843370452a204953cd85cd5d06e5a873cf86fd219daada11fe0fdab53c"
+        .fmt(mut text)
+    "b769a02fa65116212d4ceb6816b05b45b897104c9de206b1c4f35670db62f1354e5e90a0134303a0ae3bd9f8135c672a807e2c2113eea4a4d4c890550c5c8c856cb043e1a02784cdefd1e6eb3ca4f6825e8e11ec54d422c90d2338acf740510bd6c40381"
+        .fmt(mut text)
+    "86a0221f7dcb9f96ff8da2d33fb4d309f61f73bb3a415fc6bdf0a17c4bd746e1c8eea07a5c0d33644df4343f220bb3bfc48a2f489094b3c578d4d23944bee7af330cf0a0f66274b6f90eeabce2eb122b59c5d9e1ad804e815c772396394827750efdbbc2"
+        .fmt(mut text)
+    "a08a14213ec36ec6fd7d7d53f9d485c6113aab39fcf672b0f9e93161bdc2625665a093cca7053deed08cebf8755f9c9442b65417d02f280d7828704d5129d9d38bff80\",\"0xf90211a0fd6f0120af707d2c3d02950e09679cd619ce51a3bea78e036c49c"
+        .fmt(mut text)
+    "08366d3c49aa0031a9092a8ec4ba14d99f0ea5cffb555e5db0c24d0241f977a47c1fa6473ac14a07133994ba2f015f8f4c7fada6ec30fd9d2baaf2ec51c684e780a2d28f3126216a02af42e6f1caa9172a3731179c3e9d8181f46ec06c8d0ab27d86bc02"
+        .fmt(mut text)
+    "e2238d818a087491c108d77cf9b88d079ee34ccb3631f0fcb62597c32e5a597724601efc8afa065c300f1c62c345130f06cb8ce27d8ef829ccc77d7286ee4fa488aef9ce45dd0a06dd1a728c2baf3bc16c4538327ed6bdd4b9891c0e01a5ff4038b8e908"
+        .fmt(mut text)
+    "7a5f323a058dcd9e23749b99df8ac70df8a33649a42cef5865a7e7191951cc58d170d6607a0cad582559f3068a7800ff544a6f348ca07cd6ecd997d37c33d94d978742c3d43a0c8f9109d4d0345341108a7768bcc6ead790ddb8cde31535123f53d53289"
+        .fmt(mut text)
+    "deacba01706ea9c7fe6fd0c39c091d215bdf1ae2df055e7e316662f9b0ff845bd0610f2a05828aa67516fb71f10bd7bd8653b1f68aa743465eb8049fd5e709ca3c259acafa0736e76780624a4c71dea9e929675eb6d94d62dcb154f28c413789d2b7aa3f"
+        .fmt(mut text)
+    "678a080464709c794cff2a1f6e27f3775c7ddda389877fc7229f5de21b7b1962d69eea058b3e9909524fa429558711a9fdc14edda914686266b81498c28b49fd4736153a0ae0d189111dee2f8980d232ade1a903683ed3927ca409c4dd673711693209ae"
+        .fmt(mut text)
+    "680\",\"0xf90191a0f45c7da85c422e9a7bdca7c910d0a9cd563b96cb2e71b56d49c952ec7ea2b8e0a05bcdea0d470b7b833390f848804b048f437546550baad217067a31ebe269027780a06afb182f4b46c5b6a639b1caa6a39f3e8e61e95f028f497946"
+        .fmt(mut text)
+    "7e948dfc716e8d80a0ee0336838895d80dbb9c4ba91006a495ebf0ed51255bfe2494cd6d362726367d80a028453b63b53a5960a4b2ef7bb443420df21ece76c5c0f42ebdf75d9391377a15a03548f15f695f84fbcc36797d02326efa7c8d688b75df2c7b"
+        .fmt(mut text)
+    "24b228a7ed24bb00a0aac02632f00f72847f9d5cfa27aa6d547f470eb5fc42da1ac4f5c4a14175c09ba0d3c82ec00ea1b482e382dce285a79693a17fff9e30636996fca5ac66f1ab7cc880a0ce48c607ed0001ffad7076d1128a79fdb9ce278acddd9a50"
+        .fmt(mut text)
+    "f511be4e6fc02965a0305c548f28ea1552bc22143b10662c81c34fafde86ed94ba7d32c0d43690be24a028eac79da49fcad2f2ebd7d9844fbc9b46ef26fde46d263477eb2fc44b9ade9ea06fa4a945a28958c75068f7f4ec418295e18ebb35df4e236a87"
+        .fmt(mut text)
+    "5cfd82e1ef03da80\",\"0xf8669d3abaf25a8b4604e06c8106644dcbb864ad9f2045d2cea87a637b115a5fb846f8440180a05517a1b43d576a0c9348feb0f8d0af1f7033448517dd8dd60c1b47df9404dbdca0722e8ace306515955548b1f2a609c4c8da3"
+        .fmt(mut text)
+    "085ecaeb276dd5b9716b66b14dfdd\"],\"nonce\":\"0x1\",\"balance\":\"0x0\",\"codeHash\":\"0x722e8ace306515955548b1f2a609c4c8da3085ecaeb276dd5b9716b66b14dfdd\",\"storageHash\":\"0x5517a1b43d576a0c9348feb0f8d0af1f703344851"
+        .fmt(mut text)
+    "7dd8dd60c1b47df9404dbdc\",\"key\":\"0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103\",\"value\":\"0xa5dc1dd09d347e9bf3431fdc8dac0206b5013d2e\",\"proof\":[\"0xf8918080a04fc5f13ab2f9ba0c2da88b015"
+        .fmt(mut text)
+    "1ab0e7cf4d85d08cca45ccd923c6ab76323eb288080a0b12be7b721ccfc47429ae0198ab337830a0e118d64457f22029636ab3a1c8eb680a0a4f79524d84de7613bb01b8ca4ae7fe2147ee9b2515808d6e9a0ab9ba4fcff73a0673ebe02534cf0129f8db"
+        .fmt(mut text)
+    "283e0cc5a6fa9c58a6a011981eac2aec08f975af6288080808080808080\",\"0xf7a032df0bdf5a5f92d8037cf11e50f13d8017aefc99d20a73c826416df79570d4819594a5dc1dd09d347e9bf3431fdc8dac0206b5013d2e\"]}"
+        .fmt(mut text)
+    parse(text.span()).unwrap()
+}
+
+#[test]
+fn a_header_hashes_to_its_block_hash() {
+    let doc = vector()
+    assert!(
+        proof::header_hash(doc["header"]) == field(doc["header"], "hash"),
+    )
+}
+
+#[test]
+fn an_account_and_a_slot_are_proven_from_the_state_root() {
+    let doc = vector()
+    let root = field(doc["header"], "stateRoot")
+    let account = proof::account(
+        state_root: root,
+        address: field(doc, "address"),
+        doc["accountProof"],
+    )
+        .unwrap()
+    assert!(account.nonce == field(doc, "nonce"))
+    assert!(account.balance == field(doc, "balance"))
+    assert!(account.code_hash == field(doc, "codeHash"))
+    assert!(account.storage_root == field(doc, "storageHash"))
+    let value = proof::slot(
+        storage_root: account.storage_root,
+        slot: field(doc, "key"),
+        doc["proof"],
+    )
+        .unwrap()
+    assert!(value == field(doc, "value"))
+}
+
+// Another root, another key or another account: the proof no longer holds.
+#[test]
+fn a_proof_holds_for_its_root_and_key_only() {
+    let doc = vector()
+    let root = field(doc["header"], "stateRoot")
+    let address = field(doc, "address")
+    assert!(
+        proof::account(state_root: root + 1, address, doc["accountProof"]).is_none(),
+    )
+    assert!(
+        proof::account(
+            state_root: root,
+            address: address + 1,
+            doc["accountProof"],
+        ).is_none(),
+    )
+    let storage = field(doc, "storageHash")
+    assert!(
+        proof::slot(
+            storage_root: storage + 1,
+            slot: field(doc, "key"),
+            doc["proof"],
+        ).is_none(),
+    )
+}
+
+// A contract without storage: the node sends no nodes, and every slot is 0.
+#[test]
+fn every_slot_of_an_empty_trie_is_zero() {
+    let none = parse("[]".span()).unwrap()
+    assert!(
+        proof::slot(storage_root: proof::EMPTY_TRIE, slot: 5, none).unwrap() == 0,
+    )
+    assert!(proof::slot(storage_root: 0x1234, slot: 5, none).is_none())
+}

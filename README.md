@@ -657,6 +657,59 @@ listed must not exist, or an EIP-7702 authority earns a refund it did not
 get on chain. `chain` also checks, before every transaction, that the
 carried state holds every value the node's prestate lists.
 
+### Proven against the state root
+
+Everything above trusts the node: its prestate is the starting point, its
+diffs and receipts the reference. `fetch-proofs` removes that trust for a
+block's state. It saves, beside the block, the Merkle-Patricia proofs
+(`eth_getProof`, EIP-1186) of every account and slot the block touched, at
+the end of the parent block and of the block itself, with the parent's
+header. `chain` then checks, offline:
+
+1. both headers hash (keccak of their RLP) to the block's hash and to its
+   parent hash;
+2. the pre-state it built from the node's traces against the parent's
+   state root, account by account (nonce, balance, code hash) and slot by
+   slot; the slots the block's first system calls write (EIP-4788's beacon
+   root, EIP-2935's parent hash) are checked against what those calls write;
+3. after every transaction and the withdrawals, the state fevm reached
+   against the block's own state root.
+
+```sh
+./out/fevm_replay fetch-block 0x192f3cb blocks/0x192f3cb
+./out/fevm_replay fetch-proofs blocks/0x192f3cb      # within ~128 blocks of the head
+./out/fevm_replay chain blocks/0x192f3cb
+headers: block 0x19f04411…696b and its parent hash to themselves
+pre-state: 206 accounts and 673 slots proven against the parent's state root, 0 differ
+chain blocks/0x192f3cb: 122/122 transactions MATCH (100%)
+end state: 207 accounts and 673 slots proven against the block's state root, 0 differ
+withdrawals: 16 credited, their recipients checked by the end state's proofs
+```
+
+So a clean run rests on one 32-byte block hash, which anyone can compare
+with any other source, and not on the node that sent the data: a node that
+lied about a balance, a slot or a proof would have to find a keccak
+collision. Changing one balance in the saved prestate by one wei, or one
+byte of one proof node, makes the run fail:
+
+```
+DIFF  balance 0x2271adcc…6f92: proven 0x…21db88ec4fe3dd, fevm 0x…21db88ec4fe3de
+BROKEN account proof 0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48
+```
+
+The verifier is `src/proof.fe`, about 300 lines of Fe: RLP from std
+(`std::evm::rlp`), keccak from core, a walk down the trie along the key's
+64 nibbles through branch, extension and leaf nodes, inline nodes under 32
+bytes, and proofs that a key is absent. It uses no effect but a text
+buffer for its report, so like the replay it cannot reach the network. Its
+tests run on a real proof and header from block 26,407,882.
+
+Nodes keep state for proofs for about 128 blocks (25 minutes), so
+`fetch-proofs` must follow `fetch-block` closely; it asks three accounts a
+request, as free endpoints allow. The end-of-block request contracts
+(EIP-7002, EIP-7251) are not compared, since their system calls are not
+run.
+
 ### How sharp are the checks?
 
 A check that passes everything proves nothing. `mutants` plants mutants in a
@@ -856,18 +909,19 @@ Other Fe pieces doing real work:
 
 | Module | Role |
 | --- | --- |
-| `src/fetch.fe` | JSON-RPC through curl (`Spawn`), fixtures and block directories, EIP-4844 blob base fee |
+| `src/fetch.fe` | JSON-RPC through curl (`Spawn`), fixtures, block directories and proofs, EIP-4844 blob base fee |
 | `src/load.fe` | JSON to fevm: `load_world`, `load_tx`, `load_block` |
 | `src/replay.fe` | `replay_tx`: load, `transact`, compare; `trace_tx`; finding the account whose code hash a bot checked. No host capabilities |
 | `src/check.fe` | checks the shape of the node's answers before anything reads them |
 | `src/compare.fe` | applies the chain's diff, then compares worlds, receipts and logs |
+| `src/proof.fe` | Merkle-Patricia proofs (EIP-1186) against a state root, block header hashes, a world checked account by account and slot by slot. No host capabilities |
 | `src/fuzz.fe` | shadow fuzzing of WETH9 and of a Uniswap V2 pair: random calls against deployed code and its port, compared after each |
 | `src/mutate.fe` | mainnet-seeded fuzzing: real transactions mutated on their own pre-state, calls changed in flight through a proxy |
 | `src/watch.fe` | `GasWatch`, a tracer that records every call (caller, account it runs as, value, gas, calldata and output), reads of the gas left after shadow code ran, of code hashes, `BLOCKHASH`, and the port's program counters; where two runs part and which gas reading explains it |
 | `src/mutants.fe` | mutation sites in a port's source and the mutants planted there |
 | `src/certify.fe` | the certificate page |
-| `src/lib.fe` | the CLI: `fetch`, `fetch-block`, `fetch-code`, `fetch-hashes`, `block`, `range`, `chain`, `trace`, `opgas`, `fuzz`, `fuzz-pair`, `fuzz-usdt`, `fuzz-proxy`, `fuzz-block`, `mutants`, `certify`, replaying fixture files |
-| `src/tests.fe` | unit tests for the helpers |
+| `src/lib.fe` | the CLI: `fetch`, `fetch-block`, `fetch-code`, `fetch-hashes`, `fetch-proofs`, `block`, `range`, `chain`, `trace`, `opgas`, `fuzz`, `fuzz-pair`, `fuzz-usdt`, `fuzz-proxy`, `fuzz-block`, `mutants`, `certify`, replaying fixture files |
+| `src/tests.fe`, `src/proof_tests.fe` | unit tests for the helpers; the proof tests run on a real proof and header from mainnet |
 | `ports/weth9` | WETH9 in Fe, for shadow replay |
 | `ports/uniswap-v2-pair` | UniswapV2Pair in Fe, for shadow replay of every V2 pair |
 | `ports/usdt` | TetherToken (USDT) in Fe |
@@ -932,13 +986,15 @@ recorded in a headless browser. The same steps by hand:
 
 What a MATCH or a clean certificate rests on:
 
-- **The node's traces are the reference.** Pre-state, receipts and state
-  diffs come from one RPC endpoint and are not proven against the block
-  header. A node bug shows up as a DIFF, as several did (see
-  Results); a node that lies consistently in its prestate and its diff
-  would go unnoticed. `block` rejects receipts that disagree with the
-  header, and `chain` checks every value the next prestate lists against
-  the state it carried.
+- **The node's traces are the reference, unless the block has proofs.**
+  Pre-state, receipts and state diffs come from one RPC endpoint. A node
+  bug shows up as a DIFF, as several did (see Results); a node that lies
+  consistently in its prestate and its diff would go unnoticed by `block`
+  and `range`. With `fetch-proofs`, `chain` proves the pre-state and the
+  end state against the state roots of headers whose hashes it checks
+  ([Proven against the state root](#proven-against-the-state-root)), so
+  what it reports rests on the block hash alone. Receipts and logs are
+  still the node's: they are not proven against `receiptsRoot`.
 - **A load-balanced endpoint can mix nodes** near the chain head. Fetch a
   few blocks behind it.
 - **Fixtures are trusted input.** A replay reads only the fixture file, and

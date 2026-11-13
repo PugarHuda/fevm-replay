@@ -10,6 +10,7 @@ use std::io::Display
 use std::evm::units::{Timestamp, Wei, wei}
 use std::process::{Command, Redirect, Spawn}
 use json::{Value, parse}
+use fevm::WorldState
 use ingot::load::{delegation_target, field, hex_bytes}
 
 /// The blob base fee, per unit of blob gas, for `excess` blob gas under the
@@ -541,6 +542,14 @@ uses (proc: mut Spawn)
         i += 1
     }
     "]".fmt(mut body)
+    batch(url, body, count)
+}
+
+/// A JSON-RPC batch (`body`, an array of `count` requests): the array of
+/// answers, or None. Free endpoints take three requests a batch.
+fn batch<U: Display>(_ url: U, _ body: MemBuffer, _ count: u256) -> Option<Value>
+uses (proc: mut Spawn)
+{
     let command = Command::new("curl")
         .arg("-sS")
         .arg("--fail")
@@ -638,4 +647,55 @@ uses (proc: mut Spawn, fs: mut Fs)
         Result::Ok(_) => true,
         Result::Err(_) => false,
     }
+}
+
+/// The node's `eth_getProof` answers for the accounts `first` to
+/// `first + count` of `keys` (a set made by `proof::touched`), each with its
+/// slots, at the end of block `number`: an array of answers, `id` giving
+/// each one's place, or None. A node keeps the state for proofs only for
+/// recent blocks (about 128).
+pub fn proofs<U: Display>(
+    _ url: U,
+    _ keys: WorldState,
+    first: usize,
+    count: usize,
+    number: u256,
+) -> Option<Value>
+uses (proc: mut Spawn)
+{
+    var body = MemBuffer::empty()
+    "[".fmt(mut body)
+    for i in 0 .. count {
+        if i > 0 { ",".fmt(mut body) }
+        let address = keys.account_at(first + i).address
+        let slots = ingot::proof::slots_of(keys, address)
+        "{\"jsonrpc\":\"2.0\",\"id\":".fmt(mut body)
+        core::text::decimal(i as u256).fmt(mut body)
+        ",\"method\":\"eth_getProof\",\"params\":[\"0x".fmt(mut body)
+        core::text::hex(address, 20).fmt(mut body)
+        "\",[".fmt(mut body)
+        for k in 0 .. slots.len() {
+            if k > 0 { ",".fmt(mut body) }
+            "\"0x".fmt(mut body)
+            core::text::hex(slots[k], 32).fmt(mut body)
+            "\"".fmt(mut body)
+        }
+        "],\"".fmt(mut body)
+        quantity(number).fmt(mut body)
+        "\"]}".fmt(mut body)
+    }
+    "]".fmt(mut body)
+    batch(url, body, count as u256)
+}
+
+/// The header of block `number` (`eth_getBlockByNumber` without its
+/// transactions): the response, or None.
+pub fn header<U: Display>(_ url: U, number: u256) -> Option<Value>
+uses (proc: mut Spawn)
+{
+    var params = MemBuffer::empty()
+    "[\"".fmt(mut params)
+    quantity(number).fmt(mut params)
+    "\",false]".fmt(mut params)
+    call(url, "eth_getBlockByNumber", params)
 }
