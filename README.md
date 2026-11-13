@@ -716,6 +716,9 @@ end state: 207 accounts and 673 slots proven against the block's state root, 0 d
 withdrawals: 16 credited, their recipients checked by the end state's proofs
 ```
 
+Block 26,408,299 the same way: 253 accounts and 463 slots proven at both
+ends, 126/126 MATCH, 0 differ; its proofs took 1 minute 36 seconds to fetch.
+
 So a clean run rests on one 32-byte block hash, which anyone can compare
 with any other source, and not on the node that sent the data: a node that
 lied about a balance, a slot or a proof would have to find a keccak
