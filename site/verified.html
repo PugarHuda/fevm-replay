@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fe ports, verified · fevm-replay</title>
+<meta name="description" content="Three Solidity contracts rewritten in Fe, each checked against Ethereum mainnet by one command, with its certificate.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=2">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='3' fill='%23f2f4f3' stroke='%231f2624' stroke-width='2'/%3E%3Ctext x='16' y='22' font-family='sans-serif' font-weight='700' font-size='14' text-anchor='middle' fill='%231f2624'%3EFe%3C/text%3E%3C/svg%3E">
+<style>
+  .v-head { padding-block: 1.5rem 0.5rem; }
+  .v-head h1 { font-size: clamp(2rem, 4.5vw, 3rem); letter-spacing: -0.03em; line-height: 1.05; margin: 0 0 0.75rem; }
+  .ports { display: grid; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); gap: 1.25rem; margin: 2rem 0; }
+  .port { border: 1px solid var(--rule); border-top: 4px solid var(--match); border-radius: 4px; padding: 1.1rem 1.2rem 1.2rem; display: flex; flex-direction: column; gap: 0.75rem; }
+  .port h2 { margin: 0; font-size: 1.35rem; letter-spacing: -0.01em; }
+  .port .meta { color: var(--steel); font-size: 0.9rem; margin: -0.4rem 0 0; }
+  .port .stamp { font-family: var(--mono); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--match); border: 1.5px solid var(--match); border-radius: 3px; padding: 0.15rem 0.4rem; align-self: flex-start; }
+  .port dl { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: 0.35rem 1rem; font-size: 0.92rem; }
+  .port dt { color: var(--steel); }
+  .port dd { margin: 0; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .port dd.zero { color: var(--match); }
+  .port .links { margin-top: auto; display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; font-size: 0.92rem; }
+  .how { max-width: var(--measure); }
+  .how ol { padding-left: 1.2rem; }
+  .how li { margin-bottom: 0.4rem; }
+</style>
+</head>
+<body>
+<header class="wrap site-head">
+  <a class="mark" href="./" aria-label="fevm-replay home">
+    <span class="tile" aria-hidden="true"><small>26</small><b>Fe</b></span>
+    <span>fevm-replay</span>
+  </a>
+  <nav aria-label="Main">
+    <a href="./">Overview</a>
+    <a href="docs.html">Docs</a>
+    <a href="explorer.html">Explorer</a>
+    <a href="verified.html" aria-current="page">Verified</a>
+    <a href="https://github.com/PugarHuda/fevm-replay">GitHub</a>
+  </nav>
+</header>
+
+<main class="wrap">
+  <section class="v-head">
+    <h1>Fe ports, verified on mainnet</h1>
+    <p class="intro">Three Solidity contracts from three compiler versions, rewritten in Fe to drop in for the deployed code. Each is checked against real Ethereum traffic by one command, <code>fevm_replay certify</code>, which writes the certificate linked below. A port only counts as verified when nothing it does differs from the deployed contract.</p>
+  </section>
+
+  <div class="ports">
+    <article class="port">
+      <span class="stamp">0 behavior differences</span>
+      <h2>USDT</h2>
+      <p class="meta">TetherToken, solc 0.4.17 · <code>ports/usdt</code></p>
+      <dl>
+        <dt>Mainnet transactions that ran it</dt><dd>21,230</dd>
+        <dt>…that behaved differently</dt><dd class="zero">0</dd>
+        <dt>Mutated mainnet runs that differ</dt><dd class="zero">0 of 36,500</dd>
+        <dt>Random calls that differ</dt><dd class="zero">0 of 1.2M</dd>
+        <dt>Port code reached</dt><dd>97%</dd>
+        <dt>Mutants caught</dt><dd>45 of 49</dd>
+        <dt>Gas on <code>transfer</code></dt><dd>−4.1%</dd>
+      </dl>
+      <div class="links"><a href="certificate-usdt.html">Certificate</a><a href="explorer.html">Explorer</a><a href="https://github.com/PugarHuda/fevm-replay/tree/main/ports/usdt">Source</a></div>
+    </article>
+
+    <article class="port">
+      <span class="stamp">0 behavior differences</span>
+      <h2>Uniswap V2 pair</h2>
+      <p class="meta">UniswapV2Pair, solc 0.5.16 · <code>ports/uniswap-v2-pair</code></p>
+      <dl>
+        <dt>Mainnet transactions that ran it</dt><dd>1,687</dd>
+        <dt>…that behaved differently</dt><dd class="zero">0</dd>
+        <dt>Mutated mainnet runs that differ</dt><dd class="zero">0 of 513,600</dd>
+        <dt>Random calls that differ</dt><dd class="zero">0 of 1.2M</dd>
+        <dt>Port code reached</dt><dd>95%</dd>
+        <dt>Mutants caught</dt><dd id="pair-mutants">59 of 74</dd>
+        <dt>Gas on <code>swap</code></dt><dd>−0.9%</dd>
+      </dl>
+      <div class="links"><a href="certificate.html">Certificate</a><a href="explorer.html">Explorer</a><a href="https://github.com/PugarHuda/fevm-replay/tree/main/ports/uniswap-v2-pair">Source</a></div>
+    </article>
+
+    <article class="port">
+      <span class="stamp">0 behavior differences</span>
+      <h2>WETH9</h2>
+      <p class="meta">Wrapped Ether, solc 0.4.19 · <code>ports/weth9</code></p>
+      <dl>
+        <dt>Mainnet transactions that ran it</dt><dd>6,235</dd>
+        <dt>…that behaved differently</dt><dd class="zero">0</dd>
+        <dt>Mutated mainnet runs that differ</dt><dd class="zero">0 of 7,580</dd>
+        <dt>Random calls that differ</dt><dd class="zero">0 of 1.2M</dd>
+        <dt>Port code reached</dt><dd>89%</dd>
+        <dt>Mutants caught</dt><dd>12 of 13</dd>
+        <dt>Gas on <code>balanceOf</code></dt><dd>−17.0%</dd>
+      </dl>
+      <div class="links"><a href="certificate-weth9.html">Certificate</a><a href="https://github.com/PugarHuda/fevm-replay/tree/main/ports/weth9">Source</a></div>
+    </article>
+  </div>
+
+  <section class="how">
+    <h2>What a certificate checks</h2>
+    <ol>
+      <li><strong>Mainnet as it happened.</strong> Every transaction of the saved blocks runs on its own pre-state with the port in place of every account holding the deployed code, and must leave the same logs, balances, nonces and storage. Differences where other code read the gas left or a code hash are labeled, and each label is proved from the call tree.</li>
+      <li><strong>Mainnet, mutated.</strong> Each transaction that touched the contract runs again with its calldata changed, or one call into the contract changed in flight, on both codes.</li>
+      <li><strong>Random calls</strong> against both codes in step, including the owner's functions, malformed calldata and dirty addresses.</li>
+      <li><strong>Mutation testing</strong> of the checks themselves: operators changed one at a time in the port's Fe source, built with <code>fe</code>; a check that catches no planted mistake proves nothing.</li>
+    </ol>
+    <p>Any Fe project can run the same checks in CI with the repository's GitHub Action:</p>
+<pre><code>- uses: PugarHuda/fevm-replay@main
+  with:
+    deployed: "0xdac17f958d2ee523a2206206994597c13d831ec7"
+    port-dir: ports/usdt
+    contract: TetherToken
+    token: usdt
+    first-block: "26400000"
+    blocks: "3"</code></pre>
+  </section>
+</main>
+
+<footer class="wrap site-foot">
+  <span>Built for the Fe Builders Challenge 2026. Apache-2.0.</span>
+  <span><a href="./">Overview</a>, <a href="docs.html">docs</a> and <a href="https://github.com/PugarHuda/fevm-replay">source</a></span>
+</footer>
+</body>
+</html>

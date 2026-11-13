@@ -24,6 +24,11 @@
   .cases button[aria-pressed="true"] { border-top-color: var(--diff); background: var(--paper-2); }
   .cases button.same[aria-pressed="true"] { border-top-color: var(--match); }
   .cases button:hover { border-color: var(--ink); }
+  .versions { display: inline-flex; border: 1px solid var(--rule); border-radius: 4px; overflow: hidden; margin: 0 0 1rem; }
+  .versions[hidden] { display: none; }
+  .versions button { font: inherit; font-size: 0.9rem; cursor: pointer; color: inherit; background: transparent; border: 0; padding: 0.4rem 0.8rem; }
+  .versions button + button { border-left: 1px solid var(--rule); }
+  .versions button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
   .story-box { max-width: var(--measure); border-left: 3px solid var(--diff); padding-left: 1rem; margin: 0 0 1.25rem; }
   .story-box.same { border-left-color: var(--match); }
   .story-box p { margin: 0.4rem 0; }
@@ -69,6 +74,7 @@
     <a href="./">Overview</a>
     <a href="docs.html">Docs</a>
     <a href="explorer.html" aria-current="page">Explorer</a>
+    <a href="verified.html">Verified</a>
     <a href="https://github.com/PugarHuda/fevm-replay">GitHub</a>
   </nav>
 </header>
@@ -88,6 +94,10 @@
   </div>
 
   <div class="story-box" id="story"></div>
+  <div class="versions" id="versions" role="group" aria-label="Port version" hidden>
+    <button type="button" data-file="dirty-address" aria-pressed="true">Port before the fix</button>
+    <button type="button" data-file="dirty-address-fixed" aria-pressed="false">Port after the fix</button>
+  </div>
   <div class="meta" id="meta"></div>
 
   <div class="runs">
@@ -114,7 +124,7 @@ const STORIES = {
     block: "26,000,008, with the port as it was before the fix",
     text: [
       "A bot calls the USDT pair's <code>swap</code> with data packed into the upper twelve bytes of the <code>to</code> argument. Solidity's ABI decoder keeps the low 160 bits and pays out. Fe's decoder rejected the word, so the port reverted at once and the whole transaction with it.",
-      "This is the port before the fix, rebuilt from git history. The fuzzers had flagged dirty addresses as a known difference; mainnet showed that real callers depend on it. Both ports now clean address arguments as solc does."
+      "Switch between the port before the fix, rebuilt from git history, and the port today. The fuzzers had flagged dirty addresses as a known difference; mainnet showed that real callers depend on it. Every port now reads address arguments as solc does, and the runs no longer part."
     ]
   },
   "code-hash": {
@@ -209,17 +219,26 @@ function render(list, run, shadowed, parting) {
   });
 }
 
+let version = "dirty-address";
+document.querySelectorAll("#versions button").forEach((b) => b.addEventListener("click", () => {
+  version = b.dataset.file;
+  document.querySelectorAll("#versions button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  show("dirty-address");
+}));
+
 async function show(name) {
   document.querySelectorAll(".cases button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.case === name)));
   const story = STORIES[name];
   const box = document.getElementById("story");
   box.className = "story-box" + (story.same ? " same" : "");
   box.innerHTML = story.text.map((p) => `<p>${p}</p>`).join("");
-  let data = cache[name];
+  document.getElementById("versions").hidden = name !== "dirty-address";
+  const file = name === "dirty-address" ? version : name;
+  let data = cache[file];
   if (!data) {
     try {
-      const r = await fetch(`traces/${name}.json`);
-      data = cache[name] = await r.json();
+      const r = await fetch(`traces/${file}.json`);
+      data = cache[file] = await r.json();
     } catch (e) {
       document.getElementById("meta").textContent = "Could not load the trace.";
       return;
@@ -227,7 +246,7 @@ async function show(name) {
   }
   const shadowed = new Set(data.shadowed);
   document.getElementById("meta").innerHTML =
-    `block ${story.block} · tx <a href="https://etherscan.io/tx/${data.hash}">${data.hash}</a>` +
+    `block ${file === "dirty-address-fixed" ? "26,000,008, with the port as it is now" : story.block} · tx <a href="https://etherscan.io/tx/${data.hash}">${data.hash}</a>` +
     ` · ${data.parting === null ? "the runs never part" : "they part at call " + (data.parting + 1) + " in the order calls ended"}`;
   render(document.getElementById("calls-a"), data.deployed, shadowed, data.parting);
   render(document.getElementById("calls-b"), data.shadow, shadowed, data.parting);

@@ -164,6 +164,11 @@ counted, so both sides served the same calls. Over blocks 26,394,000 to
 Average gas per call, including the storage and calls each makes. Across the
 300-block run, whole transactions that ran Fe WETH9 used 0.42% less gas.
 
+Today's port (address arguments read with `CALLDATALOAD`, as below), over
+the same 290 blocks as the other ports: 6,235 transactions ran it, none
+behaved differently, and all 510 that differ where code reads the gas left
+are explained. `balanceOf` costs 17.0% less, `transfer` 3.8% less.
+
 The 454 are mostly MEV bots that size a builder payment from the gas they
 used, and ERC-4337 bundles whose `UserOperationEvent` records it. Cheaper
 code legitimately changes what they do. This is detected, not guessed: a
@@ -187,17 +192,18 @@ withdrawals into fallbacks are exercised. Everything follows from the seed.
 ./out/fevm_replay fuzz weth9.hex out/weth9/WETH9.runtime.bin 20000 60 1000
 ```
 
-| Calls (20,000 runs, 5.4 s) | Calls | Differ |
+| Calls (20,000 runs) | Calls | Differ |
 | --- | ---: | ---: |
-| Well-formed | 410,823 | 0 |
-| Calldata shorter than the arguments | 45,383 | 17,326 |
-| Address arguments with dirty upper bits | 65,347 | 0 |
+| Well-formed | 945,316 | 0 |
+| Calldata shorter than the arguments | 104,530 | 0 |
+| Address arguments with dirty upper bits | 150,154 | 0 |
 
-solc 0.4 reads calldata past its end as zeros; Fe's decoder rejects a short
-call, so those are reported apart. Only a well-formed difference fails the
-run. The port takes address arguments as words and keeps their low 160 bits,
-as solc does (see [the bug mainnet showed](#a-bug-only-mainnet-callers-showed)).
-The run reaches 693 of the port's 768 instructions (90%). Against the port from before the zero-withdrawal fix, `fuzz` finds that
+solc 0.4 has no length check: it reads calldata past its end as zeros. So
+the port's handlers take no ABI fields; they read their arguments with
+`CALLDATALOAD`, which pads with zeros the same way, and keep an address
+argument's low 160 bits, as solc does (see
+[the bug mainnet showed](#a-bug-only-mainnet-callers-showed)). Every kind of
+call matches. The run reaches 639 of the port's 714 instructions (89%). Against the port from before the zero-withdrawal fix, `fuzz` finds that
 bug in 0.1 s and prints the call to reproduce it:
 
 ```
@@ -261,14 +267,13 @@ that accept or call back into the pair:
 ./out/fevm_replay fuzz-pair pair.hex out/pair/UniswapV2Pair.runtime.bin weth9.hex 20000 60 1000
 ```
 
-| Calls (20,000 runs, 186 s) | Calls | Differ |
+| Calls (20,000 runs, 332 s) | Calls | Differ |
 | --- | ---: | ---: |
-| Well-formed | 989,509 | 0 |
-| Calldata shorter than the arguments | 90,425 | 0 |
-| Address arguments with dirty upper bits | 120,066 | 0 |
+| Well-formed | 989,811 | 0 |
+| Calldata shorter than the arguments | 90,177 | 0 |
+| Address arguments with dirty upper bits | 120,012 | 0 |
 
-Of the well-formed calls, 6,010 swaps succeeded, among thousands of mints,
-burns, skims and syncs; the rest cover the reverts. The run reaches 3,289 of
+Of the well-formed calls, 9,698 swaps, 8,920 mints and 824 burns succeeded; the rest cover the reverts. The run reaches 3,289 of
 the port's 3,466 instructions (94%). Fuzzing found two things mainnet had
 not shown:
 
@@ -358,6 +363,20 @@ alone. The port running out stays a difference, as above.
 Of the 20,926 in-flight changes, 19,037 got past the pair's own checks. The
 planted bug still shows 23 differences under the same rules.
 
+Run longer, with 200 mutations per transaction and three seeds over the same
+200 blocks:
+
+| 200 blocks × 200 mutations × seeds 7, 8, 9 | Runs |
+| --- | ---: |
+| Mutated | 513,600 |
+| Identical | 497,918 |
+| Labeled: the gas left read (all 13,120 explained) or a code hash read (1,240) | 14,360 |
+| Only the deployed code ran out of gas | 1,322 |
+| **Differ** | **0** |
+
+254,707 of the runs changed a call in flight, and 233,556 of those got past
+the pair's own checks.
+
 ### A bug only mainnet callers showed
 
 Replaying blocks from across the year turned up one transaction where the
@@ -405,21 +424,43 @@ call with the same calldata that ran out of gas only on the deployed code.
 
 | Function | Calls | Deployed Solidity | Fe USDT | Change |
 | --- | ---: | ---: | ---: | ---: |
-| `transfer` | 15,969 | 28,123 | 26,977 | −4.1% |
-| `balanceOf` | 5,138 | 2,034 | 1,612 | −20.8% |
-| `transferFrom` | 2,378 | 22,767 | 21,868 | −3.9% |
-| `approve` | 867 | 20,905 | 20,562 | −1.6% |
-| `allowance` | 342 | 3,081 | 2,475 | −19.7% |
+| `transfer` | 15,969 | 28,123 | 26,968 | −4.1% |
+| `balanceOf` | 5,138 | 2,034 | 1,555 | −23.6% |
+| `transferFrom` | 2,378 | 22,767 | 21,859 | −4.0% |
+| `approve` | 867 | 20,905 | 20,553 | −1.7% |
+| `allowance` | 342 | 3,081 | 2,417 | −21.6% |
 | `decimals` | 41 | 1,898 | 1,708 | −10.0% |
 
 Whole transactions that ran the Fe USDT used 1.4% less gas. Mutating 1,825
 transactions of 20 blocks twenty times each (36,500 runs) finds no
-difference. 55 runs differ after a mutation cut the calldata short: solc 0.4
-reads missing bytes as zeros, Fe's decoder rejects the call; they are
-counted apart. The same run caught a flaw in the in-flight proxy: it
-patched every call into the account, so a transaction that called USDT
-several times had all of them cut to the changed call's length. The proxy
-now patches only calls with the changed call's selector and length.
+difference. Like the WETH9 port, this one reads its arguments with
+`CALLDATALOAD`, and `onlyPayloadSize` stands where the deployed code has it
+(after the paused, blacklist and deprecation checks in `transfer`, first in
+`approve`), so calldata cut short behaves as on chain. The first run caught a
+flaw in the in-flight proxy: it patched every call into the account, so a
+transaction that called USDT several times had all of them cut to the
+changed call's length. It now patches only calls with the changed call's
+selector and length.
+
+Mainnet rarely shows the owner at work, so `fuzz-usdt` builds USDT as
+deployed (the first account owns it, every account holds tokens) with two
+successors to deprecate to, one answering every call and one reverting, and
+calls everything: transfers, approvals and views from any account, and
+`issue`, `redeem`, `setParams`, `pause`, `unpause`, the blacklist,
+`destroyBlackFunds`, `deprecate` and `transferOwnership`.
+
+```sh
+./out/fevm_replay fuzz-usdt usdt.hex out/usdt/TetherToken.runtime.bin 20000 60 1000
+```
+
+| Calls (20,000 runs) | Calls | Differ |
+| --- | ---: | ---: |
+| Well-formed | 989,403 | 0 |
+| Calldata shorter than the arguments | 90,160 | 0 |
+| Address arguments with dirty upper bits | 120,437 | 0 |
+
+The run reaches 2,541 of the port's 2,610 instructions (97%); mainnet
+mutations reach 36%.
 
 ### Every label, explained
 
@@ -449,6 +490,10 @@ before calling either: the port never ran, so the difference is the code's
 identity, not its behavior.
 
 ### Who reads the gas left
+
+[The gas map](https://fevm-replay.vercel.app/gas.html) lists every contract
+found this way with all three ports, one at a time, over 200 blocks: 102
+contracts in 1,025 explained transactions, with an example of each.
 
 The explained runs name the contracts whose behavior depends on the gas
 left. Over 200 blocks of mutations (each batch of 50 blocks lists its ten
@@ -488,6 +533,17 @@ fork) to 26,300,000 (November 2026), plus the 200 blocks above.
 | Differ where code reads the gas left (all explained) | 42 |
 | **Behave differently** | **0** |
 
+Before Osaka, fevm's rules are not the chain's. Replaying ten Prague
+blocks (23,800,000 to 23,800,009) under Osaka rules turns that into a
+measurement of what the fork changed for real transactions: 1,897 of 1,900
+match, and each of the three that do not is a rule Osaka changed.
+
+| Prague transaction, run under Osaka | What changed | Why |
+| --- | --- | --- |
+| `0xfc79…5022` | 8,697 more gas | calls MODEXP (`0x05`) five times; EIP-7883 raised its price |
+| `0xb5ec…dbd5` | reverts instead of succeeding | calls MODEXP with a gas limit that no longer covers it |
+| `0x9a1e…eb6e` | 558,129 gas becomes 281,612; a different log | an ERC-4337 wallet probes `0x100`, empty under Prague, so it verifies a P-256 signature in Solidity; under Osaka EIP-7951 puts the P256VERIFY precompile there |
+
 The first run showed 25 differences in December's blocks: the replay
 computed the blob base fee with BPO2's update fraction for every block. It
 now picks Prague's, BPO1's or BPO2's by the block's timestamp.
@@ -507,10 +563,24 @@ chain blocks/0x192d500: 88/88 transactions MATCH (100.0%)
 withdrawals: 16 to 4 recipients, 4 balances match the node at the end of the block
 ```
 
-A transaction created mid-block is the trap: the prestate tracer leaves out
-accounts and slots that do not exist yet, so the first prestate that lists
-them already holds a later value. Whatever a transaction's diff writes that
-its prestate does not list is cleared before the block starts.
+| 290 blocks replayed as chains | |
+| --- | ---: |
+| Transactions | 100,600 |
+| MATCH, on the state the previous transaction left | 100,585 |
+| Read an older block's hash (`BLOCKHASH`) | 14 |
+| The node tracer bug above (`0x1d03…0c0f`) | 1 |
+| Transactions whose carried state differs from the node's prestate | 0 |
+| Withdrawal recipients whose balance matches the node's | 623 of 623 |
+
+Building the block's pre-state took three fixes, each found by a
+difference: an account or slot a transaction creates is missing from its
+prestate, so the first prestate that lists it already holds a later value
+(whatever a diff writes that its prestate does not list is cleared); the
+tracer leaves out empty code, so code set later in the block (an EIP-7702
+delegation) must not leak back; and an empty account the tracer merely
+listed must not exist, or an EIP-7702 authority earns a refund it did not
+get on chain. `chain` also checks, before every transaction, that the
+carried state holds every value the node's prestate lists.
 
 ### How sharp are the checks?
 
@@ -523,24 +593,37 @@ calls and mainnet mutations. The unchanged port goes first and must pass.
 ./out/fevm_replay mutants ports/uniswap-v2-pair UniswapV2Pair pair.hex weth9.hex 74 blocks/*
 ```
 
-| Every operator of the Fe pair (74 mutants) | Mutants |
+| Every operator of the Fe pair (74 mutants), mainnet on 40 blocks | Mutants |
 | --- | ---: |
-| Killed by random calls | 57 |
-| Killed by mainnet mutations | 0 |
-| Survived | 17 |
+| Killed by random calls | 58 |
+| Killed by mainnet mutations | 1 |
+| Survived | 15 |
 
-77% are killed. Of the 17 survivors, about half change nothing a caller can
+80% are killed. The one only mainnet kills is `_safeTransfer` accepting a
+token that returns nothing: the fuzzer's tokens all return `true`, while a
+USDT pair on mainnet returns nothing.
+
+The first run killed 57 (77%). Of the 17 survivors, about half change nothing a caller can
 see: `elapsed >= 0` for `elapsed > 0` (a zero adds nothing to the price
 accumulators), `x <= y` for `x < y` in `min`, `>=` for `>` against a revert
 reason's length, which is never exactly 32. The rest are real blind spots,
 listed in the certificate: the exact `k` boundary of `swap`, `permit`'s
 deadline at exactly the block's timestamp, `UINT112_MAX` overflow (balances
 above 2^112 that no test reaches), small inputs to `sqrt`, and the flash-swap
-callback skipped when data is present. Each is a test to write.
+callback skipped when data is present. The survivors told the fuzzer what to
+add: swaps at exactly the most the constant product allows (and one more),
+resolved against the state each call runs on; permits whose deadline is the
+block's timestamp; and flash swaps to a callee that pays back.
 
-The Fe WETH9 port has 13 operators: 12 mutants are killed (92%). The
-survivor doubles the length `name()` and `symbol()` decode from storage, and
-the fuzzer's world leaves both empty.
+| Port | Operators | Killed |
+| --- | ---: | ---: |
+| USDT | 49 | 45 (92%) |
+| WETH9 | 13 | 12 (92%) |
+
+The WETH9 survivor doubles the length `name()` and `symbol()` decode from
+storage, and the fuzzer's world leaves both empty. `mutants ... each <dir>...`
+runs the mainnet mutations on every mutant, not only on those random calls
+missed, to score them on their own.
 
 ### One command: a port certificate
 
@@ -570,13 +653,37 @@ over the 200 blocks with all 74 mutants, took about 25 minutes:
 | Port instructions reached: mainnet mutations / random calls | 74% / 95% |
 | Mutants killed | 57 of 74 (77%) |
 
+### Verified ports and a GitHub Action
+
+[The verified page](https://fevm-replay.vercel.app/verified.html) puts the
+three ports side by side, each with its certificate. Any Fe project can run
+the same checks in CI with this repository's action, which builds Fe,
+fetches blocks, certifies the port and uploads the page (fails if the port
+behaves differently):
+
+```yaml
+- uses: PugarHuda/fevm-replay@main
+  with:
+    deployed: "0xdac17f958d2ee523a2206206994597c13d831ec7"
+    port-dir: ports/usdt
+    contract: TetherToken
+    token: usdt
+    first-block: "26400000"
+    blocks: "3"
+```
+
+[`certify.yml`](.github/workflows/certify.yml) runs it on the USDT port:
+two mainnet blocks, 535 transactions, 134 through the port, none different,
+in four minutes.
+
 ### Explorer
 
-[The explorer](https://fevm-replay.vercel.app/explorer.html) shows four of
-these transactions call by call, the deployed pair beside the Fe port, with
-the call where the runs part marked: the dirty-address bug (with the port as
-it was before the fix), a bot that checks code hashes, a builder tip worked
-out from `gasleft()`, and an ordinary swap. Its data comes from `trace`:
+[The explorer](https://fevm-replay.vercel.app/explorer.html) shows five of
+these transactions call by call, the deployed code beside the Fe port, with
+the call where the runs part marked: the dirty-address bug (switch between
+the port before the fix and after it), a bot that checks code hashes, a builder tip worked
+out from `gasleft()`, a USDT transfer that runs out of gas only on the
+deployed code, and an ordinary swap. Its data comes from `trace`:
 
 ```sh
 ./out/fevm_replay trace blocks/0x192d520 448 pair.hex out/pair/UniswapV2Pair.runtime.bin > trace.json
@@ -729,15 +836,15 @@ recorded in a headless browser. The same steps by hand:
   fevm's tracer does not expose the stack, so the target of `EXTCODEHASH` is
   found by replaying with the port at one account at a time, and a gas
   reading is tied to a difference through the call tree.
-- **Calldata shorter than its arguments** still differs on the WETH9 port:
-  solc 0.4 reads past the end as zeros, Fe's decoder rejects the call.
 - **Mainnet mutations cannot fetch state on demand.** A mutation that reaches
   a slot the original transaction never touched sees it empty in both runs.
   Fetching it would need the slot's key, which only the stack holds, or a
   node call per mutation (`debug_traceCall` with the block's earlier diffs
   applied); neither is done.
-- **Only Osaka.** fevm implements Osaka rules, so the replays cover blocks
-  from December 2025 on.
+- **Only Osaka.** fevm implements Osaka rules, so exact replays cover blocks
+  from December 2025 on. Older blocks replay under Osaka rules as a
+  measurement of the fork, not a check of fevm (see
+  [Across the year](#across-the-year)).
 - **Delegates come from the parent block's state.** A delegation target
   whose code changed within the block would be fetched as it was before.
 - **Double-counted cleared slots:** a slot the chain cleared and fevm kept

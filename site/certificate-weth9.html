@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WETH9 port certificate</title>
+<style>
+:root{--paper:#f2f4f3;--ink:#1f2624;--steel:#5b6b73;--rule:#c9d1ce;--match:#2e8b6f;--diff:#c9961a;--code:#e9edeb}
+@media (prefers-color-scheme:dark){:root{--paper:#161b1a;--ink:#e4e9e7;--steel:#93a3aa;--rule:#34403d;--match:#4fb894;--diff:#e0b03a;--code:#1f2725}}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.55 system-ui,sans-serif}
+main{width:min(880px,100% - 2rem);margin:2rem auto 4rem}h1{font-size:clamp(1.8rem,5vw,2.6rem);line-height:1.1;letter-spacing:-.02em;margin:.25rem 0 1rem}
+h2{margin-top:2.5rem;padding-top:1rem;border-top:1px solid var(--rule);font-size:1.2rem}.kicker{color:var(--steel);font-weight:600;letter-spacing:.06em;text-transform:uppercase;font-size:.8rem}
+code,.mono{font-family:ui-monospace,monospace;font-size:.85em;overflow-wrap:anywhere}table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:.45rem .6rem .45rem 0;border-bottom:1px solid var(--rule);vertical-align:top}th{color:var(--steel);font-weight:600}td.n,th.n{text-align:right}
+.verdict{border-left:4px solid var(--match);padding:.6rem 1rem;background:color-mix(in srgb,var(--match) 12%,transparent);font-size:1.1rem}.verdict.bad{border-color:var(--diff);background:color-mix(in srgb,var(--diff) 15%,transparent)}
+.note{color:var(--steel);font-size:.92rem}pre{background:var(--code);padding:.8rem;overflow-x:auto;font-size:.8rem}.scroll{overflow-x:auto}
+</style>
+</head>
+<body>
+<main>
+<div class="kicker">Fe port certificate</div>
+<h1>WETH9</h1>
+<p>Port source <code>ports/weth9</code>, runtime code hash <code>0x3fe26b3d0f24d09333f61486c739457698c7725a7389ea5c3c7c238903d4a9de</code> (1176 bytes), in place of the deployed code with hash <code>0xd0a06b12ac47863b5c7be4185c2deaad1c61557033f56c7d4ea74429cbb25e23</code> (3124 bytes). Blocks <code>/root/v2blocks/0x192d500</code> to <code>/root/v2blocks/0x192d513</code>.</p>
+<p class="verdict">No behavior difference: every transaction that ran the port, every mutation of them and every random call behaved as on the deployed code.</p>
+<h2>Mainnet, as it happened</h2>
+<p>Each transaction of the blocks ran on its own mainnet pre-state, with the port in place of every account holding the deployed code, and was compared with the chain: status, logs, every balance, nonce and storage slot. Only gas may differ.</p>
+<table>
+<tr><th>Blocks</th><td class="n">20</td></tr>
+<tr><th>Transactions</th><td class="n">6310</td></tr>
+<tr><th>Transactions that ran the port</th><td class="n">379</td></tr>
+<tr><th>Identical to the chain</th><td class="n">338</td></tr>
+<tr><th>Differ where other code read the gas left</th><td class="n">41</td></tr>
+<tr><th>&nbsp;&nbsp;of which part at or under that code</th><td class="n">41</td></tr>
+<tr><th>Differ where other code read code hashes</th><td class="n">0</td></tr>
+<tr><th>Only the deployed code ran out of gas</th><td class="n">0</td></tr>
+<tr><th><strong>Behave differently</strong></th><td class="n">0</td></tr>
+</table>
+<h3>Gas per call in identical transactions</h3>
+<div class="scroll"><table>
+<tr><th>Function</th><th class="n">Calls</th><th class="n">Deployed</th><th class="n">Port</th><th class="n">Change</th></tr>
+<tr><td><code>deposit</code></td><td class="n">95</td><td class="n">17555</td><td class="n">17427</td><td class="n">&minus;0.7%</td></tr>
+<tr><td><code>balanceOf</code></td><td class="n">713</td><td class="n">996</td><td class="n">825</td><td class="n">&minus;17.1%</td></tr>
+<tr><td><code>withdraw</code></td><td class="n">112</td><td class="n">9781</td><td class="n">9489</td><td class="n">&minus;2.9%</td></tr>
+<tr><td><code>transfer</code></td><td class="n">449</td><td class="n">11701</td><td class="n">11196</td><td class="n">&minus;4.3%</td></tr>
+<tr><td><code>transferFrom</code></td><td class="n">116</td><td class="n">12518</td><td class="n">12032</td><td class="n">&minus;3.8%</td></tr>
+<tr><td><code>allowance</code></td><td class="n">23</td><td class="n">1847</td><td class="n">1600</td><td class="n">&minus;13.3%</td></tr>
+<tr><td><code>approve</code></td><td class="n">43</td><td class="n">18524</td><td class="n">18322</td><td class="n">&minus;1.0%</td></tr>
+<tr><td><code>decimals</code></td><td class="n">3</td><td class="n">2444</td><td class="n">2255</td><td class="n">&minus;7.7%</td></tr>
+<tr><td><code></code></td><td class="n">1</td><td class="n">4096</td><td class="n">3980</td><td class="n">&minus;2.8%</td></tr>
+</table></div>
+<h2>Mainnet, mutated</h2>
+<p>Each transaction that touched the deployed code ran again with its calldata changed, or with one call into the contract changed in flight, on both codes, gas free.</p>
+<table>
+<tr><th>Transactions</th><td class="n">379</td></tr>
+<tr><th>Runs</th><td class="n">7580</td></tr>
+<tr><th>Identical</th><td class="n">7252</td></tr>
+<tr><th>Differ where other code read the gas left or code hashes</th><td class="n">328</td></tr>
+<tr><th>&nbsp;&nbsp;of which code hashes</th><td class="n">43</td></tr>
+<tr><th>&nbsp;&nbsp;of the rest, part at or under the code that read the gas left</th><td class="n">285</td></tr>
+<tr><th>Only the deployed code ran out of gas</th><td class="n">0</td></tr>
+<tr><th>Differ after an address-shaped word got upper bits</th><td class="n">0</td></tr>
+<tr><th>Differ after the calldata was cut short</th><td class="n">0</td></tr>
+<tr><th><strong>Differ</strong></th><td class="n">0</td></tr>
+</table>
+<p>The port ran 547 of its 714 instructions (76.6%) in these runs.</p>
+<h2>Random calls</h2>
+<p>1,000 sessions of up to 60 random calls each, against both codes in step.</p>
+<table>
+<tr><th>Well-formed calls</th><td class="n">47257</td></tr>
+<tr><th><strong>Well-formed calls that differ</strong></th><td class="n">0</td></tr>
+<tr><th>Calls with short calldata that differ</th><td class="n">0</td></tr>
+<tr><th>Calls with dirty addresses that differ</th><td class="n">0</td></tr>
+<tr><th>Invariants broken</th><td class="n">0</td></tr>
+</table>
+<p>The port ran 639 of its 714 instructions (89.4%).</p>
+<h2>How sharp the checks are</h2>
+<p>Mutants of the port's source, one operator changed each, built with <code>fe</code> and put through random calls and then mutations of the first ten blocks. The unchanged port passed the same checks first.</p>
+<table>
+<tr><th>Operators in the source</th><td class="n">13</td></tr>
+<tr><th>Mutants built</th><td class="n">13</td></tr>
+<tr><th>Killed by random calls</th><td class="n">12</td></tr>
+<tr><th>Killed by mainnet mutations</th><td class="n">0</td></tr>
+<tr><th>Survived</th><td class="n">1</td></tr>
+</table>
+<p>92.3% killed. A survivor is a blind spot of the checks or a change that means the same; each deserves a look:</p>
+<pre>line 82: DynString::from_word_prefix(word: word, len: ((word &amp; 0xff) * 2).downcast_truncate())
+</pre>
+<p class="note">Made by <a href="https://github.com/PugarHuda/fevm-replay">fevm-replay</a> <code>certify</code>, written in Fe and running fevm, the EVM written in Fe.</p>
+</main>
+</body>
+</html>

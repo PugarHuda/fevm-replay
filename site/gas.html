@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Who reads the gas left · fevm-replay</title>
+<meta name="description" content="Mainnet contracts whose behavior depends on the gas left, found by replacing three contracts with cheaper Fe ports and proving where each difference came from.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=2">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='3' fill='%23f2f4f3' stroke='%231f2624' stroke-width='2'/%3E%3Ctext x='16' y='22' font-family='sans-serif' font-weight='700' font-size='14' text-anchor='middle' fill='%231f2624'%3EFe%3C/text%3E%3C/svg%3E">
+<style>
+  .g-head { padding-block: 1.5rem 0.5rem; }
+  .g-head h1 { font-size: clamp(2rem, 4.5vw, 3rem); letter-spacing: -0.03em; line-height: 1.05; margin: 0 0 0.75rem; }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 1rem 2rem; margin: 1.5rem 0 2rem; }
+  .facts div { border-left: 3px solid var(--diff); padding-left: 0.9rem; }
+  .facts b { display: block; font-size: 2rem; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+  .facts span { color: var(--steel); font-size: 0.92rem; }
+  .scroll { overflow-x: auto; }
+  table.map { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: 0.94rem; }
+  table.map th, table.map td { text-align: left; padding: 0.55rem 0.75rem 0.55rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  table.map th { color: var(--steel); font-weight: 600; }
+  table.map td.n, table.map th.n { text-align: right; }
+  table.map .addr { font-family: var(--mono); font-size: 0.8rem; color: var(--steel); }
+  table.map .kind { font-size: 0.85rem; color: var(--steel); }
+  .bar { height: 6px; background: var(--diff); border-radius: 3px; min-width: 2px; }
+  .why { max-width: var(--measure); }
+</style>
+</head>
+<body>
+<header class="wrap site-head">
+  <a class="mark" href="./" aria-label="fevm-replay home">
+    <span class="tile" aria-hidden="true"><small>26</small><b>Fe</b></span>
+    <span>fevm-replay</span>
+  </a>
+  <nav aria-label="Main">
+    <a href="./">Overview</a>
+    <a href="docs.html">Docs</a>
+    <a href="explorer.html">Explorer</a>
+    <a href="verified.html">Verified</a>
+    <a href="https://github.com/PugarHuda/fevm-replay">GitHub</a>
+  </nav>
+</header>
+
+<main class="wrap">
+  <section class="g-head">
+    <h1>Who reads the gas left</h1>
+    <p class="intro">A cheaper drop-in replacement is not invisible. We replaced WETH9, USDT and every Uniswap V2 pair with Fe ports that do the same thing for less gas, and replayed 200 mainnet blocks. Where a transaction then ended differently, fevm-replay proved from the call tree which contract read the gas left and acted on it. These are those contracts.</p>
+  </section>
+
+  <div class="facts" id="facts"></div>
+
+  <div class="scroll">
+    <table class="map">
+      <thead><tr><th scope="col">Contract</th><th scope="col" class="n">Transactions</th><th scope="col">Through the port of</th><th scope="col">Example</th><th scope="col" style="width:20%"></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+  <section class="why">
+    <h2>Why they read it</h2>
+    <p><strong>Account abstraction.</strong> ERC-4337 entry points meter each user operation with <code>gasleft()</code> and charge the account for what it used, so a cheaper token changes what the paymaster and the bundler are paid.</p>
+    <p><strong>Proxies.</strong> A proxy such as USDC's reads the gas left to forward it to its implementation; less gas used below it changes what the caller sees.</p>
+    <p><strong>Routers and bots.</strong> Aggregators, routers and MEV bots check the gas left between steps, pay builders tips worked out from it, or emit it in their own events.</p>
+    <p class="note">Each row is a transaction whose difference is explained: the runs part at or under a call whose code ran <code>GAS</code> after the port ran, or the first differing log or state belongs to that account. Unlabeled addresses are contracts without a public name. Counts are transactions over blocks 26,400,000 to 26,400,199, with one port in place at a time.</p>
+  </section>
+</main>
+
+<footer class="wrap site-foot">
+  <span>Built for the Fe Builders Challenge 2026. Apache-2.0.</span>
+  <span><a href="./">Overview</a>, <a href="docs.html">docs</a> and <a href="https://github.com/PugarHuda/fevm-replay">source</a></span>
+</footer>
+
+<script>
+const NAMES = {
+  "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": ["USDC", "token proxy"],
+  "0x0000000071727de22e5e9d8baf0edac6f37da032": ["ERC-4337 EntryPoint v0.7", "account abstraction"],
+  "0x4337084d9e255ff0702461cf8895ce9e3b5ff108": ["ERC-4337 EntryPoint v0.8", "account abstraction"],
+  "0x5ff137d4b0fdcd49dca30c7cf57e578a026d2789": ["ERC-4337 EntryPoint v0.6", "account abstraction"],
+  "0x7a250d5630b4cf539739df2c5dacb4c659f2488d": ["Uniswap V2 Router02", "router"],
+  "0x23617e59a5925b2a4bf75d73ff6711cd0b29de85": ["Uniswap Universal Router v2.1.2", "router"],
+  "0x6131b5fae19ea4f9d964eac0408e4408b66337b5": ["KyberSwap Meta Aggregation Router v2", "aggregator"],
+  "0x111111125421ca6dc452d289314280a0f8842a65": ["1inch Aggregation Router v6", "aggregator"],
+  "0x9ccc2f3ecde026230e11a5c8799ac7524f2bb294": ["Spire Proposer Multicall", "block builder"],
+  "0xa69babef1ca67a37ffaf7a485dfff3382056e78c": ["MEV Bot 0xA69…78C", "MEV bot"],
+};
+
+fetch("data/gasmap.json").then((r) => r.json()).then((rows) => {
+  const total = rows.reduce((a, r) => a + r.total, 0);
+  const known = rows.filter((r) => NAMES[r.address]).length;
+  const aa = rows.filter((r) => (NAMES[r.address] || [])[1] === "account abstraction").reduce((a, r) => a + r.total, 0);
+  document.getElementById("facts").innerHTML =
+    `<div><b>${total.toLocaleString("en")}</b><span>transactions where a cheaper port changed the outcome, every one explained</span></div>` +
+    `<div><b>${rows.length}</b><span>contracts that read the gas left and acted on it (${known} with public names)</span></div>` +
+    `<div><b>${Math.round(100 * aa / total)}%</b><span>of them through ERC-4337 entry points</span></div>`;
+  const max = rows[0] ? rows[0].total : 1;
+  const body = document.getElementById("rows");
+  rows.slice(0, 40).forEach((r) => {
+    const [name, kind] = NAMES[r.address] || ["", ""];
+    const tr = document.createElement("tr");
+    const ports = Object.entries(r.by_port).map(([p, n]) => `${p} ${n}`).join(", ");
+    tr.innerHTML =
+      `<td>${name ? `<strong>${name}</strong> <span class="kind">${kind}</span><br>` : ""}<a class="addr" href="https://etherscan.io/address/${r.address}">${r.address}</a></td>` +
+      `<td class="n">${r.total}</td><td class="kind">${ports}</td>` +
+      `<td><a class="addr" href="https://etherscan.io/tx/${r.example.tx}">${r.example.tx.slice(0, 10)}…</a></td>` +
+      `<td><div class="bar" style="width:${Math.max(2, 100 * r.total / max)}%"></div></td>`;
+    body.append(tr);
+  });
+}).catch(() => {
+  document.getElementById("facts").textContent = "Could not load the data.";
+});
+</script>
+</body>
+</html>
