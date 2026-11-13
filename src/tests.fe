@@ -33,20 +33,6 @@ fn hex_bytes_decodes_with_and_without_prefix() {
 
 #[cfg(target_family = "unix")]
 #[test]
-fn blob_base_fee_matches_the_node() {
-    // Mainnet block 26393604: excessBlobGas 0xb58bccf under BPO2; the node's
-    // blob gas price for its blob transactions was 0xb58b03.
-    assert!(
-        ingot::fetch::blob_base_fee(excess: 0xb58bccf, fraction: 11684671) == 0xb58b03,
-    )
-    // No excess blob gas: the minimum price of one wei.
-    assert!(
-        ingot::fetch::blob_base_fee(excess: 0, fraction: 11684671) == 1,
-    )
-}
-
-#[cfg(target_family = "unix")]
-#[test]
 fn delegation_targets_missing_from_the_prestate_are_collected() {
     // An EIP-7702 transaction whose authorization delegates to 0x...490a, and
     // a prestate holding another account already delegated to 0x...beef, but
@@ -246,15 +232,6 @@ fn mapping_slots_match_solidity() {
     )
 }
 
-// The blob fee schedule follows mainnet's forks: Prague's fraction until
-// BPO1, BPO1's until BPO2, then BPO2's.
-#[test]
-fn blob_fee_fraction_follows_the_forks() {
-    assert!(ingot::fetch::update_fraction(1764798551) == 5007716)
-    assert!(ingot::fetch::update_fraction(1765290071) == 8346193)
-    assert!(ingot::fetch::update_fraction(1767747671) == 11684671)
-}
-
 // Mutation sites: operators in code, not in comments or strings; a mutant
 // swaps one.
 #[test]
@@ -324,4 +301,20 @@ fn a_kept_cleared_slot_counts_once() {
         ingot::compare::compare_storage(expected, actual)
     }
     assert!(count == 1)
+}
+
+// Percentages keep a tenth: shares round down, changes towards zero, so a
+// rise and a fall of the same size print the same digits.
+#[test]
+fn shares_and_changes_keep_a_tenth() {
+    assert!(ingot::certify::share(997, 1000).raw() == 997)
+    assert!(ingot::certify::share(2, 3).raw() == 666)
+    assert!(ingot::certify::share(5, 0).raw() == 0)
+    assert!(
+        ingot::certify::change(before: 1000, after: 991).raw() == -9,
+    )
+    assert!(
+        ingot::certify::change(before: 1000, after: 1009).raw() == 9,
+    )
+    assert!(ingot::certify::change(before: 3, after: 2).raw() == -333)
 }

@@ -11,10 +11,10 @@ balance, nonce, code and storage slot.
 
 ```
 $ fevm-replay range 26394000 20 blocks
-block 0x192bd90: 267/267 transactions MATCH (100.0%)
+block 0x192bd90: 267/267 transactions MATCH (100%)
 ...
-block 0x192bda3: 320/320 transactions MATCH (100.0%)
-20 blocks: 5129/5129 transactions MATCH (100.0%)
+block 0x192bda3: 320/320 transactions MATCH (100%)
+20 blocks: 5129/5129 transactions MATCH (100%)
 ```
 
 Replaying is fast: those 5,129 transactions take 5.9 seconds once fetched.
@@ -634,7 +634,7 @@ the block.
 
 ```sh
 ./out/fevm_replay chain blocks/0x192d500 https://eth.drpc.org
-chain blocks/0x192d500: 88/88 transactions MATCH (100.0%)
+chain blocks/0x192d500: 88/88 transactions MATCH (100%)
 withdrawals: 16 to 4 recipients, 4 balances match the node at the end of the block
 ```
 
@@ -810,8 +810,39 @@ provably depends on the node's answers alone, and a fixture replays the same
 way on any machine, offline. In most languages that is a convention. In Fe
 the type checker enforces it.
 
+**The compiler checks the blob fee schedule against mainnet.** EIP-4844's
+blob base fee is a `const fn`, typed with std's units: a `Timestamp` picks
+the fork's update fraction and the fee comes out in `Wei`. `static_assert`s
+next to it run the fee formula at compile time on a real block, so a wrong
+constant or a broken formula does not build:
+
+```fe
+pub const fn blob_base_fee(excess: u256, fraction: u256) -> Wei { ... }
+pub const fn update_fraction(_ at: Timestamp) -> u256 { ... }
+
+// Block 26,393,604 (BPO2) had 0xb58bccf excess blob gas, and the node
+// priced its blobs at 0xb58b03 wei.
+static_assert(blob_base_fee(excess: 0xb58bccf, fraction: BPO2_UPDATE_FRACTION).as_wei() == 0xb58b03)
+static_assert(update_fraction(BPO1) == BPO1_UPDATE_FRACTION)
+```
+
+```
+error[8-0081]: static assertion failed
+   = left: `11897603`
+   = right: `11897604`
+```
+
+(what the build says when the expected price is off by one wei).
+
 Other Fe pieces doing real work:
 
+- Every percentage the tool prints (match rates, mutants killed, gas
+  changes) is a `core::fixed` number: `UFixed<1>` for shares, `Fixed<1>`
+  for signed gas changes. The scale is in the type, so tenths of a percent
+  cannot be mixed with whole percents or raw counts.
+- The ports speak `msg`/`recv`: each declares its ABI as a `msg` with
+  selectors, and the contract's `recv` blocks answer it. The ports'
+  tests call them through the same `msg` types.
 - fevm's `transact` is generic over a `Tracer`. Passing `()` compiles to an
   interpreter without hooks, so plain replays pay nothing for tracing.
 - Fe's `#[cfg(target_family = "unix")]` keeps the host-dependent code

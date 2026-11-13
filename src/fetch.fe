@@ -7,14 +7,16 @@ use core::{MemBuffer, MemVec}
 use core::text::parse_hex_uint
 use std::fs::Fs
 use std::io::Display
+use std::evm::units::{Timestamp, Wei, wei}
 use std::process::{Command, Redirect, Spawn}
 use json::{Value, parse}
 use ingot::load::{delegation_target, field, hex_bytes}
 
-/// The blob base fee for `excess` blob gas under the schedule's update
-/// fraction: EIP-4844's `fake_exponential(1, excess, fraction)`. Mainnet's
-/// current schedule (BPO2, from `eth_config`) uses 11,684,671.
-pub fn blob_base_fee(excess: u256, fraction: u256) -> u256 {
+/// The blob base fee, per unit of blob gas, for `excess` blob gas under the
+/// schedule's update fraction: EIP-4844's `fake_exponential(1, excess,
+/// fraction)`. A `const fn`, so the compiler can check it against mainnet
+/// below.
+pub const fn blob_base_fee(excess: u256, fraction: u256) -> Wei {
     var output: u256 = 0
     var accumulator: u256 = fraction
     var i: u256 = 1
@@ -23,21 +25,47 @@ pub fn blob_base_fee(excess: u256, fraction: u256) -> u256 {
         accumulator = accumulator * excess / (fraction * i)
         i += 1
     }
-    output / fraction
+    wei(output / fraction)
 }
 
+/// Mainnet's blob schedule (`eth_config`): Prague's update fraction until
+/// BPO1 (9 Dec 2025), BPO1's until BPO2 (7 Jan 2026), then BPO2's.
+pub const PRAGUE_UPDATE_FRACTION: u256 = 5007716
+pub const BPO1_UPDATE_FRACTION: u256 = 8346193
 pub const BPO2_UPDATE_FRACTION: u256 = 11684671
+pub const BPO1: Timestamp = Timestamp::from_seconds(1765290071)
+pub const BPO2: Timestamp = Timestamp::from_seconds(1767747671)
 
-/// The blob base fee update fraction mainnet used at `timestamp`: Prague's
-/// until BPO1 (9 Dec 2025), BPO1's until BPO2 (7 Jan 2026), then BPO2's.
-pub fn update_fraction(_ timestamp: u256) -> u256 {
-    if timestamp < 1765290071 {
-        5007716
-    } else if timestamp < 1767747671 {
-        8346193
+/// The blob base fee update fraction mainnet used at `at`.
+pub const fn update_fraction(_ at: Timestamp) -> u256 {
+    if at.as_seconds() < BPO1.as_seconds() {
+        PRAGUE_UPDATE_FRACTION
+    } else if at.as_seconds() < BPO2.as_seconds() {
+        BPO1_UPDATE_FRACTION
     } else {
         BPO2_UPDATE_FRACTION
     }
+}
+
+// Checked at compile time, against the chain. Block 26,393,604 (BPO2) had
+// 0xb58bccf excess blob gas, and the node priced its blobs at 0xb58b03 wei.
+static_assert(blob_base_fee(excess: 0xb58bccf, fraction: BPO2_UPDATE_FRACTION).as_wei() == 0xb58b03)
+// No excess: the minimum, one wei.
+static_assert(blob_base_fee(excess: 0, fraction: BPO2_UPDATE_FRACTION).as_wei() == 1)
+// The forks come in order, each raising the fraction (blob fees move slower).
+static_assert(BPO1.as_seconds() < BPO2.as_seconds())
+static_assert(PRAGUE_UPDATE_FRACTION < BPO1_UPDATE_FRACTION)
+static_assert(BPO1_UPDATE_FRACTION < BPO2_UPDATE_FRACTION)
+static_assert(update_fraction(BPO1) == BPO1_UPDATE_FRACTION)
+static_assert(update_fraction(BPO2) == BPO2_UPDATE_FRACTION)
+static_assert(update_fraction(Timestamp::from_seconds(1765290070)) == PRAGUE_UPDATE_FRACTION)
+
+/// The blob base fee of a block, from its header.
+pub fn header_blob_fee(_ header: Value) -> Wei {
+    blob_base_fee(
+        excess: field(header, "excessBlobGas"),
+        fraction: update_fraction(Timestamp::from_seconds(field(header, "timestamp"))),
+    )
 }
 
 /// One JSON-RPC call; `params` is the JSON text of the parameter array.
@@ -209,10 +237,7 @@ uses (proc: mut Spawn)
     if !write_delegates(url, targets, parent: parent.span(), mut delegates) {
         return false
     }
-    let fee = blob_base_fee(
-        excess: field(block["result"], "excessBlobGas"),
-        fraction: update_fraction(field(block["result"], "timestamp")),
-    )
+    let fee = header_blob_fee(block["result"]).as_wei()
     "{\"chainId\":\"".fmt(mut out)
     chain["result"].text().fmt(mut out)
     "\",\"blobBaseFee\":\"0x".fmt(mut out)

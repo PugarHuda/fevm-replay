@@ -2,6 +2,7 @@
 //! self-contained HTML file.
 
 use core::{MemBuffer, MemSpan}
+use core::fixed::{Fixed, UFixed}
 use std::io::Display
 
 /// Writes `value` with `<`, `>`, `&` and `"` escaped for HTML.
@@ -62,12 +63,36 @@ pub fn row<L: Display>(_ label: L, _ value: u64) uses (html: mut MemBuffer) {
     "</td></tr>\n".fmt(mut html)
 }
 
-/// `part` of `whole` as a percentage with one decimal.
+/// `part` of `whole` in percent, to a tenth, rounded down; zero of nothing.
+/// The scale is in the type: `UFixed<1>` counts tenths and prints as a
+/// decimal.
+pub fn share(_ part: u64, _ whole: u64) -> UFixed<1> {
+    if whole == 0 {
+        UFixed<1>::zero()
+    } else {
+        UFixed<1>::from_ratio(part as u256 * 100, whole as u256)
+    }
+}
+
+/// How far `after` is from `before`, in percent of `before`, to a tenth,
+/// rounded towards zero.
+pub fn change(before: u64, after: u64) -> Fixed<1> {
+    Fixed<1>::from_int(after as i256 - before as i256).mul_int(100).div_int(before as i256)
+}
+
+/// `change` with its sign: `+` for more, `-` for less.
+pub fn signed_change(before: u64, after: u64) uses (html: mut MemBuffer) {
+    let c = change(before, after)
+    if c > Fixed<1>::zero() {
+        "+".fmt(mut html)
+    }
+    c.fmt(mut html)
+    "%".fmt(mut html)
+}
+
+/// `part` of `whole` as a percentage.
 pub fn percent(_ part: u64, _ whole: u64) uses (html: mut MemBuffer) {
-    let permille = if whole == 0 { 0 } else { part * 1000 / whole }
-    (permille / 10).fmt(mut html)
-    ".".fmt(mut html)
-    (permille % 10).fmt(mut html)
+    share(part, whole).fmt(mut html)
     "%".fmt(mut html)
 }
 

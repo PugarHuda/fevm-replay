@@ -2,6 +2,7 @@
 //! result against the chain.
 
 use core::MemBuffer
+use core::fixed::UFixed
 use std::env::{Arg, Args}
 use std::io::{Display, Stdout}
 use json::{Value, parse}
@@ -393,25 +394,15 @@ impl Totals {
 }
 
 fn print_share(_ matched: u64, _ total: u64) uses (out: mut Stdout) {
-    let permille = if total == 0 {
-        1000
+    // Nothing to replay matched in full.
+    let share = if total == 0 {
+        UFixed<1>::from_int(100)
     } else {
-        matched * 1000 / total
+        certify::share(matched, total)
     }
-    println!(
-        matched,
-        "/",
-        total,
-        " transactions MATCH (",
-        permille / 10,
-        ".",
-        permille % 10,
-        "%)",
-    )
+    println!(matched, "/", total, " transactions MATCH (", share, "%)")
 }
 
-// The shadow runtime code in the hex file `path`.
-#[cfg(target_family = "unix")]
 fn read_shadow(_ path: Arg) -> Option<MemBuffer>
 uses (fs: std::fs::Fs, out: mut Stdout)
 {
@@ -504,10 +495,7 @@ uses (fs: std::fs::Fs, out: mut Stdout)
     let env = load_block(
         header,
         chain_id: field(chain, "result"),
-        blobbasefee: fetch::blob_base_fee(
-            excess: field(header, "excessBlobGas"),
-            fraction: fetch::update_fraction(field(header, "timestamp")),
-        ),
+        blobbasefee: fetch::header_blob_fee(header).as_wei(),
     )
     // Saved by `fetch-block` since EIP-7702 delegates were added; older
     // block directories have none.
@@ -771,11 +759,10 @@ uses (out: mut Stdout)
         }
         let before = d.gas / d.calls
         let after = s_gas / s_calls
-        // Change in tenths of a percent, signed by hand.
-        let (sign, permille) = if after <= before {
-            ("-", (before - after) * 1000 / before)
-        } else {
-            ("+", (after - before) * 1000 / before)
+        // The certificate's cell, as terminal text.
+        var html = MemBuffer::empty()
+        with (mut html) {
+            certify::signed_change(before, after)
         }
         println!(
             "  0x",
@@ -789,11 +776,8 @@ uses (out: mut Stdout)
             " -> ",
             after,
             " (",
-            sign,
-            permille / 10,
-            ".",
-            permille % 10,
-            "%)",
+            html.span(),
+            ")",
         )
     }
 }
@@ -846,10 +830,7 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     let env = load_block(
         header,
         chain_id: field(chain, "result"),
-        blobbasefee: fetch::blob_base_fee(
-            excess: field(header, "excessBlobGas"),
-            fraction: fetch::update_fraction(field(header, "timestamp")),
-        ),
+        blobbasefee: fetch::header_blob_fee(header).as_wei(),
     )
     let extras = match load_json(dir, "delegates.json") {
         Option::Some(doc) => doc,
@@ -1454,13 +1435,7 @@ uses (html: mut MemBuffer)
         "</td><td class=\"n\">".fmt(mut html)
         after.fmt(mut html)
         "</td><td class=\"n\">".fmt(mut html)
-        if after <= before {
-            "&minus;".fmt(mut html)
-            certify::percent(before - after, before)
-        } else {
-            "+".fmt(mut html)
-            certify::percent(after - before, before)
-        }
+        certify::signed_change(before, after)
         "</td></tr>\n".fmt(mut html)
     }
     "</table></div>\n".fmt(mut html)
@@ -1792,10 +1767,7 @@ fn opgas_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
         let env = load_block(
             header,
             chain_id: field(chain, "result"),
-            blobbasefee: fetch::blob_base_fee(
-                excess: field(header, "excessBlobGas"),
-                fraction: fetch::update_fraction(field(header, "timestamp")),
-            ),
+            blobbasefee: fetch::header_blob_fee(header).as_wei(),
         )
         let extras = match load_json(dir, "delegates.json") {
             Option::Some(doc) => doc,
@@ -2024,10 +1996,7 @@ fn trace_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
     let env = load_block(
         header,
         chain_id: field(chain, "result"),
-        blobbasefee: fetch::blob_base_fee(
-            excess: field(header, "excessBlobGas"),
-            fraction: fetch::update_fraction(field(header, "timestamp")),
-        ),
+        blobbasefee: fetch::header_blob_fee(header).as_wei(),
     )
     let extras = match load_json(dir, "delegates.json") {
         Option::Some(doc) => doc,
@@ -2565,10 +2534,7 @@ uses (fs: std::fs::Fs, proc: mut std::process::Spawn, out: mut Stdout)
     let env = load_block(
         header,
         chain_id: field(chain, "result"),
-        blobbasefee: fetch::blob_base_fee(
-            excess: field(header, "excessBlobGas"),
-            fraction: fetch::update_fraction(field(header, "timestamp")),
-        ),
+        blobbasefee: fetch::header_blob_fee(header).as_wei(),
     )
     let extras = match load_json(dir, "delegates.json") {
         Option::Some(doc) => doc,
