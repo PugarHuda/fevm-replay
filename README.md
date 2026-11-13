@@ -232,10 +232,6 @@ shadow **every account running that code** in each transaction:
 | Differ only where code reads code hashes | 3 |
 | **Differed in behavior** | **0** |
 
-These figures were measured with the port as of commit `4b6e3a2`, before
-the revert fix described below, which touches only the path where a pair
-reverts with a reason.
-
 The code-hash cases are a MEV bot that checks `EXTCODEHASH` of the
 pairs it trades through. The port is other code, so its hash differs and the
 bot refuses it. Like gas readings, this is detected (other code ran
@@ -243,14 +239,14 @@ bot refuses it. Like gas readings, this is detected (other code ran
 
 | Function | Calls | Deployed Solidity | Fe pair | Change |
 | --- | ---: | ---: | ---: | ---: |
-| `swap` | 873 | 58,307 | 57,819 | −0.8% |
+| `swap` | 873 | 58,307 | 57,766 | −0.9% |
 | `getReserves` | 803 | 2,185 | 2,088 | −4.4% |
 | `token0` | 49 | 2,136 | 2,063 | −3.4% |
 | `factory` | 43 | 2,402 | 2,329 | −3.0% |
 | `token1` | 26 | 2,049 | 1,976 | −3.6% |
-| `sync` | 7 | 33,498 | 33,852 | +1.1% |
+| `sync` | 7 | 33,498 | 33,902 | +1.2% |
 
-Whole transactions that ran the Fe pair used 0.52% less gas. A first version
+Whole transactions that ran the Fe pair used 0.53% less gas. A first version
 of the port used 28% more on `swap`: it read and wrote ABI words a byte at a
 time. Shadow replay's per-function gas pointed straight at it.
 
