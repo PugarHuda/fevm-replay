@@ -19,11 +19,24 @@ block 0x192bda3: 320/320 transactions MATCH (100%)
 
 Replaying is fast: those 5,129 transactions take 5.9 seconds once fetched.
 
-With proofs, a block's state is checked against the chain's state roots,
-so a MATCH rests on the block hash rather than on the node
-([Proven against the state root](#proven-against-the-state-root)).
-To try it without installing Fe, download a release
-([Try it without Fe](#try-it-without-fe)): three commands.
+### For judges: one screen
+
+| | |
+| --- | --- |
+| **What** | fevm-replay replays real mainnet history in fevm, proves the results against the chain's state roots, and checks Fe ports of Solidity contracts against real traffic. All Fe, from the HTTP call to the verdict. |
+| **fevm on mainnet** | 115,213 transactions replayed, 290 blocks as chains, no fevm bug |
+| **Trust** | With `fetch-proofs`, `chain` proves the pre-state and fevm's end state against the state roots of headers whose hashes it checks: a MATCH rests on the block hash, not the node ([details](#proven-against-the-state-root)) |
+| **Fe ports** | 5 ports (USDT, every Uniswap V2 pair, WETH9, DAI, USDC's proxy) certified by mainnet replay, mainnet mutations, fuzzing and mutation testing ([verified page](https://fevm-replay.vercel.app/verified.html)) |
+| **Fe-specific** | Effects prove the verdict and the proof verifier offline; `const fn` + `static_assert` check the blob fee against a real block; std units, `core::fixed`, `msg`/`recv` ([Fe highlight](#fe-highlight)) |
+| **Found** | 3 bugs in the Fe ports, 2 node tracer bugs, the transactions the Osaka fork changed, and where Fe's code costs more than solc's ([argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002)) |
+| **Watch** | [3-minute narrated tour](demo/tour-narrated.mp4) |
+| **Try** | No Fe needed: [three commands](#try-it-without-fe) with the release binary |
+
+The rest of this README is the full account: [problem](#the-problem),
+[approach](#approach), [results](#results), [Fe highlight](#fe-highlight),
+[architecture](#architecture), [build](#build-and-test),
+[security assumptions](#security-assumptions),
+[limitations](#limitations) and [declaration](#declaration).
 
 ## The problem
 
