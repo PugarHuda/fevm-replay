@@ -781,7 +781,11 @@ withdrawals: 16 credited, their recipients checked by the end state's proofs
 
 Block 26,408,299 the same way: 253 accounts and 463 slots proven at both
 ends, 126/126 MATCH, 0 differ; its proofs took 1 minute 36 seconds to fetch.
-That block is saved in [`fixtures/proven`](fixtures/proven) (4.4 MB): CI
+Block 26,416,188 (5 transactions): 28 and 29 accounts, 139 slots, 5/5
+MATCH, receipts root matched, 0 differ. Three blocks proven in all; the
+free endpoint's rate limit, not the tool, is what keeps the count low.
+
+Block 26,408,299 is saved in [`fixtures/proven`](fixtures/proven) (4.4 MB): CI
 replays it on every push and checks that it proves, and that one wei more
 in its saved prestate fails.
 
