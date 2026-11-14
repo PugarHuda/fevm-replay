@@ -545,13 +545,17 @@ slot (`DOMAIN_SEPARATOR` included), its revert reasons the same
 | Differ where other code reads the gas left | 22 |
 | **Behave differently** | **0** |
 | Mainnet mutations (20 per transaction) / that differ | 211,240 / **0** |
-| Random calls (`fuzz-dai`) / that differ | 120,000 / **0** |
-| Mutants killed | 19 of 21 |
+| Random calls (`fuzz-dai`, signed permits included) / that differ | 120,000 / **0** |
+| Mutants killed | 21 of 21 |
 
-The two surviving mutants both change `permit`'s expiry check. The fuzzer
-signs nothing, so every random permit fails at the signature, before the
-expiry is read, and no mutated mainnet permit reached an expired deadline. That
-is a blind spot of the checks, named on the certificate.
+The fuzzer signs its own permits: a key it knows (private key 1) holds DAI,
+and 72 permits signed by it for mainnet DAI's domain (signed outside with
+`eth_keys`, embedded as constants) cover each spender, a current and a
+stale nonce, no expiry, a past one, a future one and one equal to the
+fuzzer's first block's timestamp. That reaches `permit`'s success path and
+its expiry boundary; before, unsigned permits failed at the signature and
+two mutants of the expiry check survived. The port's code reached by random
+calls went from 89% to 95%.
 
 ### Every label, explained
 

@@ -624,6 +624,236 @@ fn usdt_call(_ rng: mut Rng, _ data: mut MemBuffer) -> Call {
 // The DAI scenario: the token at its mainnet address.
 pub const DAI: u256 = 0x6b175474e89094c44da98b954eedeac495271d0f
 
+// A key whose address signs DAI permits in the fuzzer: private key 1.
+const PERMIT_SIGNER: u256 = 0x7e5f4552091a69125d5dfcb7b8c2659029395bdf
+// 72 permits by PERMIT_SIGNER for mainnet DAI's domain, signed outside
+// (eth_keys): permit i is for spender eoa(i % 3), nonce (i / 3) % 3, expiry
+// PERMIT_EXPIRY[(i / 9) % 4] and allowed (i / 36) % 2. The last expiry is
+// the fuzzer's first block's timestamp, so the boundary is reached.
+const PERMIT_EXPIRY: [u256; 4] = [0, 1_700_000_000, 1_900_000_000, 1_800_000_012]
+const PERMIT_V: [u256; 72] = [
+    28,
+    27,
+    28,
+    28,
+    28,
+    28,
+    27,
+    27,
+    27,
+    27,
+    27,
+    27,
+    28,
+    27,
+    28,
+    28,
+    28,
+    27,
+    28,
+    27,
+    28,
+    27,
+    28,
+    27,
+    27,
+    28,
+    28,
+    28,
+    28,
+    28,
+    27,
+    27,
+    27,
+    28,
+    27,
+    28,
+    28,
+    28,
+    27,
+    27,
+    28,
+    27,
+    27,
+    28,
+    28,
+    27,
+    28,
+    27,
+    27,
+    28,
+    27,
+    28,
+    27,
+    27,
+    27,
+    28,
+    28,
+    27,
+    27,
+    28,
+    28,
+    27,
+    28,
+    27,
+    27,
+    27,
+    27,
+    27,
+    28,
+    27,
+    28,
+    28,
+]
+const PERMIT_R: [u256; 72] = [
+    0xb1d943972bdeb0736c5a647230bb42602ed76f7dab228de6199fcad04860720f,
+    0x68a334e4eeb9c9b656f20890f927b33f155cdcf1bb083e4f5b09e28e6a949a5d,
+    0x0dcbb7c4a4bbdc8a349347a234b0424ab92b547de7720cc569f16eaa5326f2c0,
+    0xdd6d5dc0cb1f6c291fcb8217f139cfb1ea4317566fe91a97a3a7005d97c2fd9f,
+    0x96b0f3b89c30e24a99a902085ce7463945b677523f37fc5dd81a6888b4aed56a,
+    0x9405f8060e39a9d527583ff1d7bdcd09712dc61c6aaaf1fa43b98c8309bdb83f,
+    0x924d7fd21541b0daad21d565e4c9c3c455c6479bd30bd68c18b8cf64a502c663,
+    0xfdac8c0679b8a54aa10aaa24bda48d427dc0eff4ce85f7d506c7e3943ef39f8d,
+    0x36b2b703e58fd26422ad81048ee0ae56c2ed66ce5f27dde8904bf831081d5fe8,
+    0xaaf8cd5be39cf185e5a69d5288625912011ef97a7f2cca9817059b88eeca1d75,
+    0xff21fea548c17721602b8330d2b8a74f0a94455dae242c8ac3e760f10a872e3a,
+    0x052054966cf69a76a1accb857e75a2c248c3579889b82d6d4684bfaa3646201f,
+    0x90557ead1090f50d56f7444d89d2f5478d02b87a3350dcc7950b460f5d641e4b,
+    0x814f401a520c3a1ae68e659213779724d434afef62f4adea6757dfd30e2dc4bf,
+    0x71e0224ca621ea7e295b8d5d96dabe46d3dcd089f782ca9fa7bd3205f2feacce,
+    0xd106f3f190b2b795a29be3a4c9fb32de37e6e9045e5e4094884375be1f774a38,
+    0xfce92f67732a47dee60c84afc7af08bb3011331e809864c0ebd00594f09baa7a,
+    0xf68b30a42a8dd1e4d80236302ca48ea2f0845a83299f65bed9c673c7f589908a,
+    0x615088b701d9dcdebc0c063564b0066dcfe66a82f7fccdef8940903ffcc21723,
+    0x6cd159f40dbb7c374a6f22b408189d252d81ebb45bc11d3c0b4c9501996a6b8a,
+    0x88fc5efb34f068010eab3eb3705c99112c9226c569258a69911be69397be6afd,
+    0x70048705e01d78db7242f0d26faf78a41620d3cb665cc117719a82add5d8afbe,
+    0x50467dc90b00ca192e8f32600a1f4023c127e4b604c6351cb19dd321fba97012,
+    0xc39727addba599b7c68497a704fff9a9dc0c4ceaf62197f2a0f533b89ce7d82b,
+    0xdff69ea83fb2dc3376f0ab68cf824a2aa3278df413e8d86024fdb2976f14bfa1,
+    0x9ea3906b7b3814453bae488bb4840a8acab0dc3739ef3c72ec915c06aa977f25,
+    0x1c8e1966d6cd16eb79035cbfcbb633cc15ae2bbb1faa3bf731288fe1cf40500f,
+    0x5b20a99f49463ef9c052d2c4d26adaf4864e716477e9e153a3d90be92326ad51,
+    0x009b4899c683496f91675a1c48e8e3635dfce056158aaac8985e7b4570374ce7,
+    0xbc286685a66c9c6d4ab860b46428d08bfa54d5e0ef5664bdc7022ea6d8536376,
+    0x1b910e6bf39a4dca1b7eb27df4cd023a1b84e8057ab87054bfdb3873fb9fc1a6,
+    0x5a280fdbf6620d57421083d36493112c0983f875e8e23a8c856f71e2bb5e04f3,
+    0x73b756821e023cf658601c3ce94e59d239b5aa8bb42ac761e3957109deb30737,
+    0x2848471074e42e6f31aee8562a03d4a472ba9a3a99d4520564f1b5e8df464ea1,
+    0x4b30acf214bcadfa3986b51fe97dbc292c6b760b720f4324de0dfb4d1a073b13,
+    0x0c4747e71e033fe326c0fbd1e33c06c9237a5cebb4e4c07d67342689b5bd7e6a,
+    0xd8af188b0dcbf6e8833c73b96e68ed79ade01a8fd6876a3273c8208d5d729f21,
+    0x323c70689dded1c26ae0839493b730fff978649d5b23bf102daa6a652897ee7b,
+    0xf41ed1ef832c8b00081bc0a126ec450636eaa5fb9039ccedbb5decfac5a3800d,
+    0xaf8bd904092ecdbe9940de51602eb76e4b58fee343f2e31a49025b214a5387b3,
+    0x064afbad2b92608b5fb887e8b51e832fd61df1dec0f8be135e63f59a74423731,
+    0x784d6373eafd749669f7924cb5bc8dfbb2a7dd11329b61dcf31ec24f51c13ce7,
+    0x7c8434ccea703666f529f1d59708d3cdca6a4d901e6e29a1fcaf628d78452f41,
+    0x579e87a35c8245f01e2ec51fe3acca8a832000489e6ce70197948a761aa5b729,
+    0x6c8eb1f155fae73049c0b63d9b74d047467c8f5bdba1a7dcca7b78a7e2352f98,
+    0x44a9f38e3e825ad342ef03cc6ba575315d49907737984c097dbb924030e753b8,
+    0xeca84fbdbb13eed255333f916eb8f67965a221a9c0d744663a7a25be94cdda84,
+    0x06080fad384d7fae9b9acb7635e7693b4489ffaddd954221243ccb8b5a33407f,
+    0x89eaf39ece8492c21a5cf1264023aad54dd73fb79459c0dfb9866a5b1898b67e,
+    0xc5ff7641713237a20c070a35624aea60bb47aab3bfdc87eae355ff61f5c660d3,
+    0xcde23d18eb56c1ee7b7b4c80a1a1366d8f68ca0b952d296f953e0939fead6e9e,
+    0xca13ab6c72aa2f1e2b44399cff57e00e89bcc595de7fab62a4abd823ef06a5a8,
+    0x665f873abc91c2d13cbf37057f81e531d77b6d40389b76759e9dd98fad1479b4,
+    0x090f3b7e1196b69181deb1d7663722ec7366cb4299e605a740a2fea6e3ad17ed,
+    0x556ce938badb0aca724fecfabeea1fdd0afd909b304cffedfa44f3d9b9f035f3,
+    0x21dd9a0787195e38d17365e8bd4e104c8cdf301a0511839f8f9fea3ca0f7d5a7,
+    0xbc677df2c88bbc1585b36d75baa2db0af0998f9058a816536afb9a035a109e73,
+    0x3ac521ffbe2285cad3dcf65faf33d47ee5b92bf333eedfb9952d026506e0f2f3,
+    0x5b19a2a9393a1a2042a891b7e433257369bc9b250979adb7a8dddbd6c7078bff,
+    0xfb7f69f77bcbee999806eb368d98557f6dc8a3c35a8778fabb94e96bbf1c2c1c,
+    0x74fe4aef3257ac4ed7ad40f141ef1211bba648eac386ce70a1782aef9e148329,
+    0x3102dd93436a2dab666a4c1da1913b07186bbd882bea38bb3a7f2150e299ed7c,
+    0x982711023e0b0a6ab5a7898734d5dcda364e40d7d0c13caaae257a2b433fda97,
+    0xf06cbb0531b83426627f109a9a1549394cd54b84aca729d4842c73ab8eb39766,
+    0x44bd3fcd99541fde8351a6762584a7bbf0c81c5444c1077087c0e990ee249f57,
+    0xf04709c969efed9f55e6a8a4bb86e877aacfbac52faaeaaabd0e10a94c8ba6ee,
+    0xb359106ae2cfad0cc4242e3b11cfddfddbf2d3c737894e4be5825e7f6cfbd846,
+    0x8796212909b7692f790ede9d8ffa9ba2ce357d035cefbe38863b8ed6900aa534,
+    0xb7cc23e8c3b597e90bf989d5e8c9ecab1435bf9ce7b393ad39ec32cf9d1a5676,
+    0xc58d425c7ee71fc679b56f3f5be4bd69305cb4e2c7f817f6292cbd2ff6baa979,
+    0xd9e31f3ff1a09749a23b38a19fd2f1054b5a1b56d7ef1c997f51dc46e5f9a817,
+    0x3c06b982b07fcf290f07c2d717e45f6e9e3fb6b96bc64aa705f094cab3a0bedf,
+]
+const PERMIT_S: [u256; 72] = [
+    0x308987b6cf398124038b87a3fce8d26e60044578f1c5e3ce3cf69731fbf35e57,
+    0x5ebfe5f66c40c5bbadb7d403021bb1f41701e24f43f3495d1ea767eab0bd4000,
+    0x4cc3c50403dfa6aa80009757f20cbec7400a9212b6ee01327b36ddfcd11fc169,
+    0x57b6319ffe519227a13ee89a330cc7465df00afbc4f4df7447e00f3d78da9244,
+    0x1250cea81a5aedb156f1a1e1fe9216246087b1eb5cae45e959cb031b4258d270,
+    0x67e5b3abe0df11fd0697ed8aae733910dd5b7a2c83a478f7215c1e215e7fd0a4,
+    0x40e67da4a4b277b6f9b5d8038dad3ebad641be299ded5393b1cfbc878b36fa54,
+    0x1a0a6118b5a198d7d9c02711d524bee8cb6d1daf449aa620a1c12f4767b5d232,
+    0x68bef438f2aa9499220605df8cbd18a7b34119208d05cb37baae600c85d03c16,
+    0x6cc1f84c9871e7e9c8299dfbac4a0c4d7a6a303c4a5c86a201f2907b1fd99fc7,
+    0x26f5dda6186f3a7a1d46c3f5ab9d7777bc8ace54115ff716a612091173543dea,
+    0x166fabf52065ad7c3e8303d2cc338fc2a24aa363701835c3047176857ca16e13,
+    0x0b0aa72b204337096e794c8635d2a6a959e7b1e35e35291927beaf1aeea6c160,
+    0x4daa205aa8b19a3cf7302809bd5ad9c76df6a6c56396a75031b9fed7f55b96b1,
+    0x21cddf0e0f008636bfa0dc91220855301c5da323a88cd99ecaf6957a7c1fb345,
+    0x0e90f9bcd6e14b125051e78d02c996f57f136def0f7fd9602cde4b7b3516b4aa,
+    0x53aa39558150100755832b5db416bf8e2f9a59d60db8d9906a3153aba271ccd8,
+    0x4075b111185eae07cd040aea07fe42f5d51e1a3a8b9a16807a7053955907a19b,
+    0x6b85283ff87202e9568aad768427502b3e4855e46980044c8b32cb3705b70a5b,
+    0x344f526d4cf564188f54660b5d2632baa2811e21c414218eb45e19420a34b973,
+    0x73963c7f4dfd71306751b9219bed11ef9b8b8d68bb22c54246bb9da429c138cc,
+    0x7e04bef319883c8b3ad452885305c244fd9605acfe703e7008e594708d3e1eb3,
+    0x1ab32169128067d4ad3a5fd08436d3e0bdb62fb7f6c92691609d1e46b86929ce,
+    0x2defb8dc975020479067b1c1f875cca7c4c14ffe3bdbf5c5675adeecc9f65e7c,
+    0x0ee5a75f96c7c1d3dda1eb9092a00962724287a3574d77433b7f687c47be04db,
+    0x3deb3fc176dbc7ce216d969b6842a7974727c49b28ac9d8ab82758479f00b325,
+    0x427ce5b98aac63dde2a7d87a7b5bc121610df7d6b21c4b26f78de7095e4817af,
+    0x0924ebc63a78e9b619bc3848f4f5b639e8efac4a91d6c135346f3d959fbaadb7,
+    0x1eb36cce6d58823e24893d43a74279f3688df112940971d13c1475cbb0c12e14,
+    0x73c212373c137a8a5f507ca18cd7fb2f9dfae4e3ccf7327889505c787d8e6f65,
+    0x47b9bf57a5b643f68f76bdeb8d258d59851050518c585bf4ccdc006fbd51bdc1,
+    0x7af6219cef35c1919dab28e1449fcbf8a2be4af1f867fce7623e80cbb1b2bb27,
+    0x2a6b579e9c3eab487a157eec40b9de11619610060a69a1e5a357f5b79116b859,
+    0x6f226f7efa9f2a31a3756118fceee5615a59cb5915c69338782c01367d40a6be,
+    0x4bfaeff1ce06facc024c9be77c28bb061bbd736a59474ab1cecf07c587edb0e9,
+    0x5f4ba3ba2dac8d8a3f52da7db70eec1aa39e8361eea8d06201fa21f2dcf3ccd7,
+    0x76b13c348a25baf3f9a43593dd68f3c3c5fe94943c31eb9d7e196849e0517d0f,
+    0x57d388ed9fbdfea003afad2c6c16960d7aa5fed08d443ecb3ce56aa8fb88b8be,
+    0x75d48bda208744fc971a03709d8ef41bb188e6a6c6f6f8ab0831ce782e6b3903,
+    0x653129d843bdfed711ad6802fc7c29585cc720bc6f41647cc7c94144ab2da7f1,
+    0x010273378c23e06439cd2b6046d17824938c4a97190cd5d5c2f0d71667b08a5d,
+    0x4e912d34a0e2c9abf130424cf1b969819e24fbd3ebcc8cadc5383c30787b1339,
+    0x6c350bd09241650b32c52c0a229eb03dc612c38b0c9b21bdff1d068aec872a82,
+    0x633282238b86d5bb5b4a992846648e389b0429f0c50645c6ce65f674e0581973,
+    0x2c5771ba2c930c146cfa9e59e50f989b787baba2994f1dbe0d3742f29682cc7c,
+    0x55525d3adb6e75bdd63cc3b7c50ebdd9af1e37e4a48552773a0063cd564f3a58,
+    0x12b8ada087703b6f6d055901efa9e3a3c0f7379bb2255040c1bfc38eee858709,
+    0x1e7f65ceab08fd3714296a9c865de9d754391f1e5651f2409917c57a7f0584ba,
+    0x644fc0d123f35ed01bf49b6220e71a789e19862c49ed81b6bebfe92ba5bd3591,
+    0x7b5084acd50e45ec57f59d077fe1dc08cb5f4f49118c83e0d0584258487a7c98,
+    0x4f8013d1ef8bc2ff21524af0c07863af1af0691b066c6c6514abcb5c259b1f0e,
+    0x1036bff3f399042a6a66684521180dc088775ee2da1a9840635d608ad36f89fb,
+    0x5c875c959a608f52e4f06d5c0a9b77821bd51c5a417792b2a3c8268d26fb6e88,
+    0x697314b82de80c86c5bdec5fd5d73151d6202cca19d277c11a10912fa10a701d,
+    0x6b9937bec4efb898b58a140ed5105384c057053ac0ce37c362e61bea06a91f6f,
+    0x36eb0a94151fec36a4239244cd63b49ff033c64c78a5c01a861941cbe2882cef,
+    0x2fc4529d3ac27b8c5414ba0bc0b1c6580c750dfd8f3c692a42566517a8e83ec4,
+    0x4f6154aeba9fe41dbd84de0a2ce0a1b1474bbe9058ca3f26c2ef7c78e750b36c,
+    0x3bbc3cf393f682997b9f6ba206fbbd688e3bc1c8ee787b70d9899787b7f1cfd3,
+    0x46af63ca5a7545321d3af061b57c60513432ae7a7b9c36b81bbd09cceee25e11,
+    0x1bb35acf50e7983ae6ffcb19ffbfb7c3330c200cf2a3638d63049bbb5d7d2fdf,
+    0x35921b04c60058ae4921c6eff6951d2c5b851139ac5bc6ec43cdd1dd69de467b,
+    0x578e4e2b72e494995f6748d2bcf990d036cdb42891e45b99139daf0fe46faed7,
+    0x5a33645a9f1aee871ab36e0a9d750e27e3f60a294db33a9551249327cfb00a2a,
+    0x214c20a51c5118c91548eac8e6e6226d466829edb71d00dec8d158dcf72365ac,
+    0x09d6b5c7c97771e7b2551f6003db38a8597c6a1b8971e3264045cc9e5a25fc03,
+    0x6769df395da1c35cde2a534ab171e5ffdfb95b9b003efed53f66e4fb63cf77c9,
+    0x24870306ee170cf55d9d27d30bcb0dc41bca5e4ac529cf871747b96ef72246ab,
+    0x7d5c465b7378c515dc468342e08c9f41860c4eb51b3ebe7fe1ffc3e62076fdc3,
+    0x0b18fe01ffe3f20b91f0a57536c4aa1ad4ba0ba51af4fbf81d1c323c17e719e6,
+    0x5f182f794a3a8a3d20d4fecd9d961c9fcd6dd0b5d1f113b467080507b8b36768,
+    0x16d61d43b469291e5165ceada1c5fa85ef9b51a6ea140b028b1afa5d56fdc9b6,
+]
+
 pub fn is_dai(_ token: MemSpan) -> bool {
     token.len() == 1 && token[0] == 0x44
 }
@@ -640,6 +870,8 @@ fn dai_genesis(_ code: MemSpan) -> WorldState {
         world.set_balance(who, 1000 * ETHER)
         world.storage_store(DAI, mapping_slot(who, 2), 1_000_000 * ETHER)
     }
+    // The permit signer holds DAI too, so what its permits allow can move.
+    world.storage_store(DAI, mapping_slot(PERMIT_SIGNER, 2), 1_000_000 * ETHER)
     world.storage_store(
             DAI,
             5,
@@ -649,12 +881,13 @@ fn dai_genesis(_ code: MemSpan) -> WorldState {
 }
 
 fn dai_actor(_ rng: mut Rng) -> u256 {
-    match rng.below(6) {
+    match rng.below(7) {
         0 => eoa(0),
         1 => eoa(1),
         2 => eoa(2),
         3 => DAI,
         4 => 0,
+        5 => PERMIT_SIGNER,
         _ => eoa(1),
     }
 }
@@ -739,6 +972,21 @@ fn dai_call(_ rng: mut Rng, _ data: mut MemBuffer) -> Call {
     } else if selector == 0xdd62ed3e {
         push_word(mut data, address_word(dai_actor(mut rng), dirty, mut rng))
         push_word(mut data, address_word(dai_actor(mut rng), dirty, mut rng))
+    } else if selector == 0x8fcbaf0c && rng.below(2) == 0 {
+        // A permit signed by PERMIT_SIGNER: its nonce may be the current
+        // one, its expiry none, past or ahead.
+        let i: usize = rng.below(72).downcast_unchecked()
+        push_word(mut data, address_word(PERMIT_SIGNER, dirty, mut rng))
+        push_word(
+            mut data,
+            address_word(eoa((i % 3).downcast_unchecked()), dirty, mut rng),
+        )
+        push_word(mut data, ((i / 3) % 3) as u256)
+        push_word(mut data, PERMIT_EXPIRY[(i / 9) % 4])
+        push_word(mut data, ((i / 36) % 2) as u256)
+        push_word(mut data, PERMIT_V[i])
+        push_word(mut data, PERMIT_R[i])
+        push_word(mut data, PERMIT_S[i])
     } else if selector == 0x8fcbaf0c {
         // holder, spender, nonce, expiry, allowed, v, r, s
         push_word(mut data, address_word(dai_actor(mut rng), dirty, mut rng))
