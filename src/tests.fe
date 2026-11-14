@@ -318,3 +318,32 @@ fn shares_and_changes_keep_a_tenth() {
     )
     assert!(ingot::certify::change(before: 3, after: 2).raw() == -333)
 }
+
+// A selector found through the port's source: the `msg` variant its
+// attribute names (a `sol` signature hashed, or a number), then its arm.
+#[test]
+fn selectors_lead_to_their_lines_in_the_source() {
+    let source = "msg M {
+    #[selector = sol(\"transfer(address,uint256)\")]
+    Transfer { to: u256 } -> bool,
+    #[selector = 0x70a08231]
+    BalanceOf -> u256,
+}
+contract C {
+    recv M {
+        BalanceOf -> u256 {
+            0
+        }
+        Transfer { to } -> bool uses (evm) {
+            true
+        }
+    }
+}
+"
+    let transfer = ingot::source::locate(source.span(), 0xa9059cbb)
+    assert!(transfer.declared == 3 && transfer.handled == 12)
+    let balance = ingot::source::locate(source.span(), 0x70a08231)
+    assert!(balance.declared == 5 && balance.handled == 9)
+    let missing = ingot::source::locate(source.span(), 0x12345678)
+    assert!(missing.declared == 0 && missing.handled == 0)
+}

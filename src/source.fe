@@ -1,0 +1,182 @@
+//! Where a function lives in a port's Fe source. Fe at the pinned commit
+//! writes no source map, so a selector is traced through the source itself:
+//! the `msg` variant whose `#[selector = ...]` gives it (`sol("...")`
+//! signatures are hashed as the compiler hashes them), then the `recv` arm
+//! that handles that variant.
+
+use core::MemSpan
+use core::hash::keccak256_word
+
+/// Lines of a function in a port's source, counted from 1; 0 if not found.
+pub struct Place {
+    /// The `msg` variant.
+    pub declared: usize,
+    /// The `recv` arm that runs it.
+    pub handled: usize,
+}
+
+impl Copy for Place {}
+
+// The first byte of line `start` that is not a space.
+fn indent(_ source: MemSpan, _ start: usize) -> usize {
+    var at = start
+    while at < source.len() && (source[at] == 0x20 || source[at] == 0x09) {
+        at += 1
+    }
+    at
+}
+
+// One past the last byte of the line starting at `start`, without `\r`.
+fn line_end(_ source: MemSpan, _ start: usize) -> usize {
+    var at = start
+    while at < source.len() && source[at] != 0x0a {
+        at += 1
+    }
+    if at > start && source[at - 1] == 0x0d {
+        at - 1
+    } else {
+        at
+    }
+}
+
+fn starts_with<const N: usize>(_ source: MemSpan, _ at: usize, _ text: [u8; N]) -> bool {
+    if at + N > source.len() {
+        return false
+    }
+    for i in 0 .. N {
+        if source[at + i] != text[i] {
+            return false
+        }
+    }
+    true
+}
+
+fn is_ident(_ byte: u8) -> bool {
+    (byte >= 0x30 && byte <= 0x39)
+        || (byte >= 0x41 && byte <= 0x5a)
+        || (byte >= 0x61 && byte <= 0x7a)
+        || byte == 0x5f
+}
+
+fn hex_digit(_ byte: u8) -> Option<u32> {
+    if byte >= 0x30 && byte <= 0x39 {
+        return Option::Some((byte - 0x30) as u32)
+    }
+    if byte >= 0x61 && byte <= 0x66 {
+        return Option::Some((byte - 0x61 + 10) as u32)
+    }
+    if byte >= 0x41 && byte <= 0x46 {
+        return Option::Some((byte - 0x41 + 10) as u32)
+    }
+    Option::None
+}
+
+// The selector a `#[selector = ...]` attribute at `at` gives, if it is one.
+fn selector_at(_ source: MemSpan, _ at: usize, _ end: usize) -> Option<u32> {
+    // "#[selector = "
+    let prefix: [u8; 13] = [
+        0x23,
+        0x5b,
+        0x73,
+        0x65,
+        0x6c,
+        0x65,
+        0x63,
+        0x74,
+        0x6f,
+        0x72,
+        0x20,
+        0x3d,
+        0x20,
+    ]
+    if !starts_with(source, at, prefix) {
+        return Option::None
+    }
+    let value = at + 13
+    // sol("signature")
+    if starts_with(source, value, [0x73, 0x6f, 0x6c, 0x28, 0x22]) {
+        let first = value + 5
+        var last = first
+        while last < end && source[last] != 0x22 {
+            last += 1
+        }
+        let hash = keccak256_word(source.slice(offset: first, len: last - first))
+        return Option::Some((hash >> 224).downcast_truncate())
+    }
+    // 0x12345678
+    if starts_with(source, value, [0x30, 0x78]) {
+        var selector: u32 = 0
+        var i = value + 2
+        while i < end {
+            let Option::Some(digit) = hex_digit(source[i]) else {
+                break
+            }
+            selector = (selector << 4) | digit
+            i += 1
+        }
+        return Option::Some(selector)
+    }
+    Option::None
+}
+
+/// Where `selector` is declared and handled in `source` (a port's
+/// `src/lib.fe`).
+pub fn locate(_ source: MemSpan, _ selector: u32) -> Place {
+    var place = Place { declared: 0, handled: 0 }
+    var start: usize = 0
+    var line: usize = 1
+    // The variant's name, as a range of `source`, once found.
+    var name_at: usize = 0
+    var name_len: usize = 0
+    var wanted = false
+    var in_recv = false
+    while start < source.len() {
+        let end = line_end(source, start)
+        let at = indent(source, start)
+        if place.declared == 0 {
+            if wanted && at < end && source[at] != 0x23 && !starts_with(source, at, [0x2f, 0x2f]) {
+                // The variant after the attribute: its name ends where an
+                // identifier does.
+                name_at = at
+                while name_at + name_len < end && is_ident(source[name_at + name_len]) {
+                    name_len += 1
+                }
+                place.declared = line
+            } else {
+                match selector_at(source, at, end) {
+                    Option::Some(found) => {
+                        if found == selector {
+                            wanted = true
+                        }
+                    },
+                    Option::None => {},
+                }
+            }
+        } else if !in_recv {
+            // "recv"
+            in_recv = starts_with(source, at, [0x72, 0x65, 0x63, 0x76])
+        } else if end > at
+            && source[end - 1] == 0x7b
+            && at + name_len < end
+            && !is_ident(source[at + name_len]) {
+            // A `recv` arm opening a block, named as the variant.
+            var same = true
+            for i in 0 .. name_len {
+                if source[at + i] != source[name_at + i] {
+                    same = false
+                }
+            }
+            if same {
+                place.handled = line
+                return place
+            }
+        }
+        start = if end < source.len() && source[end] == 0x0d {
+            end + 2
+        } else {
+            end + 1
+        }
+        line += 1
+    }
+    place
+}

@@ -813,6 +813,13 @@ deployed code, mutates their transactions, fuzzes the port, and plants
 mutants. It exits 1 if anything differs, and writes a badge beside the page
 (`certificate.svg` for `certificate.html`) for a README.
 
+Each function in the certificate's gas table points at its handler in the
+port's source (`src/lib.fe:129` for WETH9's `balanceOf`). Fe at the pinned
+commit writes no source map, so the tool follows the selector through the
+source: the `msg` variant whose `#[selector = ...]` gives it (`sol(...)`
+signatures hashed with keccak, as the compiler does), then the `recv` arm
+that runs it (`src/source.fe`).
+
 ![Fe port: TetherToken verified](site/badge-usdt.svg) ![Fe port: UniswapV2Pair verified](site/badge-uniswap-v2-pair.svg) ![Fe port: WETH9 verified](site/badge-weth9.svg)
 
 ```sh
@@ -956,6 +963,7 @@ Other Fe pieces doing real work:
 | `src/watch.fe` | `GasWatch`, a tracer that records every call (caller, account it runs as, value, gas, calldata and output), reads of the gas left after shadow code ran, of code hashes, `BLOCKHASH`, and the port's program counters; where two runs part and which gas reading explains it |
 | `src/mutants.fe` | mutation sites in a port's source and the mutants planted there |
 | `src/certify.fe` | the certificate page |
+| `src/source.fe` | a selector's `msg` variant and `recv` arm in a port's source, for lack of a source map |
 | `src/lib.fe` | the CLI: `fetch`, `fetch-block`, `fetch-code`, `fetch-hashes`, `fetch-proofs`, `block`, `range`, `chain`, `trace`, `opgas`, `fuzz`, `fuzz-pair`, `fuzz-usdt`, `fuzz-proxy`, `fuzz-block`, `mutants`, `certify`, replaying fixture files |
 | `src/tests.fe`, `src/proof_tests.fe` | unit tests for the helpers; the proof tests run on a real proof and header from mainnet |
 | `ports/weth9` | WETH9 in Fe, for shadow replay |

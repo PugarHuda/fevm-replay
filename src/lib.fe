@@ -1417,6 +1417,11 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     "/tmp/fevm-replay-certify-".fmt(mut built)
     args.get(5).fmt(mut built)
     println!("building ", args.get(4), " in ", args.get(5))
+    // The port's source, to point each function's row at its lines.
+    let port_source = match fs.read(fetch::join(args.get(4), "src/lib.fe")) {
+        Result::Ok(bytes) => bytes,
+        Result::Err(_) => MemBuffer::empty(),
+    }
     if !fe_build(args.get(4), built) {
         println!("ERROR ", args.get(4), ": does not build with fe")
         return 1
@@ -1542,7 +1547,11 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         certify::row("Only the deployed code ran out of gas", totals.cheaper)
         certify::row("<strong>Behave differently</strong>", totals.behavior)
         "</table>\n".fmt(mut html)
-        certificate_gas(totals.deployed_profile, totals.shadow_profile)
+        certificate_gas(
+            totals.deployed_profile,
+            totals.shadow_profile,
+            port_source.span(),
+        )
 
         "<h2>Mainnet, mutated</h2>\n<p>Each transaction that touched the deployed code ran again with its calldata changed, or with one call into the contract changed in flight, on both codes, gas free.</p>\n<table>\n"
             .fmt(mut html)
@@ -1681,13 +1690,17 @@ uses (fs: std::fs::Fs, out: mut Stdout)
 }
 
 // The gas table of a certificate.
-fn certificate_gas(_ deployed: core::MemVec<SelectorGas>, _ shadow: core::MemVec<SelectorGas>)
+fn certificate_gas(
+    _ deployed: core::MemVec<SelectorGas>,
+    _ shadow: core::MemVec<SelectorGas>,
+    _ source: core::MemSpan,
+)
 uses (html: mut MemBuffer)
 {
     if deployed.len() == 0 {
         return
     }
-    "<h3>Gas per call in identical transactions</h3>\n<div class=\"scroll\"><table>\n<tr><th>Function</th><th class=\"n\">Calls</th><th class=\"n\">Deployed</th><th class=\"n\">Port</th><th class=\"n\">Change</th></tr>\n"
+    "<h3>Gas per call in identical transactions</h3>\n<div class=\"scroll\"><table>\n<tr><th>Function</th><th>In the port's source</th><th class=\"n\">Calls</th><th class=\"n\">Deployed</th><th class=\"n\">Port</th><th class=\"n\">Change</th></tr>\n"
         .fmt(mut html)
     for i in 0 .. deployed.len() {
         let d = deployed[i]
@@ -1706,7 +1719,22 @@ uses (html: mut MemBuffer)
         let after = s_gas / s_calls
         "<tr><td><code>".fmt(mut html)
         function_name(d.selector).fmt(mut html)
-        "</code></td><td class=\"n\">".fmt(mut html)
+        "</code></td><td>".fmt(mut html)
+        // Fe writes no source map: the line comes from the `msg` variant
+        // with this selector and the `recv` arm that runs it.
+        let place = source::locate(source, d.selector)
+        if place.handled > 0 {
+            "<code>src/lib.fe:".fmt(mut html)
+            place.handled.fmt(mut html)
+            "</code>".fmt(mut html)
+        } else if place.declared > 0 {
+            "<code>src/lib.fe:".fmt(mut html)
+            place.declared.fmt(mut html)
+            "</code>".fmt(mut html)
+        } else {
+            "&ndash;".fmt(mut html)
+        }
+        "</td><td class=\"n\">".fmt(mut html)
         d.calls.fmt(mut html)
         "</td><td class=\"n\">".fmt(mut html)
         before.fmt(mut html)
