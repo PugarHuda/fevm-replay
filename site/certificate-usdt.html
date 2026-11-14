@@ -22,6 +22,12 @@ th,td{text-align:left;padding:.45rem .6rem .45rem 0;border-bottom:1px solid var(
 <h1>TetherToken</h1>
 <p>Port source <code>ports/usdt</code>, runtime code hash <code>0x8ec7fe746668d9be951c92be4bdcd6d154f9152b5c4ceaddd5c3f3cc750b61c7</code> (4342 bytes), in place of the deployed code with hash <code>0xb44fb4e949d0f78f87f79ee46428f23a2a5713ce6fc6e0beb3dda78c2ac1ea55</code> (11075 bytes). Blocks <code>/root/v2blocks/0x192d500</code> to <code>/root/v2blocks/0x192d5c7</code>.</p>
 <p class="verdict">No behavior difference: every transaction that ran the port, every mutation of them and every random call behaved as on the deployed code.</p>
+<table>
+<tr><th>Mainnet, as it happened</th><td class="n">passed</td></tr>
+<tr><th>Mainnet, mutated</th><td class="n">passed</td></tr>
+<tr><th>Random calls</th><td class="n">passed</td></tr>
+<tr><th>Mutants: the unchanged port</th><td class="n">passed</td></tr>
+</table>
 <h2>Mainnet, as it happened</h2>
 <p>Each transaction of the blocks ran on its own mainnet pre-state, with the port in place of every account holding the deployed code, and was compared with the chain: status, logs, every balance, nonce and storage slot. Only gas may differ.</p>
 <table>
@@ -37,18 +43,18 @@ th,td{text-align:left;padding:.45rem .6rem .45rem 0;border-bottom:1px solid var(
 </table>
 <h3>Gas per call in identical transactions</h3>
 <div class="scroll"><table>
-<tr><th>Function</th><th class="n">Calls</th><th class="n">Deployed</th><th class="n">Port</th><th class="n">Change</th></tr>
-<tr><td><code>transfer</code></td><td class="n">15969</td><td class="n">28124</td><td class="n">26968</td><td class="n">&minus;4.1%</td></tr>
-<tr><td><code>transferFrom</code></td><td class="n">2378</td><td class="n">22768</td><td class="n">21860</td><td class="n">&minus;3.9%</td></tr>
-<tr><td><code>balanceOf</code></td><td class="n">5138</td><td class="n">2034</td><td class="n">1555</td><td class="n">&minus;23.5%</td></tr>
-<tr><td><code>allowance</code></td><td class="n">342</td><td class="n">3081</td><td class="n">2417</td><td class="n">&minus;21.5%</td></tr>
-<tr><td><code>approve</code></td><td class="n">867</td><td class="n">20905</td><td class="n">20553</td><td class="n">&minus;1.6%</td></tr>
-<tr><td><code>decimals</code></td><td class="n">41</td><td class="n">1898</td><td class="n">1708</td><td class="n">&minus;10.0%</td></tr>
-<tr><td><code>name</code></td><td class="n">1</td><td class="n">3110</td><td class="n">2636</td><td class="n">&minus;15.2%</td></tr>
-<tr><td><code>symbol</code></td><td class="n">1</td><td class="n">3550</td><td class="n">2634</td><td class="n">&minus;25.8%</td></tr>
-<tr><td><code></code></td><td class="n">6</td><td class="n">773</td><td class="n">226</td><td class="n">&minus;70.7%</td></tr>
-<tr><td><code></code></td><td class="n">1</td><td class="n">2714</td><td class="n">2354</td><td class="n">&minus;13.2%</td></tr>
-<tr><td><code></code></td><td class="n">2</td><td class="n">3033</td><td class="n">2436</td><td class="n">&minus;19.6%</td></tr>
+<tr><th>Function</th><th>In the port's source</th><th class="n">Calls</th><th class="n">Deployed</th><th class="n">Port</th><th class="n">Change</th></tr>
+<tr><td><code>Transfer</code></td><td><code>src/lib.fe:287</code></td><td class="n">15969</td><td class="n">28124</td><td class="n">26968</td><td class="n">-4.1%</td></tr>
+<tr><td><code>TransferFrom</code></td><td><code>src/lib.fe:329</code></td><td class="n">2378</td><td class="n">22768</td><td class="n">21860</td><td class="n">-3.9%</td></tr>
+<tr><td><code>BalanceOf</code></td><td><code>src/lib.fe:247</code></td><td class="n">5138</td><td class="n">2034</td><td class="n">1555</td><td class="n">-23.5%</td></tr>
+<tr><td><code>Allowance</code></td><td><code>src/lib.fe:265</code></td><td class="n">342</td><td class="n">3081</td><td class="n">2417</td><td class="n">-21.5%</td></tr>
+<tr><td><code>Approve</code></td><td><code>src/lib.fe:383</code></td><td class="n">867</td><td class="n">20905</td><td class="n">20553</td><td class="n">-1.6%</td></tr>
+<tr><td><code>Decimals</code></td><td><code>src/lib.fe:229</code></td><td class="n">41</td><td class="n">1898</td><td class="n">1708</td><td class="n">-10%</td></tr>
+<tr><td><code>Name</code></td><td><code>src/lib.fe:221</code></td><td class="n">1</td><td class="n">3110</td><td class="n">2636</td><td class="n">-15.2%</td></tr>
+<tr><td><code>Symbol</code></td><td><code>src/lib.fe:225</code></td><td class="n">1</td><td class="n">3550</td><td class="n">2634</td><td class="n">-25.8%</td></tr>
+<tr><td><code></code></td><td>&ndash;</td><td class="n">6</td><td class="n">773</td><td class="n">226</td><td class="n">-70.7%</td></tr>
+<tr><td><code>Paused</code></td><td><code>src/lib.fe:414</code></td><td class="n">1</td><td class="n">2714</td><td class="n">2354</td><td class="n">-13.2%</td></tr>
+<tr><td><code>IsBlackListed</code></td><td><code>src/lib.fe:438</code></td><td class="n">2</td><td class="n">3033</td><td class="n">2436</td><td class="n">-19.6%</td></tr>
 </table></div>
 <h2>Mainnet, mutated</h2>
 <p>Each transaction that touched the deployed code ran again with its calldata changed, or with one call into the contract changed in flight, on both codes, gas free.</p>
@@ -66,7 +72,7 @@ th,td{text-align:left;padding:.45rem .6rem .45rem 0;border-bottom:1px solid var(
 </table>
 <p>The port ran 1152 of its 2610 instructions (44.1%) in these runs.</p>
 <h2>Random calls</h2>
-<p>1,000 sessions of up to 60 random calls each, against both codes in step, checking the pair's invariants after every call.</p>
+<p>1,000 sessions of up to 60 random calls each, against both codes in step.</p>
 <table>
 <tr><th>Well-formed calls</th><td class="n">49571</td></tr>
 <tr><th><strong>Well-formed calls that differ</strong></th><td class="n">0</td></tr>
