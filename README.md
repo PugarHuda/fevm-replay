@@ -1055,7 +1055,9 @@ the free `https://eth.drpc.org`; pass another URL as the last argument.
 ![fevm-replay fetching and replaying a mainnet transaction, a negative fixture, a whole block and a shadow replay of Fe WETH9](demo/demo.svg)
 
 The recording is [`demo/demo.sh`](demo/demo.sh), made with asciinema and
-svg-term. [`demo/tour.mp4`](demo/tour.mp4) is a 2½-minute captioned tour:
+svg-term. [`demo/tour-narrated.mp4`](demo/tour-narrated.mp4) is the
+narrated tour (under 3 minutes, narration in [`demo/narration.txt`](demo/narration.txt),
+spoken by Windows' text-to-speech); [`demo/tour.mp4`](demo/tour.mp4) is the same tour, captioned only:
 mainnet replay, blocks proven against state roots, the Fe-specific checks,
 the five ports and their certificates, and what was found; its scenes are
 HTML pages with real output from these runs, captured in a headless browser
