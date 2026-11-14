@@ -72,26 +72,23 @@ th,td{text-align:left;padding:.45rem .6rem .45rem 0;border-bottom:1px solid var(
 <h2>Random calls</h2>
 <p>1,000 sessions of up to 60 random calls each, against both codes in step.</p>
 <table>
-<tr><th>Well-formed calls</th><td class="n">49416</td></tr>
+<tr><th>Well-formed calls</th><td class="n">49464</td></tr>
 <tr><th><strong>Well-formed calls that differ</strong></th><td class="n">0</td></tr>
 <tr><th>Calls with short calldata that differ</th><td class="n">0</td></tr>
 <tr><th>Calls with dirty addresses that differ</th><td class="n">0</td></tr>
 <tr><th>Invariants broken</th><td class="n">0</td></tr>
 </table>
-<p>The port ran 1492 of its 1675 instructions (89%).</p>
+<p>The port ran 1596 of its 1675 instructions (95.2%).</p>
 <h2>How sharp the checks are</h2>
 <p>Mutants of the port's source, one operator changed each, built with <code>fe</code> and put through random calls and then mutations of the first ten blocks. The unchanged port passed the same checks first.</p>
 <table>
 <tr><th>Operators in the source</th><td class="n">21</td></tr>
 <tr><th>Mutants built</th><td class="n">21</td></tr>
-<tr><th>Killed by random calls</th><td class="n">16</td></tr>
-<tr><th>Killed by mainnet mutations</th><td class="n">3</td></tr>
-<tr><th>Survived</th><td class="n">2</td></tr>
+<tr><th>Killed by random calls</th><td class="n">21</td></tr>
+<tr><th>Killed by mainnet mutations</th><td class="n">0</td></tr>
+<tr><th>Survived</th><td class="n">0</td></tr>
 </table>
-<p>90.4% killed. A survivor is a blind spot of the checks or a change that means the same; each deserves a look:</p>
-<pre>line 301: if expiry == 0 &amp;&amp; ctx.timestamp().as_seconds() &gt; expiry {
-line 301: if expiry != 0 &amp;&amp; ctx.timestamp().as_seconds() &gt;= expiry {
-</pre>
+<p>100% killed.</p>
 <p class="note">Made by <a href="https://github.com/PugarHuda/fevm-replay">fevm-replay</a> <code>certify</code>, written in Fe and running fevm, the EVM written in Fe.</p>
 </main>
 </body>
