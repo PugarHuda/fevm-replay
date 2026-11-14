@@ -13,6 +13,9 @@ pub struct Place {
     pub declared: usize,
     /// The `recv` arm that runs it.
     pub handled: usize,
+    /// The variant's name, as a range of the source.
+    pub name_at: usize,
+    pub name_len: usize,
 }
 
 impl Copy for Place {}
@@ -122,7 +125,7 @@ fn selector_at(_ source: MemSpan, _ at: usize, _ end: usize) -> Option<u32> {
 /// Where `selector` is declared and handled in `source` (a port's
 /// `src/lib.fe`).
 pub fn locate(_ source: MemSpan, _ selector: u32) -> Place {
-    var place = Place { declared: 0, handled: 0 }
+    var place = Place { declared: 0, handled: 0, name_at: 0, name_len: 0 }
     var start: usize = 0
     var line: usize = 1
     // The variant's name, as a range of `source`, once found.
@@ -155,11 +158,9 @@ pub fn locate(_ source: MemSpan, _ selector: u32) -> Place {
         } else if !in_recv {
             // "recv"
             in_recv = starts_with(source, at, [0x72, 0x65, 0x63, 0x76])
-        } else if end > at
-            && source[end - 1] == 0x7b
-            && at + name_len < end
-            && !is_ident(source[at + name_len]) {
-            // A `recv` arm opening a block, named as the variant.
+        } else if at + name_len < end && !is_ident(source[at + name_len]) {
+            // A `recv` arm, named as the variant (its `uses` and block may
+            // follow on later lines).
             var same = true
             for i in 0 .. name_len {
                 if source[at + i] != source[name_at + i] {
@@ -168,6 +169,8 @@ pub fn locate(_ source: MemSpan, _ selector: u32) -> Place {
             }
             if same {
                 place.handled = line
+                place.name_at = name_at
+                place.name_len = name_len
                 return place
             }
         }
@@ -178,5 +181,7 @@ pub fn locate(_ source: MemSpan, _ selector: u32) -> Place {
         }
         line += 1
     }
+    place.name_at = name_at
+    place.name_len = name_len
     place
 }

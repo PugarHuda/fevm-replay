@@ -621,6 +621,169 @@ fn usdt_call(_ rng: mut Rng, _ data: mut MemBuffer) -> Call {
     Call { to: USDT, value, category, selector }
 }
 
+// The DAI scenario: the token at its mainnet address.
+pub const DAI: u256 = 0x6b175474e89094c44da98b954eedeac495271d0f
+
+pub fn is_dai(_ token: MemSpan) -> bool {
+    token.len() == 1 && token[0] == 0x44
+}
+
+// DAI as deployed: the first account a ward, each account holding
+// 1,000,000 DAI, and mainnet's domain (the same address and chain).
+fn dai_genesis(_ code: MemSpan) -> WorldState {
+    var world = WorldState::empty()
+    world.set_code(address: DAI, code: code)
+    world.storage_store(DAI, mapping_slot(eoa(0), 0), 1)
+    world.storage_store(DAI, 1, 3 * 1_000_000 * ETHER)
+    for i in 0 .. 3 {
+        let who = eoa(i.downcast_unchecked())
+        world.set_balance(who, 1000 * ETHER)
+        world.storage_store(DAI, mapping_slot(who, 2), 1_000_000 * ETHER)
+    }
+    world.storage_store(
+            DAI,
+            5,
+            0xdbb8cf42e1ecb028be3f3dbc922e1d878b963f411dc388ced501601c60f7c6f7,
+        )
+    world
+}
+
+fn dai_actor(_ rng: mut Rng) -> u256 {
+    match rng.below(6) {
+        0 => eoa(0),
+        1 => eoa(1),
+        2 => eoa(2),
+        3 => DAI,
+        4 => 0,
+        _ => eoa(1),
+    }
+}
+
+// A call on DAI: transfers and their aliases (push, pull, move), approvals
+// (unlimited ones included), burns, a ward's mint, rely and deny, permits
+// with made-up signatures, views, and selectors DAI does not have.
+fn dai_call(_ rng: mut Rng, _ data: mut MemBuffer) -> Call {
+    let dirty = rng.below(10) == 0
+    let short = !dirty && rng.below(12) == 0
+    let category = if dirty {
+        DIRTY_ADDRESS
+    } else if short { SHORT_CALLDATA } else { WELL_FORMED }
+    let value: u256 = if rng.below(30) == 0 { 1 } else { 0 }
+    let selector: u32 = match rng.below(20) {
+        0 => 0xa9059cbb,
+        1 => 0xa9059cbb,
+        2 => 0x23b872dd,
+        3 => 0x23b872dd,
+        4 => 0x095ea7b3,
+        5 => 0x095ea7b3,
+        6 => 0xb753a98c,
+        7 => 0xf2d5d56b,
+        8 => 0xbb35783b,
+        9 => 0x40c10f19,
+        10 => 0x9dc29fac,
+        11 => 0x9dc29fac,
+        12 => if rng.below(2) == 0 {
+            0x65fae35e
+        } else {
+            0x9c52a7f1
+        },
+        13 => 0x8fcbaf0c,
+        14 => match rng.below(4) {
+            0 => 0x70a08231,
+            1 => 0xbf353dbb,
+            2 => 0x7ecebe00,
+            _ => 0xdd62ed3e,
+        },
+        15 => match rng.below(7) {
+            0 => 0x06fdde03,
+            1 => 0x95d89b41,
+            2 => 0x54fd4d50,
+            3 => 0x313ce567,
+            4 => 0x18160ddd,
+            5 => 0x3644e515,
+            _ => 0x30adf81f,
+        },
+        16 => 0xa9059cbb,
+        17 => 0x23b872dd,
+        _ => if rng.below(2) == 0 { 0x12345678 } else { 0 },
+    }
+    if selector != 0 {
+        push_selector(mut data, selector)
+    }
+    if selector == 0xa9059cbb
+        || selector == 0x095ea7b3
+        || selector == 0xb753a98c
+        || selector == 0xf2d5d56b
+        || selector == 0x40c10f19
+        || selector == 0x9dc29fac {
+        push_word(mut data, address_word(dai_actor(mut rng), dirty, mut rng))
+        // An unlimited approval now and then, so allowances it skips are seen.
+        push_word(
+            mut data,
+            if selector == 0x095ea7b3 && rng.below(3) == 0 {
+                u256::max()
+            } else {
+                usdt_amount(mut rng)
+            },
+        )
+    } else if selector == 0x23b872dd || selector == 0xbb35783b {
+        push_word(mut data, address_word(dai_actor(mut rng), dirty, mut rng))
+        push_word(mut data, address_word(dai_actor(mut rng), dirty, mut rng))
+        push_word(mut data, usdt_amount(mut rng))
+    } else if selector == 0x65fae35e
+        || selector == 0x9c52a7f1
+        || selector == 0x70a08231
+        || selector == 0xbf353dbb
+        || selector == 0x7ecebe00 {
+        push_word(mut data, address_word(dai_actor(mut rng), dirty, mut rng))
+    } else if selector == 0xdd62ed3e {
+        push_word(mut data, address_word(dai_actor(mut rng), dirty, mut rng))
+        push_word(mut data, address_word(dai_actor(mut rng), dirty, mut rng))
+    } else if selector == 0x8fcbaf0c {
+        // holder, spender, nonce, expiry, allowed, v, r, s
+        push_word(mut data, address_word(dai_actor(mut rng), dirty, mut rng))
+        push_word(mut data, address_word(dai_actor(mut rng), dirty, mut rng))
+        push_word(mut data, rng.below(3) as u256)
+        push_word(
+            mut data,
+            if rng.below(2) == 0 {
+                0
+            } else {
+                rng.next() as u256
+            },
+        )
+        push_word(mut data, rng.below(3) as u256)
+        push_word(mut data, 27 + rng.below(3) as u256)
+        push_word(mut data, rng.next() as u256)
+        push_word(mut data, rng.next() as u256)
+    }
+    if short {
+        cut_short(mut rng, mut data)
+    }
+    Call { to: DAI, value, category, selector }
+}
+
+// A one-byte token scenario: USDT (`U`) or DAI (`D`).
+fn token_genesis(_ code: MemSpan, _ token: MemSpan) -> WorldState {
+    if is_dai(token) {
+        dai_genesis(code)
+    } else {
+        usdt_genesis(code)
+    }
+}
+
+fn token_call(_ rng: mut Rng, _ data: mut MemBuffer, _ token: MemSpan) -> Call {
+    if is_dai(token) {
+        dai_call(mut rng, mut data)
+    } else {
+        usdt_call(mut rng, mut data)
+    }
+}
+
+fn token_target(_ token: MemSpan) -> u256 {
+    if is_dai(token) { DAI } else { USDT }
+}
+
 fn weth_call(_ rng: mut Rng, _ data: mut MemBuffer) -> Call {
     let call = random_call(mut rng, mut data)
     let pick = rng.below(5)
@@ -1411,6 +1574,7 @@ fn same_state(_ a: WorldState, _ b: WorldState) -> bool {
     tested.push(PAIR)
     tested.push(USDT)
     tested.push(PROXY)
+    tested.push(DAI)
     same_state_except(a, b, tested)
 }
 
@@ -1466,12 +1630,12 @@ pub fn fuzz(
         var rng = Rng { state: (seed + run).wrapping_mul(0x9e3779b97f4a7c15) | 1 }
         let proxied = is_proxy(token)
         let pair = token.len() > 1 && !proxied
-        let usdt = is_usdt(token)
+        let usdt = is_usdt(token) || is_dai(token)
         let fee_on = pair && rng.below(2) == 0
         var a = if pair {
             pair_genesis(deployed, token, fee_on)
         } else if usdt {
-            usdt_genesis(deployed)
+            token_genesis(deployed, token)
         } else if proxied {
             proxy_genesis(deployed, token)
         } else {
@@ -1480,7 +1644,7 @@ pub fn fuzz(
         var b = if pair {
             pair_genesis(port, token, fee_on)
         } else if usdt {
-            usdt_genesis(port)
+            token_genesis(port, token)
         } else if proxied {
             proxy_genesis(port, token)
         } else {
@@ -1494,7 +1658,7 @@ pub fn fuzz(
                 if pair {
                     PAIR
                 } else if usdt {
-                    USDT
+                    token_target(token)
                 } else if proxied { PROXY } else { TARGET },
             )
         var step: u64 = 0
@@ -1505,7 +1669,7 @@ pub fn fuzz(
                 pair_call(mut rng, mut data, step)
             } else {
                 if usdt {
-                    usdt_call(mut rng, mut data)
+                    token_call(mut rng, mut data, token)
                 } else if proxied {
                     proxy_call(mut rng, mut data)
                 } else {
@@ -1702,7 +1866,7 @@ impl Copy for Sent {}
 fn shrink(_ deployed: MemSpan, _ port: MemSpan, _ token: MemSpan, _ found: mut Findings) {
     let proxied = is_proxy(token)
     let pair = token.len() > 1 && !proxied
-    let usdt = is_usdt(token)
+    let usdt = is_usdt(token) || is_dai(token)
     var rng = Rng { state: found.first_seed.wrapping_mul(0x9e3779b97f4a7c15) | 1 }
     let fee_on = pair && rng.below(2) == 0
     var calls: MemVec<Sent> = MemVec::new()
@@ -1715,7 +1879,7 @@ fn shrink(_ deployed: MemSpan, _ port: MemSpan, _ token: MemSpan, _ found: mut F
             pair_call(mut rng, mut data, step)
         } else {
             if usdt {
-                usdt_call(mut rng, mut data)
+                token_call(mut rng, mut data, token)
             } else if proxied {
                 proxy_call(mut rng, mut data)
             } else {
@@ -1793,11 +1957,11 @@ fn diverges(
 ) -> bool {
     let proxied = is_proxy(token)
     let pair = token.len() > 1 && !proxied
-    let usdt = is_usdt(token)
+    let usdt = is_usdt(token) || is_dai(token)
     var a = if pair {
         pair_genesis(deployed, token, fee_on)
     } else if usdt {
-        usdt_genesis(deployed)
+        token_genesis(deployed, token)
     } else if proxied {
         proxy_genesis(deployed, token)
     } else {
@@ -1806,7 +1970,7 @@ fn diverges(
     var b = if pair {
         pair_genesis(port, token, fee_on)
     } else if usdt {
-        usdt_genesis(port)
+        token_genesis(port, token)
     } else if proxied {
         proxy_genesis(port, token)
     } else {

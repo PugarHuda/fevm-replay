@@ -69,6 +69,13 @@ jobs:
           fe test .
           fe build -O 2 --out-dir ../../out/usdc-proxy .
 
+      - name: DAI port
+        working-directory: ports/dai
+        run: |
+          fe fmt --check
+          fe test .
+          fe build -O 2 --out-dir ../../out/dai .
+
       - name: Build fevm-replay
         run: fe build --backend native -O 2 --emit executable --out-dir out .
 
@@ -80,6 +87,9 @@ jobs:
 
       - name: Fuzzed USDT port answers every call as mainnet USDT does
         run: ./out/fevm_replay fuzz-usdt fixtures/code/usdt-mainnet.hex out/usdt/TetherToken.runtime.bin 1000 60 1
+
+      - name: Fuzzed DAI port answers every call as mainnet DAI does
+        run: ./out/fevm_replay fuzz-dai fixtures/code/dai-mainnet.hex out/dai/Dai.runtime.bin 1000 60 1
 
       - name: Fuzzed USDC proxy port forwards and administers as the deployed proxy does
         run: ./out/fevm_replay fuzz-proxy fixtures/code/usdc-proxy-mainnet.hex out/usdc-proxy/FiatTokenProxy.runtime.bin fixtures/code/weth9-mainnet.hex 500 60 1

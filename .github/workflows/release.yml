@@ -40,7 +40,7 @@ jobs:
       - name: Build
         run: |
           fe build --backend native -O 2 --emit executable --out-dir out .
-          for port in weth9 uniswap-v2-pair usdt usdc-proxy; do
+          for port in weth9 uniswap-v2-pair usdt usdc-proxy dai; do
             (cd "ports/$port" && fe build -O 2 --out-dir "../../out/$port" .)
           done
           ./out/fevm_replay fixtures/mainnet/*.json
@@ -51,7 +51,7 @@ jobs:
           mkdir -p "$name/ports"
           cp out/fevm_replay README.md LICENSE "$name/"
           cp -r fixtures "$name/"
-          for port in weth9 uniswap-v2-pair usdt usdc-proxy; do
+          for port in weth9 uniswap-v2-pair usdt usdc-proxy dai; do
             mkdir -p "$name/ports/$port"
             cp out/$port/*.runtime.bin "$name/ports/$port/"
           done

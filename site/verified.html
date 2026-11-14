@@ -48,7 +48,7 @@
 <main class="wrap">
   <section class="v-head">
     <h1>Fe ports, checked against mainnet</h1>
-    <p class="intro">Four Solidity contracts from four compiler versions, rewritten in Fe to drop in for the deployed code. Each is checked against real Ethereum traffic by one command, <code>fevm_replay certify</code>, which writes the certificate linked below. A port only counts as verified when nothing it does differs from the deployed contract.</p>
+    <p class="intro">Five Solidity contracts from five compiler versions, rewritten in Fe to drop in for the deployed code. Each is checked against real Ethereum traffic by one command, <code>fevm_replay certify</code>, which writes the certificate linked below. A port only counts as verified when nothing it does differs from the deployed contract.</p>
   </section>
 
   <div class="ports">
@@ -98,6 +98,22 @@
         <dt>Gas on <code>balanceOf</code></dt><dd>−17.0%</dd>
       </dl>
       <div class="links"><a href="certificate-weth9.html">Certificate</a><a href="https://github.com/PugarHuda/fevm-replay/tree/main/ports/weth9">Source</a></div>
+    </article>
+
+    <article class="port">
+      <img src="badge-dai.svg" alt="Fe port: DAI verified" width="230" height="20">
+      <h2>DAI</h2>
+      <p class="meta">MakerDAO's Dai, solc 0.5.12 · <code>ports/dai</code></p>
+      <dl>
+        <dt>Mainnet transactions that ran it</dt><dd>10,562</dd>
+        <dt>…that behaved differently</dt><dd class="zero">0</dd>
+        <dt>Mutated mainnet runs that differ</dt><dd class="zero">0 of 211,240</dd>
+        <dt>Random calls that differ</dt><dd class="zero">0 of 120,000</dd>
+        <dt>Port code reached</dt><dd>89%</dd>
+        <dt>Mutants caught</dt><dd>19 of 21</dd>
+        <dt>Gas on <code>transfer</code></dt><dd>−1.5%</dd>
+      </dl>
+      <div class="links"><a href="certificate-dai.html">Certificate</a><a href="https://github.com/PugarHuda/fevm-replay/tree/main/ports/dai">Source</a></div>
     </article>
 
     <article class="port warn">

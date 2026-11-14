@@ -509,6 +509,31 @@ call USDC with a gas allowance so tight that the deployed proxy fits and the
 port runs out. A port that costs more is a difference, so they stay counted;
 it is the one place a Fe port is costlier than the code it replaces.
 
+### DAI: MakerDAO's stablecoin
+
+[`ports/dai`](ports/dai) is DAI (solc 0.5.12) in Fe: `wards` that may
+`mint`, `burn` by holders and spenders, the `push`/`pull`/`move` aliases of
+`transferFrom`, unlimited allowances that are never spent, the pre-EIP-2612
+`permit` (all or nothing, by signature), and `rely`/`deny` with `LibNote`'s
+anonymous log of the call. Its storage is the deployed contract's slot for
+slot (`DOMAIN_SEPARATOR` included), its revert reasons the same
+`Dai/...` strings.
+
+| Fe DAI in place of mainnet DAI, 200 blocks | |
+| --- | ---: |
+| Transactions that ran it | 10,562 |
+| Identical logs and state | 10,540 |
+| Differ where other code reads the gas left | 22 |
+| **Behave differently** | **0** |
+| Mainnet mutations (20 per transaction) / that differ | 211,240 / **0** |
+| Random calls (`fuzz-dai`) / that differ | 120,000 / **0** |
+| Mutants killed | 19 of 21 |
+
+The two surviving mutants both change `permit`'s expiry check. The fuzzer
+signs nothing, so every random permit fails at the signature, before the
+expiry is read, and no mutated mainnet permit reached an expired deadline. That
+is a blind spot of the checks, named on the certificate.
+
 ### Every label, explained
 
 A difference labeled "reads the gas left" is only excused if the gas reading
@@ -845,7 +870,7 @@ over the 200 blocks with all 74 mutants, took about 25 minutes:
 ### Verified ports and a GitHub Action
 
 [The verified page](https://fevm-replay.vercel.app/verified.html) puts the
-four ports side by side, each with its certificate. Any Fe project can run
+five ports side by side, each with its certificate. Any Fe project can run
 the same checks in CI with this repository's action, which builds Fe,
 fetches blocks, certifies the port and uploads the page (fails if the port
 behaves differently):
@@ -972,12 +997,13 @@ Other Fe pieces doing real work:
 | `src/mutants.fe` | mutation sites in a port's source and the mutants planted there |
 | `src/certify.fe` | the certificate page |
 | `src/source.fe` | a selector's `msg` variant and `recv` arm in a port's source, for lack of a source map |
-| `src/lib.fe` | the CLI: `fetch`, `fetch-block`, `fetch-code`, `fetch-hashes`, `fetch-proofs`, `block`, `range`, `chain`, `trace`, `opgas`, `fuzz`, `fuzz-pair`, `fuzz-usdt`, `fuzz-proxy`, `fuzz-block`, `mutants`, `certify`, replaying fixture files |
+| `src/lib.fe` | the CLI: `fetch`, `fetch-block`, `fetch-code`, `fetch-hashes`, `fetch-proofs`, `block`, `range`, `chain`, `trace`, `opgas`, `fuzz`, `fuzz-pair`, `fuzz-usdt`, `fuzz-dai`, `fuzz-proxy`, `fuzz-block`, `mutants`, `certify`, replaying fixture files |
 | `src/tests.fe`, `src/proof_tests.fe` | unit tests for the helpers; the proof tests run on a real proof and header from mainnet |
 | `ports/weth9` | WETH9 in Fe, for shadow replay |
 | `ports/uniswap-v2-pair` | UniswapV2Pair in Fe, for shadow replay of every V2 pair |
 | `ports/usdt` | TetherToken (USDT) in Fe |
 | `ports/usdc-proxy` | FiatTokenProxy, USDC's upgradeable proxy, in Fe |
+| `ports/dai` | DAI (MakerDAO) in Fe, with `permit` and `LibNote` |
 
 ## Try it without Fe
 

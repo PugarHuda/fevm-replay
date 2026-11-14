@@ -165,6 +165,13 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     ) {
         return fuzz_command(pair: true)
     }
+    // "fuzz-dai"
+    if is_word(
+        args.get(1),
+        [0x66, 0x75, 0x7a, 0x7a, 0x2d, 0x64, 0x61, 0x69],
+    ) {
+        return fuzz_command(pair: false)
+    }
     // "fuzz-usdt"
     if is_word(
         args.get(1),
@@ -1400,6 +1407,11 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         var marker = MemBuffer::empty()
         marker.push(0x55)
         marker
+    } else if is_word(args.get(6), [0x64, 0x61, 0x69]) {
+        // `dai`: the DAI scenario (see `fuzz::is_dai`).
+        var marker = MemBuffer::empty()
+        marker.push(0x44)
+        marker
     } else if args.get(6).span().len() == 1 {
         MemBuffer::empty()
     } else {
@@ -1589,7 +1601,9 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
 
         "<h2>Random calls</h2>\n<p>1,000 sessions of up to 60 random calls each, against both codes in step"
             .fmt(mut html)
-        if token.len() > 0 {
+        // Only the pair scenario has invariants (a one-byte marker names a
+        // token scenario; the proxy's starts with `P`).
+        if token.len() > 1 && !fuzz::is_proxy(token.span()) {
             ", checking the pair's invariants after every call".fmt(mut html)
         }
         ".</p>\n<table>\n".fmt(mut html)
@@ -1720,12 +1734,16 @@ uses (html: mut MemBuffer)
         }
         let before = d.gas / d.calls
         let after = s_gas / s_calls
-        "<tr><td><code>".fmt(mut html)
-        function_name(d.selector).fmt(mut html)
-        "</code></td><td>".fmt(mut html)
         // Fe writes no source map: the line comes from the `msg` variant
         // with this selector and the `recv` arm that runs it.
         let place = source::locate(source, d.selector)
+        "<tr><td><code>".fmt(mut html)
+        if place.name_len > 0 {
+            source.slice(offset: place.name_at, len: place.name_len).fmt(mut html)
+        } else {
+            function_name(d.selector).fmt(mut html)
+        }
+        "</code></td><td>".fmt(mut html)
         if place.handled > 0 {
             "<code>src/lib.fe:".fmt(mut html)
             place.handled.fmt(mut html)
@@ -2014,6 +2032,11 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         // `usdt`: the USDT scenario (see `fuzz::is_usdt`).
         var marker = MemBuffer::empty()
         marker.push(0x55)
+        marker
+    } else if is_word(args.get(5), [0x64, 0x61, 0x69]) {
+        // `dai`: the DAI scenario (see `fuzz::is_dai`).
+        var marker = MemBuffer::empty()
+        marker.push(0x44)
         marker
     } else if args.get(5).span().len() == 1 {
         MemBuffer::empty()
@@ -2637,6 +2660,12 @@ uses (args: Args, fs: std::fs::Fs, out: mut Stdout)
     ) {
         // The USDT scenario (see `fuzz::is_usdt`).
         token.push(0x55)
+    } else if is_word(
+        args.get(1),
+        [0x66, 0x75, 0x7a, 0x7a, 0x2d, 0x64, 0x61, 0x69],
+    ) {
+        // The DAI scenario (see `fuzz::is_dai`).
+        token.push(0x44)
     }
     let runs = number_arg(first, default: 200)
     let steps = number_arg(first + 1, default: 40)
@@ -2767,6 +2796,10 @@ uses (args: Args, fs: std::fs::Fs, out: mut Stdout)
     } else if fuzz::is_usdt(token.span()) {
         print!(
             "replay it: fevm-replay fuzz-usdt <deployed.bin> <port.bin> 1 ",
+        )
+    } else if fuzz::is_dai(token.span()) {
+        print!(
+            "replay it: fevm-replay fuzz-dai <deployed.bin> <port.bin> 1 ",
         )
     } else {
         print!("replay it: fevm-replay fuzz <deployed.bin> <port.bin> 1 ")

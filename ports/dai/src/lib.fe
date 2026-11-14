@@ -1,0 +1,459 @@
+//! Dai (mainnet 0x6B175474E89094C44Da98b954EedeAC495271d0F) in Fe, built to
+//! drop in for the deployed solc 0.5.12 code of MakerDAO's DAI: same
+//! selectors, events, storage slots and revert reasons. Its `wards` may
+//! `mint`; anyone may `burn` what they hold or are allowed; `permit`
+//! approves by signature (the pre-EIP-2612 form, with `allowed` for all or
+//! nothing); `rely` and `deny` log an anonymous `LogNote` with the call's
+//! first 224 calldata bytes, as `LibNote` does.
+//!
+//! As solc 0.5 decodes them, arguments must all be present (a short
+//! calldata reverts), an address keeps the low 160 bits of its word, a bool
+//! is any nonzero word and a uint8 the lowest byte.
+
+use std::abi::{Bytes32, DynString}
+use std::evm::StorageMap
+use std::evm::crypto::{ecrecover_raw, eip712_digest, keccak_words}
+
+msg DaiMsg {
+    // wards(address)
+    #[selector = 0xbf353dbb]
+    Wards { usr: u256 } -> u256,
+    // rely(address)
+    #[selector = 0x65fae35e]
+    Rely { usr: u256 },
+    // deny(address)
+    #[selector = 0x9c52a7f1]
+    Deny { usr: u256 },
+    #[selector = sol("name()")]
+    Name -> DynString,
+    #[selector = sol("symbol()")]
+    Symbol -> DynString,
+    #[selector = sol("version()")]
+    Version -> DynString,
+    #[selector = sol("decimals()")]
+    Decimals -> u8,
+    #[selector = sol("totalSupply()")]
+    TotalSupply -> u256,
+    // balanceOf(address)
+    #[selector = 0x70a08231]
+    BalanceOf { usr: u256 } -> u256,
+    // allowance(address,address)
+    #[selector = 0xdd62ed3e]
+    Allowance { src: u256, guy: u256 } -> u256,
+    // nonces(address)
+    #[selector = 0x7ecebe00]
+    Nonces { usr: u256 } -> u256,
+    #[selector = sol("DOMAIN_SEPARATOR()")]
+    DomainSeparator -> u256,
+    #[selector = sol("PERMIT_TYPEHASH()")]
+    PermitTypehash -> u256,
+    // transfer(address,uint256)
+    #[selector = 0xa9059cbb]
+    Transfer { dst: u256, wad: u256 } -> bool,
+    // transferFrom(address,address,uint256)
+    #[selector = 0x23b872dd]
+    TransferFrom { src: u256, dst: u256, wad: u256 } -> bool,
+    // mint(address,uint256)
+    #[selector = 0x40c10f19]
+    Mint { usr: u256, wad: u256 },
+    // burn(address,uint256)
+    #[selector = 0x9dc29fac]
+    Burn { usr: u256, wad: u256 },
+    // approve(address,uint256)
+    #[selector = 0x095ea7b3]
+    Approve { usr: u256, wad: u256 } -> bool,
+    // push(address,uint256)
+    #[selector = 0xb753a98c]
+    Push { usr: u256, wad: u256 },
+    // pull(address,uint256)
+    #[selector = 0xf2d5d56b]
+    Pull { usr: u256, wad: u256 },
+    // move(address,address,uint256)
+    #[selector = 0xbb35783b]
+    Move { src: u256, dst: u256, wad: u256 },
+    // permit(address,address,uint256,uint256,bool,uint8,bytes32,bytes32)
+    #[selector = 0x8fcbaf0c]
+    Permit {
+        holder: u256,
+        spender: u256,
+        nonce: u256,
+        expiry: u256,
+        allowed: u256,
+        v: u256,
+        r: Bytes32,
+        s: Bytes32,
+    },
+}
+
+#[event]
+struct Transfer {
+    #[indexed]
+    src: Address,
+    #[indexed]
+    dst: Address,
+    wad: u256,
+}
+
+#[event]
+struct Approval {
+    #[indexed]
+    src: Address,
+    #[indexed]
+    guy: Address,
+    wad: u256,
+}
+
+// keccak256("Permit(address holder,address spender,uint256 nonce,uint256 expiry,bool allowed)")
+const PERMIT_TYPEHASH: u256 = 0xea2aa0a1be11a07ed86d755c93467f4f82362b452371d1ba94d1715123511acb
+// keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")
+const DOMAIN_TYPEHASH: u256 = 0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f
+// keccak256("Dai Stablecoin"), keccak256("1")
+const NAME_HASH: u256 = 0x0b1461ddc0c1d5ded79a1db0f74dae949050a7c0b28728c724b24958c27a328b
+const VERSION_HASH: u256 = 0xc89efdaa54c0f20c7adf612882df0950f5a951637e0307cdcb4c672f298b8bc6
+const MAX: u256 = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+
+// An address argument as solc 0.5's decoder reads it: the low 160 bits.
+fn address(_ word: u256) -> Address {
+    Address::new(word & ((1 << 160) - 1))
+}
+
+/// The state of the deployed contract, slot for slot.
+pub contract Dai uses (ctx: Ctx, evm: Evm, log: mut Log) {
+    mut wards: StorageMap<Address, u256>,
+    mut total_supply: u256,
+    mut balance_of: StorageMap<Address, u256>,
+    mut allowance: StorageMap<Address, StorageMap<Address, u256>>,
+    mut nonces: StorageMap<Address, u256>,
+    mut domain_separator: u256,
+
+    // As deployed: the creator is a ward, and the domain names this chain.
+    init(chain_id: u256)
+    uses (ctx, mut wards, mut domain_separator)
+    {
+        wards.set(key: ctx.caller(), value: 1)
+        domain_separator = keccak_words(
+            [DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH, chain_id, ctx.address().word()],
+        )
+    }
+
+    recv DaiMsg {
+        Wards { usr } -> u256 uses (wards) {
+            wards.get(key: address(usr))
+        }
+
+        Rely { usr } uses (evm, ctx, mut wards, mut log) {
+            auth(wards)
+            wards.set(key: address(usr), value: 1)
+            note()
+        }
+
+        Deny { usr } uses (evm, ctx, mut wards, mut log) {
+            auth(wards)
+            wards.set(key: address(usr), value: 0)
+            note()
+        }
+
+        Name -> DynString {
+            // "Dai Stablecoin"
+            DynString::from_word_prefix(
+                word: 0x44616920537461626c65636f696e000000000000000000000000000000000000,
+                len: 14,
+            )
+        }
+
+        Symbol -> DynString {
+            // "DAI"
+            DynString::from_word_prefix(
+                word: 0x4441490000000000000000000000000000000000000000000000000000000000,
+                len: 3,
+            )
+        }
+
+        Version -> DynString {
+            // "1"
+            DynString::from_word_prefix(
+                word: 0x3100000000000000000000000000000000000000000000000000000000000000,
+                len: 1,
+            )
+        }
+
+        Decimals -> u8 {
+            18
+        }
+
+        TotalSupply -> u256 uses (total_supply) {
+            total_supply
+        }
+
+        BalanceOf { usr } -> u256 uses (balance_of) {
+            balance_of.get(key: address(usr))
+        }
+
+        Allowance { src, guy } -> u256 uses (allowance) {
+            allowance[address(src)][address(guy)]
+        }
+
+        Nonces { usr } -> u256 uses (nonces) {
+            nonces.get(key: address(usr))
+        }
+
+        DomainSeparator -> u256 uses (domain_separator) {
+            domain_separator
+        }
+
+        PermitTypehash -> u256 {
+            PERMIT_TYPEHASH
+        }
+
+        Transfer { dst, wad } -> bool uses (evm, ctx, mut balance_of, mut allowance, mut log) {
+            transfer_from(ctx.caller(), address(dst), wad)
+            true
+        }
+
+        TransferFrom { src, dst, wad } -> bool uses (
+            evm,
+            ctx,
+            mut balance_of,
+            mut allowance,
+            mut log,
+        ) {
+            transfer_from(address(src), address(dst), wad)
+            true
+        }
+
+        Mint { usr, wad } uses (evm, ctx, wards, mut total_supply, mut balance_of, mut log) {
+            auth(wards)
+            let usr = address(usr)
+            balance_of.set(key: usr, value: add(balance_of.get(key: usr), wad))
+            total_supply = add(total_supply, wad)
+            log.emit(Transfer { src: Address::new(0), dst: usr, wad })
+        }
+
+        Burn { usr, wad } uses (
+            evm,
+            ctx,
+            mut total_supply,
+            mut balance_of,
+            mut allowance,
+            mut log,
+        ) {
+            let usr = address(usr)
+            spend(usr, wad)
+            balance_of.set(key: usr, value: sub(balance_of.get(key: usr), wad))
+            total_supply = sub(total_supply, wad)
+            log.emit(Transfer { src: usr, dst: Address::new(0), wad })
+        }
+
+        Approve { usr, wad } -> bool uses (ctx, mut allowance, mut log) {
+            let usr = address(usr)
+            allowance[ctx.caller()][usr] = wad
+            log.emit(Approval { src: ctx.caller(), guy: usr, wad })
+            true
+        }
+
+        Push { usr, wad } uses (evm, ctx, mut balance_of, mut allowance, mut log) {
+            transfer_from(ctx.caller(), address(usr), wad)
+        }
+
+        Pull { usr, wad } uses (evm, ctx, mut balance_of, mut allowance, mut log) {
+            transfer_from(address(usr), ctx.caller(), wad)
+        }
+
+        Move { src, dst, wad } uses (evm, ctx, mut balance_of, mut allowance, mut log) {
+            transfer_from(address(src), address(dst), wad)
+        }
+
+        Permit { holder, spender, nonce, expiry, allowed, v, r, s }
+        uses (evm, ctx, mut allowance, mut nonces, domain_separator, mut log)
+        {
+            let holder = address(holder)
+            let spender = address(spender)
+            let allowed = allowed != 0
+            let struct_hash = keccak_words(
+                [
+                    PERMIT_TYPEHASH,
+                    holder.word(),
+                    spender.word(),
+                    nonce,
+                    expiry,
+                    if allowed { 1 } else { 0 },
+                ],
+            )
+            let digest = eip712_digest(
+                domain_separator: domain_separator,
+                struct_hash: struct_hash,
+            )
+            if holder.word() == 0 {
+                fail(INVALID_ADDRESS_0)
+            }
+            let recovered = match ecrecover_raw(
+                hash: digest,
+                v: v & 0xff,
+                r: r.word(),
+                s: s.word(),
+            ) {
+                Result::Ok(Option::Some(signer)) => signer,
+                _ => 0,
+            }
+            if holder.word() != recovered {
+                fail(INVALID_PERMIT)
+            }
+            if expiry != 0 && ctx.timestamp().as_seconds() > expiry {
+                fail(PERMIT_EXPIRED)
+            }
+            // `nonce == nonces[holder]++`
+            let current = nonces.get(key: holder)
+            nonces.set(key: holder, value: current.wrapping_add(1))
+            if nonce != current {
+                fail(INVALID_NONCE)
+            }
+            let wad = if allowed { MAX } else { 0 }
+            allowance[holder][spender] = wad
+            log.emit(Approval { src: holder, guy: spender, wad })
+        }
+    }
+}
+
+// `transferFrom`, which `transfer`, `push`, `pull` and `move` all call.
+fn transfer_from(_ src: Address, _ dst: Address, _ wad: u256)
+uses (
+    evm: Evm,
+    ctx: Ctx,
+    balance_of: mut StorageMap<Address, u256>,
+    allowance: mut StorageMap<Address, StorageMap<Address, u256>>,
+    log: mut Log,
+)
+{
+    if balance_of.get(key: src) < wad {
+        fail(INSUFFICIENT_BALANCE)
+    }
+    spend_checked(src, wad)
+    balance_of.set(key: src, value: sub(balance_of.get(key: src), wad))
+    balance_of.set(key: dst, value: add(balance_of.get(key: dst), wad))
+    log.emit(Transfer { src, dst, wad })
+}
+
+// `burn`'s checks: the balance, then the allowance as in `transferFrom`.
+fn spend(_ usr: Address, _ wad: u256)
+uses (
+    evm: Evm,
+    ctx: Ctx,
+    balance_of: StorageMap<Address, u256>,
+    allowance: mut StorageMap<Address, StorageMap<Address, u256>>,
+)
+{
+    if balance_of.get(key: usr) < wad {
+        fail(INSUFFICIENT_BALANCE)
+    }
+    spend_checked(usr, wad)
+}
+
+// Someone spending another's tokens uses up their allowance, unless it is
+// unlimited.
+fn spend_checked(_ owner: Address, _ wad: u256)
+uses (evm: Evm, ctx: Ctx, allowance: mut StorageMap<Address, StorageMap<Address, u256>>)
+{
+    let spender = ctx.caller()
+    if owner != spender && allowance[owner][spender] != MAX {
+        if allowance[owner][spender] < wad {
+            fail(INSUFFICIENT_ALLOWANCE)
+        }
+        allowance[owner][spender] = sub(allowance[owner][spender], wad)
+    }
+}
+
+// `auth`: only a ward.
+fn auth(_ wards: StorageMap<Address, u256>) uses (evm: Evm, ctx: Ctx) {
+    if wards.get(key: ctx.caller()) != 1 {
+        fail(NOT_AUTHORIZED)
+    }
+}
+
+// `LibNote.note`: an anonymous log of the call, topics the selector, the
+// caller and the first two argument words as sent, data the first 224
+// calldata bytes as `bytes`.
+fn note() uses (evm: Evm, ctx: Ctx, log: mut Log) {
+    var data = MemBuffer::with_capacity(288)
+    data.write_word(offset: 0, value: 0x20)
+    data.write_word(offset: 32, value: 224)
+    for i in 0 .. 7 {
+        data.write_word(
+            offset: 64 + i * 32,
+            value: evm.calldataload((i * 32) as u256),
+        )
+    }
+    log.log4(
+        data: data.span(),
+        topic0: (evm.calldataload(0) >> 224) << 224,
+        topic1: ctx.caller().word(),
+        topic2: evm.calldataload(4),
+        topic3: evm.calldataload(36),
+    )
+}
+
+/// A revert reason as `require` gives it: its first 32 bytes and length.
+struct Reason { text: u256, len: u256 }
+
+impl Copy for Reason {}
+
+const INSUFFICIENT_BALANCE: Reason = Reason {
+    // "Dai/insufficient-balance"
+    text: 0x4461692f696e73756666696369656e742d62616c616e63650000000000000000,
+    len: 24,
+}
+const INSUFFICIENT_ALLOWANCE: Reason = Reason {
+    // "Dai/insufficient-allowance"
+    text: 0x4461692f696e73756666696369656e742d616c6c6f77616e6365000000000000,
+    len: 26,
+}
+const NOT_AUTHORIZED: Reason = Reason {
+    // "Dai/not-authorized"
+    text: 0x4461692f6e6f742d617574686f72697a65640000000000000000000000000000,
+    len: 18,
+}
+const INVALID_ADDRESS_0: Reason = Reason {
+    // "Dai/invalid-address-0"
+    text: 0x4461692f696e76616c69642d616464726573732d300000000000000000000000,
+    len: 21,
+}
+const INVALID_PERMIT: Reason = Reason {
+    // "Dai/invalid-permit"
+    text: 0x4461692f696e76616c69642d7065726d69740000000000000000000000000000,
+    len: 18,
+}
+const PERMIT_EXPIRED: Reason = Reason {
+    // "Dai/permit-expired"
+    text: 0x4461692f7065726d69742d657870697265640000000000000000000000000000,
+    len: 18,
+}
+const INVALID_NONCE: Reason = Reason {
+    // "Dai/invalid-nonce"
+    text: 0x4461692f696e76616c69642d6e6f6e6365000000000000000000000000000000,
+    len: 17,
+}
+
+// `Error(string)` written straight to memory, as solc does.
+fn fail(_ reason: Reason) -> ! uses (evm: Evm) {
+    var data = MemBuffer::with_capacity(100)
+    data.write_word(offset: 0, value: 0x08c379a0 << 224)
+    data.write_word(offset: 4, value: 32)
+    data.write_word(offset: 36, value: reason.len)
+    data.write_word(offset: 68, value: reason.text)
+    evm.revert(data: data.span())
+}
+
+// DAI's own `add` and `sub`: `require` with no reason.
+fn add(_ x: u256, _ y: u256) -> u256 uses (evm: Evm) {
+    let z = x.wrapping_add(y)
+    if z < x {
+        evm.revert(data: MemBuffer::empty().span())
+    }
+    z
+}
+
+fn sub(_ x: u256, _ y: u256) -> u256 uses (evm: Evm) {
+    if y > x {
+        evm.revert(data: MemBuffer::empty().span())
+    }
+    x - y
+}

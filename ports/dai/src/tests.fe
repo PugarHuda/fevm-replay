@@ -1,0 +1,176 @@
+// Run with `fe test .` in ports/dai. Mainnet behavior is checked by shadow
+// replay (see the repository README); these cover the wards' functions and
+// the allowance rules, which mainnet traffic shows less often.
+
+use ingot::Dai
+
+msg Token {
+    #[selector = sol("balanceOf(address)")]
+    BalanceOf { usr: Address } -> u256,
+    #[selector = sol("allowance(address,address)")]
+    Allowance { src: Address, guy: Address } -> u256,
+    #[selector = sol("totalSupply()")]
+    TotalSupply -> u256,
+    #[selector = sol("wards(address)")]
+    Wards { usr: Address } -> u256,
+    #[selector = sol("mint(address,uint256)")]
+    Mint { usr: Address, wad: u256 },
+    #[selector = sol("burn(address,uint256)")]
+    Burn { usr: Address, wad: u256 },
+    #[selector = sol("transfer(address,uint256)")]
+    Transfer { dst: Address, wad: u256 } -> bool,
+    #[selector = sol("approve(address,uint256)")]
+    Approve { usr: Address, wad: u256 } -> bool,
+    #[selector = sol("rely(address)")]
+    Rely { usr: Address },
+    #[selector = sol("deny(address)")]
+    Deny { usr: Address },
+    #[selector = sol("DOMAIN_SEPARATOR()")]
+    DomainSeparator -> u256,
+}
+
+// The test contract deploys DAI, so it is a ward.
+fn deploy() -> Address uses (evm: mut Evm) {
+    evm.create2<Dai>(value: Wei::zero(), args: (1,), salt: 0)
+}
+
+fn balance(_ dai: Address, _ usr: Address) -> u256 uses (evm: mut Evm) {
+    evm.call(
+        addr: dai,
+        gas: 100000,
+        value: Wei::zero(),
+        message: Token::BalanceOf { usr },
+    )
+}
+
+fn mint(_ dai: Address, _ usr: Address, _ wad: u256) uses (evm: mut Evm) {
+    evm.call(
+        addr: dai,
+        gas: 100000,
+        value: Wei::zero(),
+        message: Token::Mint { usr, wad },
+    )
+}
+
+#[test]
+fn a_ward_mints_and_holders_transfer() uses (evm: mut Evm) {
+    let dai = deploy()
+    mint(dai, evm.address(), 1000)
+    let sent: bool = evm
+        .call(
+            addr: dai,
+            gas: 100000,
+            value: Wei::zero(),
+            message: Token::Transfer { dst: Address::new(0xbeef), wad: 400 },
+        )
+    assert!(sent)
+    assert!(balance(dai, Address::new(0xbeef)) == 400)
+    assert!(balance(dai, evm.address()) == 600)
+    let supply: u256 = evm
+        .call(
+            addr: dai,
+            gas: 100000,
+            value: Wei::zero(),
+            message: Token::TotalSupply {},
+        )
+    assert!(supply == 1000)
+}
+
+// A holder burns their own tokens without an allowance.
+#[test]
+fn burning_lowers_the_supply() uses (evm: mut Evm) {
+    let dai = deploy()
+    mint(dai, evm.address(), 1000)
+    evm.call(
+        addr: dai,
+        gas: 100000,
+        value: Wei::zero(),
+        message: Token::Burn { usr: evm.address(), wad: 250 },
+    )
+    let supply: u256 = evm
+        .call(
+            addr: dai,
+            gas: 100000,
+            value: Wei::zero(),
+            message: Token::TotalSupply {},
+        )
+    assert!(supply == 750)
+    assert!(balance(dai, evm.address()) == 750)
+}
+
+// Deployed with chain id 1 at another address, so a domain of its own.
+#[test]
+fn the_domain_names_the_chain_and_the_contract() uses (evm: mut Evm) {
+    let dai = deploy()
+    let domain: u256 = evm
+        .call(
+            addr: dai,
+            gas: 100000,
+            value: Wei::zero(),
+            message: Token::DomainSeparator {},
+        )
+    assert!(domain != 0)
+    // Mainnet's, for mainnet's address.
+    assert!(
+        domain != 0xdbb8cf42e1ecb028be3f3dbc922e1d878b963f411dc388ced501601c60f7c6f7,
+    )
+}
+
+#[test]
+fn rely_and_deny_set_wards() uses (evm: mut Evm) {
+    let dai = deploy()
+    evm.call(
+        addr: dai,
+        gas: 100000,
+        value: Wei::zero(),
+        message: Token::Rely { usr: Address::new(0xad) },
+    )
+    let ward: u256 = evm
+        .call(
+            addr: dai,
+            gas: 100000,
+            value: Wei::zero(),
+            message: Token::Wards { usr: Address::new(0xad) },
+        )
+    assert!(ward == 1)
+    evm.call(
+        addr: dai,
+        gas: 100000,
+        value: Wei::zero(),
+        message: Token::Deny { usr: Address::new(0xad) },
+    )
+    let gone: u256 = evm
+        .call(
+            addr: dai,
+            gas: 100000,
+            value: Wei::zero(),
+            message: Token::Wards { usr: Address::new(0xad) },
+        )
+    assert!(gone == 0)
+}
+
+// Denying itself, the test contract is no longer a ward and cannot mint.
+#[test(should_revert)]
+fn only_wards_mint() uses (evm: mut Evm) {
+    let dai = deploy()
+    evm.call(
+        addr: dai,
+        gas: 100000,
+        value: Wei::zero(),
+        message: Token::Deny { usr: evm.address() },
+    )
+    mint(dai, evm.address(), 1)
+}
+
+#[test(should_revert)]
+fn transfer_beyond_the_balance_reverts() uses (evm: mut Evm) {
+    let dai = deploy()
+    mint(dai, evm.address(), 10)
+    let _: bool = evm
+        .call(
+            addr: dai,
+            gas: 100000,
+            value: Wei::zero(),
+            message: Token::Transfer { dst: Address::new(0xbeef), wad: 11 },
+        )
+}
