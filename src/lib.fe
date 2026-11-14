@@ -753,7 +753,7 @@ uses (out: mut Stdout)
     )
     for i in 0 .. deployed.len() {
         let d = deployed[i]
-        var s_gas: u64 = 0
+        var s_gas = watch::Gas::of(0)
         var s_calls: u64 = 0
         for j in 0 .. shadow.len() {
             if shadow[j].selector == d.selector {
@@ -1704,7 +1704,7 @@ uses (html: mut MemBuffer)
         .fmt(mut html)
     for i in 0 .. deployed.len() {
         let d = deployed[i]
-        var s_gas: u64 = 0
+        var s_gas = watch::Gas::of(0)
         var s_calls: u64 = 0
         for j in 0 .. shadow.len() {
             if shadow[j].selector == d.selector {

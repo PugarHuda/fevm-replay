@@ -4,6 +4,7 @@
 use core::{MemBuffer, MemSpan}
 use core::fixed::{Fixed, UFixed}
 use std::io::Display
+use ingot::watch::Gas
 
 /// Writes `value` with `<`, `>`, `&` and `"` escaped for HTML.
 pub fn escape(_ value: MemSpan) uses (html: mut MemBuffer) {
@@ -80,9 +81,9 @@ pub fn change(before: u64, after: u64) -> Fixed<1> {
     Fixed<1>::from_int(after as i256 - before as i256).mul_int(100).div_int(before as i256)
 }
 
-/// `change` with its sign: `+` for more, `-` for less.
-pub fn signed_change(before: u64, after: u64) uses (html: mut MemBuffer) {
-    let c = change(before, after)
+/// How much gas changed, with its sign: `+` for more, `-` for less.
+pub fn signed_change(before: Gas, after: Gas) uses (html: mut MemBuffer) {
+    let c = change(before: before.amount(), after: after.amount())
     if c > Fixed<1>::zero() {
         "+".fmt(mut html)
     }

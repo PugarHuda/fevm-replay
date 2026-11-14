@@ -5,6 +5,8 @@ use core::{MemBuffer, MemSpan, MemVec}
 use fevm::{LogBuffer, WorldState}
 use fevm::status::{ERR_OUT_OF_GAS, OK}
 use fevm::trace::{CallEnd, CallStart, Step, Tracer}
+use core::ops::{Add, AddAssign, Div, Eq, Ord}
+use std::io::Display
 
 const OP_GAS: u8 = 0x5a
 const OP_BLOCKHASH: u8 = 0x40
@@ -18,13 +20,76 @@ const OP_DELEGATECALL: u8 = 0xf4
 /// shadow code runs, both executions have the same gas, so only later
 /// readings can differ. A transaction that reads none of them and still
 /// differs points at the shadow code's behavior, not its cost.
+/// An amount of gas, as its own unit (like std's `Wei` for ether): gas adds
+/// to gas, and gas divided by a count of calls is gas per call, but a count
+/// of calls or an amount of wei cannot stand in for it.
+pub struct Gas { amount: u64 }
+
+impl Copy for Gas {}
+
+impl Gas {
+    pub const fn of(_ amount: u64) -> Gas {
+        Gas { amount }
+    }
+
+    pub const fn amount(self) -> u64 {
+        self.amount
+    }
+}
+
+impl Eq for Gas {
+    const fn eq(self, _ other: Gas) -> bool {
+        self.amount == other.amount
+    }
+}
+
+impl Ord for Gas {
+    const fn lt(self, _ other: Gas) -> bool {
+        self.amount < other.amount
+    }
+    const fn le(self, _ other: Gas) -> bool {
+        self.amount <= other.amount
+    }
+    const fn gt(self, _ other: Gas) -> bool {
+        self.amount > other.amount
+    }
+    const fn ge(self, _ other: Gas) -> bool {
+        self.amount >= other.amount
+    }
+}
+
+impl Add for Gas {
+    const fn add(own self, _ other: own Gas) -> Gas {
+        Gas { amount: self.amount + other.amount }
+    }
+}
+
+impl AddAssign for Gas {
+    const fn add_assign(mut self, _ other: own Gas) {
+        self = self + other
+    }
+}
+
+/// Gas per call: `total / calls`.
+impl Div<u64> for Gas {
+    const fn div(own self, _ calls: own u64) -> Gas {
+        Gas { amount: self.amount / calls }
+    }
+}
+
+impl Display for Gas {
+    fn fmt(self, _ out: mut MemBuffer) {
+        self.amount.fmt(mut out)
+    }
+}
+
 /// The calls into one function of the watched contract: how many, and the
 /// gas they used in all (their frames' gas, calls they made included).
 pub struct SelectorGas {
     /// The first four calldata bytes; a call with fewer (the fallback) is 0.
     pub selector: u32,
     pub calls: u64,
-    pub gas: u64,
+    pub gas: Gas,
 }
 
 impl Copy for SelectorGas {}
@@ -322,7 +387,7 @@ pub fn add_profile(_ into: mut MemVec<SelectorGas>, _ from: MemVec<SelectorGas>)
     }
 }
 
-fn record(_ profile: mut MemVec<SelectorGas>, _ selector: u32, calls: u64, gas: u64) {
+fn record(_ profile: mut MemVec<SelectorGas>, _ selector: u32, calls: u64, gas: Gas) {
     for i in 0 .. profile.len() {
         if profile[i].selector == selector {
             profile[i].calls += calls
@@ -564,7 +629,7 @@ impl Tracer for GasWatch {
                         mut self.profile,
                         frame.selector,
                         calls: 1,
-                        gas: frame.gas - call.gas,
+                        gas: Gas::of(frame.gas - call.gas),
                     )
                 }
             },
