@@ -81,14 +81,14 @@
   <section id="proven" class="wrap">
     <h2>Proven against the state root, not the node</h2>
     <p class="intro">A node's traces are the starting point of every replay. With <code>fetch-proofs</code>, they no longer have to be trusted: fevm-replay saves the Merkle-Patricia proofs (<code>eth_getProof</code>) of every account and slot a block touched, at the parent and at the block, and <code>chain</code> checks them offline. Both headers must hash to the block's hash and its parent hash; the pre-state must match the parent's state root and the state fevm reaches after every transaction must match the block's.</p>
-<pre><code>$ fevm-replay fetch-block 0x192f3cb blocks/0x192f3cb
-$ fevm-replay fetch-proofs blocks/0x192f3cb
-$ fevm-replay chain blocks/0x192f3cb
-headers: block 0x19f04411…696b and its parent hash to themselves
-pre-state: 206 accounts and 673 slots proven against the parent's state root, 0 differ
-chain blocks/0x192f3cb: 122/122 transactions MATCH (100%)
-receipts: fevm's 122 receipts hash to the header's receiptsRoot
-end state: 207 accounts and 673 slots proven against the block's state root, 0 differ</code></pre>
+<pre><code>$ fevm-replay fetch-block 0x192f56b blocks/0x192f56b
+$ fevm-replay fetch-proofs blocks/0x192f56b
+$ fevm-replay chain blocks/0x192f56b
+headers: block 0x6ad2e653…ee16 and its parent hash to themselves
+pre-state: 252 accounts and 463 slots proven against the parent's state root, 0 differ
+chain blocks/0x192f56b: 126/126 transactions MATCH (100%)
+receipts: fevm's 126 receipts hash to the header's receiptsRoot
+end state: 253 accounts and 463 slots proven against the block's state root, 0 differ</code></pre>
     <p>A clean run rests on one 32-byte block hash. Change one balance in the saved traces by one wei, or one byte of a proof, and the run fails. The verifier is about 300 lines of Fe on std's RLP and core's Keccak, and like the replay it cannot reach the network. fevm's own receipts are built into a trie and matched against the header's <code>receiptsRoot</code> for every saved block: 185 of 185 fully matching blocks agree.</p>
   </section>
 

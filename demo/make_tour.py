@@ -65,14 +65,15 @@ block 0x192bda3: 320/320 transactions MATCH (100%)
           + "\n\n<span class=dim>status, gas, logs, and every balance, nonce, code and storage slot.\n115,213 mainnet transactions so far: no fevm bug.</span>"))
 
 page("03", "Proven against the state root, not the node",
-     "fetch-proofs saves eth_getProof proofs; chain checks the header hashes, the pre-state and fevm's end state against the state roots, offline.",
-     term(esc("""$ fevm-replay fetch-block 0x192f3cb blocks/0x192f3cb
-$ fevm-replay fetch-proofs blocks/0x192f3cb
-$ fevm-replay chain blocks/0x192f3cb
-headers: block 0x19f04411...696b and its parent hash to themselves
-pre-state: 206 accounts and 673 slots proven against the parent's state root, 0 differ
-chain blocks/0x192f3cb: 122/122 transactions MATCH (100%)
-end state: 207 accounts and 673 slots proven against the block's state root, 0 differ""").replace("0 differ", "<span class=ok>0 differ</span>")))
+     "fetch-proofs saves eth_getProof proofs; chain checks the header hashes, the state roots and the receipts root, offline.",
+     term(esc("""$ fevm-replay fetch-block 0x192f56b blocks/0x192f56b
+$ fevm-replay fetch-proofs blocks/0x192f56b
+$ fevm-replay chain blocks/0x192f56b
+headers: block 0x6ad2e653...ee16 and its parent hash to themselves
+pre-state: 252 accounts and 463 slots proven against the parent's state root, 0 differ
+chain blocks/0x192f56b: 126/126 transactions MATCH (100%)
+receipts: fevm's 126 receipts hash to the header's receiptsRoot
+end state: 253 accounts and 463 slots proven against the block's state root, 0 differ""").replace("0 differ", "<span class=ok>0 differ</span>").replace("receiptsRoot", "<span class=ok>receiptsRoot</span>")))
 
 page("04", "Change one wei, or one byte of a proof, and it fails",
      "A clean run rests on one 32-byte block hash. The verifier is Fe: std's RLP, core's Keccak, a walk down the trie.",
