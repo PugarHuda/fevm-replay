@@ -22,6 +22,12 @@ th,td{text-align:left;padding:.45rem .6rem .45rem 0;border-bottom:1px solid var(
 <h1>UniswapV2Pair</h1>
 <p>Port source <code>ports/uniswap-v2-pair</code>, runtime code hash <code>0x443e928a28d99481a56b924e038dbc0427a440e9ede17cc51aaf017d20492983</code> (5878 bytes), in place of the deployed code with hash <code>0x5b83bdbcc56b2e630f2807bbadd2b0c21619108066b92a58de081261089e9ce5</code> (11293 bytes). Blocks <code>/root/v2blocks/0x192d500</code> to <code>/root/v2blocks/0x192d5c7</code>.</p>
 <p class="verdict">No behavior difference: every transaction that ran the port, every mutation of them and every random call behaved as on the deployed code.</p>
+<table>
+<tr><th>Mainnet, as it happened</th><td class="n">passed</td></tr>
+<tr><th>Mainnet, mutated</th><td class="n">passed</td></tr>
+<tr><th>Random calls</th><td class="n">passed</td></tr>
+<tr><th>Mutants: the unchanged port</th><td class="n">passed</td></tr>
+</table>
 <h2>Mainnet, as it happened</h2>
 <p>Each transaction of the blocks ran on its own mainnet pre-state, with the port in place of every account holding the deployed code, and was compared with the chain: status, logs, every balance, nonce and storage slot. Only gas may differ.</p>
 <table>
@@ -37,22 +43,22 @@ th,td{text-align:left;padding:.45rem .6rem .45rem 0;border-bottom:1px solid var(
 </table>
 <h3>Gas per call in identical transactions</h3>
 <div class="scroll"><table>
-<tr><th>Function</th><th class="n">Calls</th><th class="n">Deployed</th><th class="n">Port</th><th class="n">Change</th></tr>
-<tr><td><code>swap</code></td><td class="n">873</td><td class="n">58308</td><td class="n">57761</td><td class="n">&minus;0.9%</td></tr>
-<tr><td><code>token0</code></td><td class="n">49</td><td class="n">2136</td><td class="n">2063</td><td class="n">&minus;3.4%</td></tr>
-<tr><td><code>token1</code></td><td class="n">26</td><td class="n">2049</td><td class="n">1976</td><td class="n">&minus;3.5%</td></tr>
-<tr><td><code>getReserves</code></td><td class="n">803</td><td class="n">2185</td><td class="n">2088</td><td class="n">&minus;4.4%</td></tr>
-<tr><td><code>factory</code></td><td class="n">43</td><td class="n">2402</td><td class="n">2329</td><td class="n">&minus;3.0%</td></tr>
-<tr><td><code>kLast</code></td><td class="n">1</td><td class="n">2388</td><td class="n">2316</td><td class="n">&minus;3.0%</td></tr>
-<tr><td><code>totalSupply</code></td><td class="n">7</td><td class="n">2388</td><td class="n">2315</td><td class="n">&minus;3.0%</td></tr>
-<tr><td><code>approve</code></td><td class="n">1</td><td class="n">7342</td><td class="n">7190</td><td class="n">&minus;2.0%</td></tr>
-<tr><td><code>transferFrom</code></td><td class="n">1</td><td class="n">35449</td><td class="n">34939</td><td class="n">&minus;1.4%</td></tr>
-<tr><td><code>burn</code></td><td class="n">1</td><td class="n">172325</td><td class="n">167369</td><td class="n">&minus;2.8%</td></tr>
-<tr><td><code>mint</code></td><td class="n">1</td><td class="n">57304</td><td class="n">51563</td><td class="n">&minus;10.0%</td></tr>
-<tr><td><code>price0Cumulative</code></td><td class="n">2</td><td class="n">2387</td><td class="n">2315</td><td class="n">&minus;3.0%</td></tr>
-<tr><td><code>price1Cumulative</code></td><td class="n">1</td><td class="n">2409</td><td class="n">2337</td><td class="n">&minus;2.9%</td></tr>
-<tr><td><code>sync</code></td><td class="n">7</td><td class="n">33498</td><td class="n">33902</td><td class="n">+1.2%</td></tr>
-<tr><td><code>transfer</code></td><td class="n">1</td><td class="n">29840</td><td class="n">29614</td><td class="n">&minus;0.7%</td></tr>
+<tr><th>Function</th><th>In the port's source</th><th class="n">Calls</th><th class="n">Deployed</th><th class="n">Port</th><th class="n">Change</th></tr>
+<tr><td><code>Swap</code></td><td><code>src/lib.fe:467</code></td><td class="n">873</td><td class="n">58308</td><td class="n">57761</td><td class="n">-0.9%</td></tr>
+<tr><td><code>Token0</code></td><td><code>src/lib.fe:333</code></td><td class="n">49</td><td class="n">2136</td><td class="n">2063</td><td class="n">-3.4%</td></tr>
+<tr><td><code>Token1</code></td><td><code>src/lib.fe:337</code></td><td class="n">26</td><td class="n">2049</td><td class="n">1976</td><td class="n">-3.5%</td></tr>
+<tr><td><code>GetReserves</code></td><td><code>src/lib.fe:341</code></td><td class="n">803</td><td class="n">2185</td><td class="n">2088</td><td class="n">-4.4%</td></tr>
+<tr><td><code>Factory</code></td><td><code>src/lib.fe:329</code></td><td class="n">43</td><td class="n">2402</td><td class="n">2329</td><td class="n">-3%</td></tr>
+<tr><td><code>KLast</code></td><td><code>src/lib.fe:353</code></td><td class="n">1</td><td class="n">2388</td><td class="n">2316</td><td class="n">-3%</td></tr>
+<tr><td><code>TotalSupply</code></td><td><code>src/lib.fe:234</code></td><td class="n">7</td><td class="n">2388</td><td class="n">2315</td><td class="n">-3%</td></tr>
+<tr><td><code>Approve</code></td><td><code>src/lib.fe:262</code></td><td class="n">1</td><td class="n">7342</td><td class="n">7190</td><td class="n">-2%</td></tr>
+<tr><td><code>TransferFrom</code></td><td><code>src/lib.fe:274</code></td><td class="n">1</td><td class="n">35449</td><td class="n">34939</td><td class="n">-1.4%</td></tr>
+<tr><td><code>Burn</code></td><td><code>src/lib.fe:418</code></td><td class="n">1</td><td class="n">172325</td><td class="n">167369</td><td class="n">-2.8%</td></tr>
+<tr><td><code>Mint</code></td><td><code>src/lib.fe:369</code></td><td class="n">1</td><td class="n">57304</td><td class="n">51563</td><td class="n">-10%</td></tr>
+<tr><td><code>Price0CumulativeLast</code></td><td><code>src/lib.fe:345</code></td><td class="n">2</td><td class="n">2387</td><td class="n">2315</td><td class="n">-3%</td></tr>
+<tr><td><code>Price1CumulativeLast</code></td><td><code>src/lib.fe:349</code></td><td class="n">1</td><td class="n">2409</td><td class="n">2337</td><td class="n">-2.9%</td></tr>
+<tr><td><code>Sync</code></td><td><code>src/lib.fe:550</code></td><td class="n">7</td><td class="n">33498</td><td class="n">33902</td><td class="n">+1.2%</td></tr>
+<tr><td><code>Transfer</code></td><td><code>src/lib.fe:268</code></td><td class="n">1</td><td class="n">29840</td><td class="n">29614</td><td class="n">-0.7%</td></tr>
 </table></div>
 <h2>Mainnet, mutated</h2>
 <p>Each transaction that touched the deployed code ran again with its calldata changed, or with one call into the contract changed in flight, on both codes, gas free.</p>
