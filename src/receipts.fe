@@ -1,0 +1,260 @@
+//! The receipts trie of a block, built from what fevm produced: each
+//! transaction's status, cumulative gas, logs bloom and logs, encoded as
+//! Ethereum encodes receipts (EIP-2718 typed), put in a Merkle-Patricia
+//! trie under `rlp(index)`. Its root must equal the header's
+//! `receiptsRoot`: then every status, gas figure and log fevm produced is
+//! what the chain committed to, whatever the node sent. Like `proof`, this
+//! reaches neither the network nor the disk.
+
+use core::{MemBuffer, MemSpan, MemVec}
+use core::hash::keccak256_word
+use std::io::Display
+use fevm::LogBuffer
+
+// RLP: a string's encoding into `out`.
+fn put_string(_ out: mut MemBuffer, _ bytes: MemSpan) {
+    let len = bytes.len()
+    if len == 1 && bytes[0] < 0x80 {
+        out.push(bytes[0])
+        return
+    }
+    put_header(mut out, 0x80, len)
+    for i in 0 .. len {
+        out.push(bytes[i])
+    }
+}
+
+// RLP: the header of a string (`base` 0x80) or a list (`base` 0xc0) of
+// `len` payload bytes.
+fn put_header(_ out: mut MemBuffer, _ base: u8, _ len: usize) {
+    if len < 56 {
+        out.push(base + len.downcast_truncate())
+        return
+    }
+    var size: usize = 0
+    var rest = len
+    while rest > 0 {
+        size += 1
+        rest = rest >> 8
+    }
+    out.push(base + 55 + size.downcast_truncate())
+    var shift = size
+    while shift > 0 {
+        shift -= 1
+        out.push(((len >> (shift * 8)) & 0xff).downcast_truncate())
+    }
+}
+
+// RLP: a list of the already encoded `payload`.
+fn put_list(_ out: mut MemBuffer, _ payload: MemSpan) {
+    put_header(mut out, 0xc0, payload.len())
+    for i in 0 .. payload.len() {
+        out.push(payload[i])
+    }
+}
+
+// The big-endian bytes of `value`: `width` bytes, or with `width` 0 as few
+// as it takes (none for zero), as RLP integers are.
+fn word_bytes(_ value: u256, width: usize) -> MemBuffer {
+    var size = width
+    if size == 0 {
+        var rest = value
+        while rest > 0 {
+            size += 1
+            rest = rest >> 8
+        }
+    }
+    var out = MemBuffer::empty()
+    var i = size
+    while i > 0 {
+        i -= 1
+        out.push(((value >> (i * 8) as u256) & 0xff).downcast_truncate())
+    }
+    out
+}
+
+fn put_word(_ out: mut MemBuffer, _ value: u256, width: usize) {
+    put_string(mut out, word_bytes(value, width).span())
+}
+
+// Sets the three bloom bits of `bytes` (EIP: the low 11 bits of the first
+// three byte pairs of its keccak).
+fn bloom_add(_ bloom: mut [u8; 256], _ bytes: MemSpan) {
+    let hash = keccak256_word(bytes)
+    for k in 0 .. 3 {
+        let shift: u256 = (240 - 16 * k) as u256
+        let bit: usize = ((hash >> shift) & 0x7ff).downcast_unchecked()
+        let at = 255 - bit / 8
+        let mask: u8 = (1 << (bit % 8)).downcast_truncate()
+        bloom[at] = bloom[at] | mask
+    }
+}
+
+/// A receipt as the chain encodes it: `type || rlp([status, cumulative
+/// gas, bloom, logs])`, without the type byte for a legacy transaction.
+pub fn encode(tx_type: u256, success: bool, cumulative_gas: u256, _ logs: LogBuffer) -> MemBuffer {
+    var bloom: [u8; 256] = [0; 256]
+    var all_logs = MemBuffer::empty()
+    var index: u64 = 0
+    while index < logs.len() {
+        let entry = logs.entry(index)
+        let address = word_bytes(entry.address, width: 20)
+        bloom_add(mut bloom, address.span())
+        var topics = MemBuffer::empty()
+        let topic_count: usize = entry.topic_count.downcast_unchecked()
+        for t in 0 .. topic_count {
+            let topic = word_bytes(entry.topics[t], width: 32)
+            bloom_add(mut bloom, topic.span())
+            put_string(mut topics, topic.span())
+        }
+        var log = MemBuffer::empty()
+        put_string(mut log, address.span())
+        put_list(mut log, topics.span())
+        put_string(mut log, logs.payload(index))
+        put_list(mut all_logs, log.span())
+        index += 1
+    }
+    var fields = MemBuffer::empty()
+    put_word(mut fields, if success { 1 } else { 0 }, width: 0)
+    put_word(mut fields, cumulative_gas, width: 0)
+    var bloom_bytes = MemBuffer::empty()
+    for i in 0 .. 256 {
+        bloom_bytes.push(bloom[i])
+    }
+    put_string(mut fields, bloom_bytes.span())
+    put_list(mut fields, all_logs.span())
+    var out = MemBuffer::empty()
+    if tx_type != 0 {
+        out.push(tx_type.downcast_truncate())
+    }
+    put_list(mut out, fields.span())
+    out
+}
+
+/// The root of a block's receipts (or transactions) trie: `values[i]` under
+/// the key `rlp(i)`.
+pub fn trie_root(_ values: MemVec<MemBuffer>) -> u256 {
+    if values.len() == 0 {
+        // keccak256(rlp("")): the empty trie.
+        return 0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421
+    }
+    // Each key's nibbles: rlp(i) is 0x80 for 0, the byte itself below 128,
+    // then 0x81 nn, 0x82 nn nn. No key is a prefix of another.
+    var keys: MemVec<MemBuffer> = MemVec::new()
+    var members: MemVec<usize> = MemVec::new()
+    for i in 0 .. values.len() {
+        var key = MemBuffer::empty()
+        put_word(mut key, i as u256, width: 0)
+        var nibbles = MemBuffer::empty()
+        for b in 0 .. key.len() {
+            nibbles.push(key.span()[b] >> 4)
+            nibbles.push(key.span()[b] & 0xf)
+        }
+        keys.push(nibbles)
+        members.push(i)
+    }
+    let root = node(keys, values, members, depth: 0)
+    keccak256_word(root.span())
+}
+
+// The encoded node holding `members` (indices into `keys` and `values`),
+// whose keys agree on their first `depth` nibbles.
+fn node(
+    _ keys: MemVec<MemBuffer>,
+    _ values: MemVec<MemBuffer>,
+    _ members: MemVec<usize>,
+    depth: usize,
+) -> MemBuffer {
+    var out = MemBuffer::empty()
+    if members.len() == 1 {
+        let key = keys[members[0]].span()
+        var path = MemBuffer::empty()
+        hex_prefix(mut path, key, from: depth, leaf: true)
+        var payload = MemBuffer::empty()
+        put_string(mut payload, path.span())
+        put_string(mut payload, values[members[0]].span())
+        put_list(mut out, payload.span())
+        return out
+    }
+    // How far every key agrees beyond `depth`.
+    let first = keys[members[0]].span()
+    var shared: usize = 0
+    var agree = true
+    while agree && depth + shared < first.len() {
+        for m in 1 .. members.len() {
+            let other = keys[members[m]].span()
+            if depth + shared >= other.len() || other[depth + shared] != first[depth + shared] {
+                agree = false
+            }
+        }
+        if agree { shared += 1 }
+    }
+    if shared > 0 {
+        var path = MemBuffer::empty()
+        hex_prefix(
+            mut path,
+            first.slice(offset: 0, len: depth + shared),
+            from: depth,
+            leaf: false,
+        )
+        var payload = MemBuffer::empty()
+        put_string(mut payload, path.span())
+        put_child(
+            mut payload,
+            node(keys, values, members, depth: depth + shared).span(),
+        )
+        put_list(mut out, payload.span())
+        return out
+    }
+    // A branch: one child per next nibble; no key ends here.
+    var payload = MemBuffer::empty()
+    for nibble in 0 .. 16 {
+        var group: MemVec<usize> = MemVec::new()
+        for m in 0 .. members.len() {
+            if keys[members[m]].span()[depth] == nibble.downcast_truncate() {
+                group.push(members[m])
+            }
+        }
+        if group.len() == 0 {
+            payload.push(0x80)
+        } else {
+            put_child(
+                mut payload,
+                node(keys, values, group, depth: depth + 1).span(),
+            )
+        }
+    }
+    payload.push(0x80)
+    put_list(mut out, payload.span())
+    out
+}
+
+// A child in its parent: inline under 32 bytes, otherwise its hash.
+fn put_child(_ out: mut MemBuffer, _ child: MemSpan) {
+    if child.len() < 32 {
+        for i in 0 .. child.len() {
+            out.push(child[i])
+        }
+    } else {
+        put_word(mut out, keccak256_word(child), width: 32)
+    }
+}
+
+// The hex-prefix encoding of `nibbles` from `from` on, flagged as a leaf's
+// or an extension's path.
+fn hex_prefix(_ out: mut MemBuffer, _ nibbles: MemSpan, from: usize, leaf: bool) {
+    let count = nibbles.len() - from
+    let odd = count % 2 == 1
+    let flag: u8 = (if leaf { 2 } else { 0 }) + (if odd { 1 } else { 0 })
+    var at = from
+    if odd {
+        out.push((flag << 4) | nibbles[at])
+        at += 1
+    } else {
+        out.push(flag << 4)
+    }
+    while at < nibbles.len() {
+        out.push((nibbles[at] << 4) | nibbles[at + 1])
+        at += 2
+    }
+}

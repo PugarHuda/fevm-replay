@@ -25,7 +25,7 @@ Replaying is fast: those 5,129 transactions take 5.9 seconds once fetched.
 | --- | --- |
 | **What** | fevm-replay replays real mainnet history in fevm, proves the results against the chain's state roots, and checks Fe ports of Solidity contracts against real traffic. All Fe, from the HTTP call to the verdict. |
 | **fevm on mainnet** | 115,213 transactions replayed, 290 blocks as chains, no fevm bug |
-| **Trust** | With `fetch-proofs`, `chain` proves the pre-state and fevm's end state against the state roots of headers whose hashes it checks: a MATCH rests on the block hash, not the node ([details](#proven-against-the-state-root)) |
+| **Trust** | With `fetch-proofs`, `chain` proves the pre-state and fevm's end state against the state roots of headers whose hashes it checks; for every saved block it builds the receipts trie from fevm's own receipts and matches the header's `receiptsRoot` (185 of 185 fully matching blocks). A MATCH rests on the block hash, not the node ([details](#proven-against-the-state-root)) |
 | **Fe ports** | 5 ports (USDT, every Uniswap V2 pair, WETH9, DAI, USDC's proxy) certified by mainnet replay, mainnet mutations, fuzzing and mutation testing ([verified page](https://fevm-replay.vercel.app/verified.html)) |
 | **Fe-specific** | Effects prove the verdict and the proof verifier offline; `const fn` + `static_assert` check the blob fee against a real block; std units, `core::fixed`, `msg`/`recv` ([Fe highlight](#fe-highlight)) |
 | **Found** | 3 bugs in the Fe ports, 2 node tracer bugs, the transactions the Osaka fork changed, and where Fe's code costs more than solc's ([argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002)) |
@@ -747,7 +747,22 @@ header. `chain` then checks, offline:
    slot; the slots the block's first system calls write (EIP-4788's beacon
    root, EIP-2935's parent hash) are checked against what those calls write;
 3. after every transaction and the withdrawals, the state fevm reached
-   against the block's own state root.
+   against the block's own state root;
+4. fevm's own receipts (status, cumulative gas, logs bloom and every log),
+   encoded as the chain encodes them (EIP-2718), built into a
+   Merkle-Patricia trie in Fe ([`src/receipts.fe`](src/receipts.fe)),
+   against the header's `receiptsRoot`. This one needs no proofs and no
+   node: `chain` checks it for every saved block.
+
+Over the 200 saved blocks (69,643 transactions), fevm's receipts hash to
+the header's `receiptsRoot` in every block where all transactions match
+(185 of 185). The 14 that do not are the blocks with a transaction that
+read an older block's hash, which the traces cannot carry. One block
+matches its `receiptsRoot` although a transaction differs:
+`0x1d03…0c0f`, the node tracer bug above, where the node's diff keeps an
+account that fevm deleted (EIP-6780). The chain's own commitment agrees
+with fevm's status, gas and logs for all 257 transactions of that block;
+only the node's diff disagrees.
 
 ```sh
 ./out/fevm_replay fetch-block 0x192f3cb blocks/0x192f3cb
@@ -1010,6 +1025,7 @@ Other Fe pieces doing real work:
 | `src/check.fe` | checks the shape of the node's answers before anything reads them |
 | `src/compare.fe` | applies the chain's diff, then compares worlds, receipts and logs |
 | `src/proof.fe` | Merkle-Patricia proofs (EIP-1186) against a state root, block header hashes, a world checked account by account and slot by slot. No host capabilities |
+| `src/receipts.fe` | receipts encoded as the chain encodes them, and a Merkle-Patricia trie built from them, for the header's `receiptsRoot`. No host capabilities |
 | `src/fuzz.fe` | shadow fuzzing of WETH9 and of a Uniswap V2 pair: random calls against deployed code and its port, compared after each |
 | `src/mutate.fe` | mainnet-seeded fuzzing: real transactions mutated on their own pre-state, calls changed in flight through a proxy |
 | `src/watch.fe` | `GasWatch`, a tracer that records every call (caller, account it runs as, value, gas, calldata and output), reads of the gas left after shadow code ran, of code hashes, `BLOCKHASH`, and the port's program counters; where two runs part and which gas reading explains it |
@@ -1115,8 +1131,10 @@ What a MATCH or a clean certificate rests on:
   and `range`. With `fetch-proofs`, `chain` proves the pre-state and the
   end state against the state roots of headers whose hashes it checks
   ([Proven against the state root](#proven-against-the-state-root)), so
-  what it reports rests on the block hash alone. Receipts and logs are
-  still the node's: they are not proven against `receiptsRoot`.
+  what it reports rests on the block hash alone. fevm's receipts and logs
+  are checked against the header's `receiptsRoot` for every saved block,
+  with or without proofs. Transactions are still the node's: they are not
+  checked against `transactionsRoot`.
 - **A load-balanced endpoint can mix nodes** near the chain head. Fetch a
   few blocks behind it.
 - **Fixtures are trusted input.** A replay reads only the fixture file, and

@@ -347,3 +347,27 @@ contract C {
     let missing = ingot::source::locate(source.span(), 0x12345678)
     assert!(missing.declared == 0 && missing.handled == 0)
 }
+
+// A block with one plain ETH transfer (21,000 gas, no logs) has the
+// receipts root mainnet shows for every such block; an empty block, the
+// empty trie's.
+#[test]
+fn receipts_tries_hash_as_mainnet_does() {
+    var one: core::MemVec<core::MemBuffer> = core::MemVec::new()
+    one.push(
+        ingot::receipts::encode(
+            tx_type: 0,
+            success: true,
+            cumulative_gas: 21000,
+            fevm::LogBuffer::new(),
+        ),
+    )
+    assert!(
+        ingot::receipts::trie_root(one)
+            == 0x056b23fbba480696b65fe5a59b8f2148a1299103c4f57df839233af2cf4ca2d2,
+    )
+    let none: core::MemVec<core::MemBuffer> = core::MemVec::new()
+    assert!(
+        ingot::receipts::trie_root(none) == ingot::proof::EMPTY_TRIE,
+    )
+}

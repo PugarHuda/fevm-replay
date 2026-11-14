@@ -87,8 +87,9 @@ $ fevm-replay chain blocks/0x192f3cb
 headers: block 0x19f04411…696b and its parent hash to themselves
 pre-state: 206 accounts and 673 slots proven against the parent's state root, 0 differ
 chain blocks/0x192f3cb: 122/122 transactions MATCH (100%)
+receipts: fevm's 122 receipts hash to the header's receiptsRoot
 end state: 207 accounts and 673 slots proven against the block's state root, 0 differ</code></pre>
-    <p>A clean run rests on one 32-byte block hash. Change one balance in the saved traces by one wei, or one byte of a proof, and the run fails. The verifier is about 300 lines of Fe on std's RLP and core's Keccak, and like the replay it cannot reach the network.</p>
+    <p>A clean run rests on one 32-byte block hash. Change one balance in the saved traces by one wei, or one byte of a proof, and the run fails. The verifier is about 300 lines of Fe on std's RLP and core's Keccak, and like the replay it cannot reach the network. fevm's own receipts are built into a trie and matched against the header's <code>receiptsRoot</code> for every saved block: 185 of 185 fully matching blocks agree.</p>
   </section>
 
   <section id="shadow" class="wrap">

@@ -1055,6 +1055,10 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     var matched: u64 = 0
     var old_hashes: u64 = 0
     var drift: u64 = 0
+    // fevm's own receipts, encoded as the chain encodes them, for the
+    // receipts root the header commits to.
+    var own_receipts: core::MemVec<MemBuffer> = core::MemVec::new()
+    var cumulative_gas: u256 = 0
     for index in 0 .. count {
         // The carried state must hold what the node saw before this
         // transaction, for every account and slot it touched.
@@ -1085,6 +1089,16 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
             mut buffers,
             mut tracer,
         )
+        cumulative_gas += applied.receipt.gas_used as u256
+        own_receipts
+            .push(
+                receipts::encode(
+                    tx_type: field(txs[index], "type"),
+                    success: applied.receipt.status == fevm::OK,
+                    cumulative_gas,
+                    applied.receipt.logs,
+                ),
+            )
         var text = MemBuffer::empty()
         let found = with (mut text) {
             compare(
@@ -1170,6 +1184,30 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     }
     print!("chain ", dir, ": ")
     print_share(matched, count.downcast_unchecked())
+    // fevm's receipts against the header: status, gas and every log, with
+    // no node in between. The header itself must hash to the block's hash.
+    let receipts_root = receipts::trie_root(own_receipts)
+    let header_hashes = proof::header_hash(header) == field(header, "hash")
+    let receipts_match = header_hashes && receipts_root == field(header, "receiptsRoot")
+    if receipts_match {
+        println!(
+            "receipts: fevm's ",
+            count,
+            " receipts hash to the header's receiptsRoot",
+        )
+    } else if !header_hashes {
+        println!("RECEIPTS the header does not hash to the block's hash")
+    } else {
+        println!(
+            "RECEIPTS fevm's receipts hash to 0x",
+            core::text::hex(receipts_root, 32),
+            ", the header's receiptsRoot is 0x",
+            core::text::hex(field(header, "receiptsRoot"), 32),
+        )
+    }
+    if !receipts_match {
+        unproven += 1
+    }
     if old_hashes > 0 {
         println!("  of the differences, ", old_hashes, " ran BLOCKHASH")
     }
