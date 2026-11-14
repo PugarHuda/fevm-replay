@@ -79,6 +79,31 @@ jobs:
       - name: Build fevm-replay
         run: fe build --backend native -O 2 --emit executable --out-dir out .
 
+      - name: A mainnet block proven against its header (state roots, receipts root)
+        run: |
+          mkdir -p proven && tar xzf fixtures/proven/0x192f56b.tar.gz -C proven
+          out=$(./out/fevm_replay chain proven/0x192f56b)
+          echo "$out"
+          echo "$out" | grep -q "126/126 transactions MATCH"
+          echo "$out" | grep -q "receipts: fevm's 126 receipts hash to the header's receiptsRoot"
+          echo "$out" | grep -q "pre-state: .* 0 differ"
+          echo "$out" | grep -q "end state: .* 0 differ"
+
+      - name: One wei more in the saved prestate fails the proof
+        run: |
+          cp -r proven/0x192f56b proven/tampered
+          python3 - <<'PY'
+          import json
+          p = "proven/tampered/prestate.json"
+          doc = json.load(open(p))
+          first = doc["result"][0]["result"]
+          account = next(iter(first))
+          first[account]["balance"] = hex(int(first[account]["balance"], 16) + 1)
+          json.dump(doc, open(p, "w"))
+          PY
+          if ./out/fevm_replay chain proven/tampered > tampered.txt; then cat tampered.txt; exit 1; fi
+          grep "DIFF  balance" tampered.txt
+
       - name: Fuzzed WETH9 port answers well-formed calls as mainnet WETH does
         run: ./out/fevm_replay fuzz fixtures/code/weth9-mainnet.hex out/weth9/WETH9.runtime.bin 2000 40 1
 
