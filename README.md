@@ -521,6 +521,12 @@ inline assembly (`transfer` +0.3%, `balanceOf` +2.1%), and two transactions
 call USDC with a gas allowance so tight that the deployed proxy fits and the
 port runs out. A port that costs more is a difference, so they stay counted;
 it is the one place a Fe port is costlier than the code it replaces.
+Reusing one buffer for the calldata and then the return data, as solc
+reuses memory from offset 0, does not help through std's public API: the
+capacity checks and the truncation cost more than the memory saved (tried
+and measured: 53 of 1,390 transactions ran out of gas instead of 0). std
+has no public way to copy calldata or return data to a raw offset, which is
+the question in [argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002).
 
 ### DAI: MakerDAO's stablecoin
 
