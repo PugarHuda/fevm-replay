@@ -936,6 +936,14 @@ Other Fe pieces doing real work:
   changes) is a `core::fixed` number: `UFixed<1>` for shares, `Fixed<1>`
   for signed gas changes. The scale is in the type, so tenths of a percent
   cannot be mixed with whole percents or raw counts.
+- A certificate's checks implement one trait, `certify::Check`: each kind
+  of result (a replay's totals, mutated runs, random calls, mutation
+  testing) says itself what in it fails the port, and the verdict is the
+  sum, so a check cannot be left out of it. The certificate opens with a
+  line per check.
+- Per-function gas is a `Gas` unit of its own (as std's `Wei` is for
+  ether): gas adds to gas and divides by a count of calls, and a count
+  cannot stand in for gas.
 - The ports speak `msg`/`recv`: each declares its ABI as a `msg` with
   selectors, and the contract's `recv` blocks answer it. The ports'
   tests call them through the same `msg` types.

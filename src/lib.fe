@@ -2,6 +2,7 @@
 //! result against the chain.
 
 use core::MemBuffer
+use certify::Check
 use core::fixed::UFixed
 use std::env::{Arg, Args}
 use std::io::{Display, Stdout}
@@ -1489,11 +1490,7 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         each: false,
     )
     let fuzz_differ = fuzzed.calls[0] - fuzzed.identical[0]
-    let clean = totals.behavior == 0
-        && found.differ == 0
-        && fuzz_differ == 0
-        && fuzzed.invariant_breaks == 0
-        && score.baseline
+    let clean = totals.failures() + found.failures() + fuzzed.failures() + score.failures() == 0
     var html = MemBuffer::empty()
     with (mut html) {
         certify::open(args.get(5))
@@ -1518,6 +1515,12 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         } else {
             "<p class=\"verdict bad\">Differences found: see below.</p>\n".fmt(mut html)
         }
+        "<table>\n".fmt(mut html)
+        certify::summary(totals)
+        certify::summary(found)
+        certify::summary(fuzzed)
+        certify::summary(score)
+        "</table>\n".fmt(mut html)
 
         "<h2>Mainnet, as it happened</h2>\n<p>Each transaction of the blocks ran on its own mainnet pre-state, with the port in place of every account holding the deployed code, and was compared with the chain: status, logs, every balance, nonce and storage slot. Only gas may differ.</p>\n<table>\n"
             .fmt(mut html)
@@ -1745,6 +1748,49 @@ uses (html: mut MemBuffer)
         "</td></tr>\n".fmt(mut html)
     }
     "</table></div>\n".fmt(mut html)
+}
+
+// What fails a port, check by check (see `certify::Check`).
+
+impl certify::Check for Totals {
+    fn name(self) -> String<31> {
+        "Mainnet, as it happened"
+    }
+    // Behaving differently; gas and code-hash readings are explained.
+    fn failures(self) -> u64 {
+        self.behavior
+    }
+}
+
+impl certify::Check for mutate::Mutations {
+    fn name(self) -> String<31> {
+        "Mainnet, mutated"
+    }
+    fn failures(self) -> u64 {
+        self.differ
+    }
+}
+
+impl certify::Check for fuzz::Findings {
+    fn name(self) -> String<31> {
+        "Random calls"
+    }
+    // Well-formed calls that differ, and broken invariants. Short calldata
+    // and dirty addresses are shown, not counted: old solc read them loosely.
+    fn failures(self) -> u64 {
+        self.calls[0] - self.identical[0] + self.invariant_breaks
+    }
+}
+
+impl certify::Check for MutantScore {
+    fn name(self) -> String<31> {
+        "Mutants: the unchanged port"
+    }
+    // Surviving mutants are blind spots, not failures; the unchanged port
+    // failing its own checks is.
+    fn failures(self) -> u64 {
+        if self.baseline { 0 } else { 1 }
+    }
 }
 
 /// What mutation testing found (see `score_mutants`).

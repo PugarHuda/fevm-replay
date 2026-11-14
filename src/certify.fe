@@ -97,6 +97,33 @@ pub fn percent(_ part: u64, _ whole: u64) uses (html: mut MemBuffer) {
     "%".fmt(mut html)
 }
 
+/// One check a certificate makes of a port. Each kind of result says itself
+/// what in it fails the port, so the verdict is the sum of all of them and a
+/// check cannot be left out of it.
+pub trait Check {
+    /// The check, as the certificate's summary names it.
+    fn name(self) -> String<31>
+    /// How many of its results fail the port; 0 passes.
+    fn failures(self) -> u64
+}
+
+/// A check's line in the certificate's summary.
+pub fn summary<C: Check>(_ check: C) uses (html: mut MemBuffer) {
+    "<tr><th>".fmt(mut html)
+    check.name().fmt(mut html)
+    "</th><td class=\"n\">".fmt(mut html)
+    let failures = check.failures()
+    if failures == 0 {
+        "passed".fmt(mut html)
+    } else {
+        "<strong>".fmt(mut html)
+        failures.fmt(mut html)
+        " failing</strong>".fmt(mut html)
+    }
+    "</td></tr>
+".fmt(mut html)
+}
+
 /// The end of the page.
 pub fn close() uses (html: mut MemBuffer) {
     "<p class=\"note\">Made by <a href=\"https://github.com/PugarHuda/fevm-replay\">fevm-replay</a> <code>certify</code>, written in Fe and running fevm, the EVM written in Fe.</p>\n"
