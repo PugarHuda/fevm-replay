@@ -842,7 +842,10 @@ withdrawals: 16 credited, their recipients checked by the end state's proofs
 ```
 
 Block 26,420,759: 260/260 MATCH, 726 and 729 accounts, `receiptsRoot`
-and `requestsHash` matched, 0 differ. Before the queue's entries were
+and `requestsHash` matched, 0 differ. Block 26,420,825 starts with 61
+consolidation requests queued; fevm's system call dequeues two (the
+EIP-7251 limit), and they hash to the header's `requestsHash`: 218/218
+MATCH, 577 and 580 accounts, 0 differ. Before the queue's entries were
 fetched, block 26,420,736 showed what the check catches: the consolidation
 queue held requests from earlier blocks, the call could not run, and the
 end state differed in exactly the queue's head and excess slots.
