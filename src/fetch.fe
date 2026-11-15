@@ -188,6 +188,25 @@ uses (proc: mut Spawn)
     }
 }
 
+/// Slot `slot` of `address` at the end of block `number`, as the node at
+/// `url` reports it.
+pub fn storage_at<U: Display>(_ url: U, _ address: u256, slot: u256, number: u256) -> Option<u256>
+uses (proc: mut Spawn)
+{
+    var params = MemBuffer::empty()
+    "[\"0x".fmt(mut params)
+    core::text::hex(address, 20).fmt(mut params)
+    "\",\"0x".fmt(mut params)
+    core::text::hex(slot, 32).fmt(mut params)
+    "\",\"".fmt(mut params)
+    quantity(number).fmt(mut params)
+    "\"]".fmt(mut params)
+    match call(url, "eth_getStorageAt", params) {
+        Option::Some(doc) => Option::Some(field(doc, "result")),
+        Option::None => Option::None,
+    }
+}
+
 /// The fixture for transaction `hash` (with its `0x`) as JSON text in `out`,
 /// or false if the node could not answer.
 pub fn fetch<U: Display, H: Display>(_ url: U, _ hash: H, _ out: mut MemBuffer) -> bool
@@ -330,7 +349,7 @@ pub fn collect_delegates(_ tx: Value, _ prestate: Value, _ targets: mut MemVec<u
 
 /// The code of each of `targets` at block `parent`, as a JSON object from
 /// address to code, in `out`.
-fn write_delegates<U: Display>(
+pub fn write_delegates<U: Display>(
     _ url: U,
     _ targets: MemVec<u256>,
     parent: MemSpan,

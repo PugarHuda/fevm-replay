@@ -1,0 +1,143 @@
+//! The block's execution-layer requests (EIP-7685), as fevm produces
+//! them: deposits from the deposit contract's logs (EIP-6110), then the
+//! output of the end-of-block system calls to the withdrawal (EIP-7002)
+//! and consolidation (EIP-7251) request contracts. Their hash must equal
+//! the header's `requestsHash`. Like `proof`, this reaches neither the
+//! network nor the disk.
+
+use core::{MemBuffer, MemSpan}
+use fevm::{
+    BlockEnv,
+    Buffers,
+    CallEnv,
+    Config,
+    ExecutionResult,
+    InputData,
+    LogBuffer,
+    Transaction,
+    WorldState,
+    execute,
+}
+
+/// The address system calls come from.
+pub const SYSTEM: u256 = 0xfffffffffffffffffffffffffffffffffffffffe
+pub const DEPOSIT_CONTRACT: u256 = 0x00000000219ab540356cbb839cbe05303d7705fa
+/// keccak256("DepositEvent(bytes,bytes,bytes,bytes,bytes)")
+pub const DEPOSIT_EVENT: u256 = 0x649bbc62d0e31342afea4e5cd82d4049e7e1ee912fc0889aa790803be39038c5
+const SYSTEM_GAS: u64 = 30_000_000
+
+/// Appends the request data of each deposit `logs` holds: pubkey,
+/// withdrawal credentials, amount, signature and index, cut from the
+/// event's fixed ABI layout (576 bytes). Returns false for a deposit log
+/// of another size, which makes a block invalid.
+pub fn add_deposits(_ out: mut MemBuffer, _ logs: LogBuffer) -> bool {
+    var index: u64 = 0
+    while index < logs.len() {
+        index += 1
+        let entry = logs.entry(index - 1)
+        if entry.address != DEPOSIT_CONTRACT
+            || entry.topic_count == 0
+            || entry.topics[0] != DEPOSIT_EVENT {
+            continue
+        }
+        let data = logs.payload(index - 1)
+        if data.len() != 576 {
+            return false
+        }
+        copy(mut out, data, from: 192, len: 48)
+        copy(mut out, data, from: 288, len: 32)
+        copy(mut out, data, from: 352, len: 8)
+        copy(mut out, data, from: 416, len: 96)
+        copy(mut out, data, from: 544, len: 8)
+    }
+    true
+}
+
+fn copy(_ out: mut MemBuffer, _ data: MemSpan, from: usize, len: usize) {
+    for i in 0 .. len {
+        out.push(data[from + i])
+    }
+}
+
+/// Runs the end-of-block system call to `target`: from `SYSTEM`, with
+/// 30M gas, no value, no fee and no nonce, as the chain runs it. Its
+/// output is the requests it dequeued.
+pub fn system_call(_ world: own WorldState, target: u256, _ block: BlockEnv) -> (
+    WorldState,
+    ExecutionResult,
+) {
+    var tx = Transaction::new(
+        world,
+        sender: SYSTEM,
+        destination: target,
+        coinbase: block.coinbase,
+        config: Config::osaka(),
+        buffers: Buffers::new(),
+    )
+    let call = CallEnv {
+        address: target,
+        caller: SYSTEM,
+        origin: SYSTEM,
+        callvalue: 0,
+        gasprice: 0,
+        gas_limit: SYSTEM_GAS,
+        is_static: false,
+    }
+    let checkpoint = tx.checkpoint(is_static: false)
+    let result = execute(
+        tx.program(target),
+        InputData::copy_bytes(MemBuffer::empty().span()),
+        call,
+        block,
+        mut tx,
+    )
+    if result.status == fevm::OK {
+        tx.commit(checkpoint)
+    } else {
+        tx.revert(checkpoint)
+    }
+    tx.end(commit: true)
+    let (state, _) = tx.release()
+    (state, result)
+}
+
+/// EIP-7685: `sha256` of the `sha256` of each non-empty request list, its
+/// type byte first.
+pub fn requests_hash(deposits: MemSpan, withdrawals: MemSpan, consolidations: MemSpan) -> u256 {
+    var all = MemBuffer::empty()
+    add_list(mut all, 0, deposits)
+    add_list(mut all, 1, withdrawals)
+    add_list(mut all, 2, consolidations)
+    sha256(all.span())
+}
+
+fn add_list(_ all: mut MemBuffer, _ kind: u8, _ data: MemSpan) {
+    if data.len() == 0 { return }
+    var request = MemBuffer::empty()
+    request.push(kind)
+    copy(mut request, data, from: 0, len: data.len())
+    let hash = sha256(request.span())
+    var i: u256 = 32
+    while i > 0 {
+        i -= 1
+        all.push(((hash >> (i * 8)) & 0xff).downcast_truncate())
+    }
+}
+
+fn sha256(_ bytes: MemSpan) -> u256 {
+    fevm_precompiles::sha256(bytes, offset: 0, len: bytes.len())
+}
+
+#[test]
+fn no_requests_hash_to_sha256_of_nothing() {
+    // EIP-7685: a block without requests commits to sha256("").
+    let none = MemBuffer::empty()
+    assert(
+        requests_hash(
+                deposits: none.span(),
+                withdrawals: none.span(),
+                consolidations: none.span(),
+            )
+            == 0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855,
+    )
+}

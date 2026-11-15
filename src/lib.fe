@@ -824,12 +824,39 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     }
     let header = ref block["result"]
     let number = field(header, "number")
-    let keys = proof::touched(
+    var keys = proof::touched(
         prestates["result"],
         diffs["result"],
         header,
         recipients: true,
     )
+    // The request contracts the end-of-block system calls run, whether or
+    // not a transaction touched them.
+    proof::add_request_keys(mut keys)
+    // And the queue entries their system calls read, as the node says the
+    // queues stood at the parent; `chain` proves what it uses.
+    var requests_at: u256 = proof::WITHDRAWAL_REQUESTS
+    for c in 0 .. 2 {
+        if c == 1 {
+            requests_at = proof::CONSOLIDATION_REQUESTS
+        }
+        let (head, tail) = if args.count() == 4 {
+            (
+                fetch::storage_at(args.get(3), requests_at, slot: 2, number: number - 1),
+                fetch::storage_at(args.get(3), requests_at, slot: 3, number: number - 1),
+            )
+        } else {
+            (
+                fetch::storage_at(DEFAULT_RPC, requests_at, slot: 2, number: number - 1),
+                fetch::storage_at(DEFAULT_RPC, requests_at, slot: 3, number: number - 1),
+            )
+        }
+        let (Option::Some(head), Option::Some(tail)) = (head, tail) else {
+            println!("ERROR the node did not send the request queues")
+            return 1
+        }
+        proof::add_queue_keys(mut keys, address: requests_at, head, tail)
+    }
     var text = MemBuffer::empty()
     "{\"parent\":".fmt(mut text)
     let parent = if args.count() == 4 {
@@ -863,10 +890,17 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
             } else {
                 12
             }
-            let answers = if args.count() == 4 {
-                fetch::proofs(args.get(3), keys, first: k, count, number: at, dir)
-            } else {
-                fetch::proofs(DEFAULT_RPC, keys, first: k, count, number: at, dir)
+            // A load-balanced endpoint can route a request to a node that
+            // keeps less state and answers with an error: ask again.
+            var answers: Option<MemBuffer> = Option::None
+            var tries: u8 = 0
+            while answers.is_none() && tries < 20 {
+                tries += 1
+                answers = if args.count() == 4 {
+                    fetch::proofs(args.get(3), keys, first: k, count, number: at, dir)
+                } else {
+                    fetch::proofs(DEFAULT_RPC, keys, first: k, count, number: at, dir)
+                }
             }
             let Option::Some(answers) = answers else {
                 println!(
@@ -896,7 +930,23 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
             }
         }
     }
-    "]}".fmt(mut text)
+    // Their code, at the parent: `chain` checks it against the code hash
+    // the parent's proofs prove.
+    "],\"code\":".fmt(mut text)
+    var contracts: core::MemVec<u256> = core::MemVec::new()
+    contracts.push(proof::WITHDRAWAL_REQUESTS)
+    contracts.push(proof::CONSOLIDATION_REQUESTS)
+    let at = fetch::quantity(number - 1)
+    let fetched = if args.count() == 4 {
+        fetch::write_delegates(args.get(3), contracts, parent: at.span(), mut text)
+    } else {
+        fetch::write_delegates(DEFAULT_RPC, contracts, parent: at.span(), mut text)
+    }
+    if !fetched {
+        println!("ERROR the node did not send the request contracts' code")
+        return 1
+    }
+    "}".fmt(mut text)
     let path = fetch::join(dir, "proofs.json")
     let Result::Ok(_) = fs.write(path, text.span()) else {
         println!("ERROR ", path, ": cannot write")
@@ -1059,6 +1109,9 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     // receipts root the header commits to.
     var own_receipts: core::MemVec<MemBuffer> = core::MemVec::new()
     var cumulative_gas: u256 = 0
+    // The deposits fevm's logs hold (EIP-6110), for the requests hash.
+    var deposits = MemBuffer::empty()
+    var deposits_ok = true
     for index in 0 .. count {
         // The carried state must hold what the node saw before this
         // transaction, for every account and slot it touched.
@@ -1090,6 +1143,9 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
             mut tracer,
         )
         cumulative_gas += applied.receipt.gas_used as u256
+        if !requests::add_deposits(mut deposits, applied.receipt.logs) {
+            deposits_ok = false
+        }
         own_receipts
             .push(
                 receipts::encode(
@@ -1271,9 +1327,88 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
             }
         }
     }
+    // The end-of-block system calls (EIP-7002, EIP-7251) run on the
+    // request contracts as the parent's proofs prove them; with the
+    // deposits, their output must hash to the header's requestsHash.
+    // Proofs saved before `fetch-proofs` saved the contracts' code leave
+    // them out, and the end state skips the two contracts.
+    let system_calls = proving && proofs.has("code")
+    if system_calls {
+        var withdrawal_requests = MemBuffer::empty()
+        var consolidation_requests = MemBuffer::empty()
+        var ran: u64 = 0
+        for c in 0 .. 2 {
+            let target = if c == 0 {
+                proof::WITHDRAWAL_REQUESTS
+            } else {
+                proof::CONSOLIDATION_REQUESTS
+            }
+            if !proof::load_request_contract(
+                mut world,
+                proofs,
+                state_root: parent_root,
+                address: target,
+                keys,
+            ) {
+                println!(
+                    "SYSTEM 0x",
+                    core::text::hex(target, 20),
+                    ": its code or slots are not proven, or its queue held earlier requests",
+                )
+                continue
+            }
+            let (after, result) = requests::system_call(world, target, env)
+            world = after
+            if result.status != fevm::OK {
+                println!(
+                    "SYSTEM 0x",
+                    core::text::hex(target, 20),
+                    ": the system call failed",
+                )
+                continue
+            }
+            ran += 1
+            if c == 0 {
+                withdrawal_requests = result.output
+            } else {
+                consolidation_requests = result.output
+            }
+        }
+        let hash = requests::requests_hash(
+            deposits: deposits.span(),
+            withdrawals: withdrawal_requests.span(),
+            consolidations: consolidation_requests.span(),
+        )
+        if ran == 2
+            && deposits_ok
+            && header.has("requestsHash")
+            && hash == field(header, "requestsHash") {
+            println!(
+                "requests: fevm's ",
+                deposits.len() / 192,
+                " deposits, ",
+                withdrawal_requests.len() / 76,
+                " withdrawal and ",
+                consolidation_requests.len() / 116,
+                " consolidation requests hash to the header's requestsHash",
+            )
+        } else {
+            unproven += 1
+            if ran == 2 && deposits_ok && header.has("requestsHash") {
+                println!(
+                    "REQUESTS fevm's requests hash to 0x",
+                    core::text::hex(hash, 32),
+                    ", the header's requestsHash is 0x",
+                    core::text::hex(field(header, "requestsHash"), 32),
+                )
+            } else {
+                println!(
+                    "REQUESTS not checked: a system call did not run, or a deposit log is malformed",
+                )
+            }
+        }
+    }
     if proving {
-        // The end-of-block system calls (EIP-7002, EIP-7251) are not run, so
-        // their contracts are not compared.
         keys = proof::touched(
             prestates["result"],
             diffs["result"],
@@ -1281,8 +1416,12 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
             recipients: true,
         )
         var skip: core::MemVec<u256> = core::MemVec::new()
-        skip.push(proof::WITHDRAWAL_REQUESTS)
-        skip.push(proof::CONSOLIDATION_REQUESTS)
+        if system_calls {
+            proof::add_request_keys(mut keys)
+        } else {
+            skip.push(proof::WITHDRAWAL_REQUESTS)
+            skip.push(proof::CONSOLIDATION_REQUESTS)
+        }
         var text = MemBuffer::empty()
         let post = with (mut text) {
             proof::check(

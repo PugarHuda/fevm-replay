@@ -523,6 +523,133 @@ uses (text: mut MemBuffer)
 
 /// The account at `address` as `proofs` prove it under `state_root`; None
 /// if no proof names it or its proof does not hold.
+/// The bookkeeping slots of a request contract (EIP-7002, EIP-7251):
+/// excess, count, queue head and queue tail.
+pub const REQUEST_SLOTS: u256 = 4
+
+/// Adds the two request contracts and their bookkeeping slots to `keys`,
+/// for the end-of-block system calls.
+pub fn add_request_keys(_ keys: mut WorldState) {
+    var k: u256 = 0
+    while k < REQUEST_SLOTS {
+        let _ = keys.storage_store(WITHDRAWAL_REQUESTS, k, 1)
+        let _ = keys.storage_store(CONSOLIDATION_REQUESTS, k, 1)
+        k += 1
+    }
+}
+
+// Where a request contract's queue starts.
+const QUEUE_OFFSET: u256 = 4
+
+/// The queue entries the system call of request contract `address` reads,
+/// from `head` up to `tail`: at most 16 withdrawal requests (EIP-7002, 3
+/// slots each) or 2 consolidation requests (EIP-7251, 4 slots each).
+pub fn add_queue_keys(_ keys: mut WorldState, address: u256, head: u256, tail: u256) {
+    let (most, size): (u256, u256) = if address == WITHDRAWAL_REQUESTS {
+        (16, 3)
+    } else {
+        (2, 4)
+    }
+    let end = if tail > head + most {
+        head + most
+    } else {
+        tail
+    }
+    var slot = QUEUE_OFFSET + head * size
+    while slot < QUEUE_OFFSET + end * size {
+        let _ = keys.storage_store(address, slot, 1)
+        slot += 1
+    }
+}
+
+/// Puts request contract `address` in `world` for its end-of-block system
+/// call: its account, code and bookkeeping slots as the parent's `proofs`
+/// (a `fetch-proofs` file) prove them under `state_root`, and `code` must
+/// hash to the proven code hash. Slots a transaction touched (in
+/// `touched`) keep the world's values, and so do the queue entries the
+/// system call reads (`add_queue_keys`). False when something is not
+/// proven.
+pub fn load_request_contract(
+    _ world: mut WorldState,
+    _ proofs: Value,
+    state_root: u256,
+    address: u256,
+    _ touched: WorldState,
+) -> bool {
+    let Option::Some(proven) = find_account(proofs["pre"], state_root, address) else {
+        return false
+    }
+    var code = MemBuffer::empty()
+    for ref member in proofs["code"].members() {
+        if parse_hex_uint(member.key.span()).unwrap_or(default: 0) == address {
+            code = hex_bytes(member.value.text())
+        }
+    }
+    if keccak256_word(code.span()) != proven.code_hash || proven.code_hash == EMPTY_CODE {
+        return false
+    }
+    if !world.exists(address) {
+        if !world.set_balance(address, proven.balance) || !world.set_nonce(address, proven.nonce) {
+            return false
+        }
+    }
+    world.set_code(address: address, code: code.span())
+    var head: u256 = 0
+    var tail: u256 = 0
+    var k: u256 = 0
+    while k < REQUEST_SLOTS {
+        let Option::Some(value) = find_slot(proofs["pre"], state_root, address, key: k) else {
+            return false
+        }
+        if k == 2 { head = value }
+        if k == 3 { tail = value }
+        if touched.storage_load(address, k) == 0 {
+            let _ = world.storage_store(address, k, value)
+        }
+        k += 1
+    }
+    var queue = WorldState::empty()
+    add_queue_keys(mut queue, address, head, tail)
+    for position in 0 .. queue.storage_slots() {
+        let entry = queue.storage_at(position)
+        if !entry.occupied {
+            continue
+        }
+        let Option::Some(value) = find_slot(
+            proofs["pre"],
+            state_root,
+            address,
+            key: entry.slot,
+        ) else {
+            return false
+        }
+        if touched.storage_load(address, entry.slot) == 0 {
+            let _ = world.storage_store(address, entry.slot, value)
+        }
+    }
+    true
+}
+
+/// Slot `key` of `address` as its proof in `proofs` proves it under
+/// `state_root`; None without a proof of it, or with a broken one.
+pub fn find_slot(_ proofs: Value, state_root: u256, address: u256, key: u256) -> Option<u256> {
+    let proven = find_account(proofs, state_root, address)?
+    for ref result in proofs.items() {
+        if field(result, "address") == address {
+            for ref entry in result["storageProof"].items() {
+                if field(entry, "key") == key {
+                    return slot(
+                        storage_root: proven.storage_root,
+                        slot: key,
+                        entry["proof"],
+                    )
+                }
+            }
+        }
+    }
+    Option::None
+}
+
 pub fn find_account(_ proofs: Value, state_root: u256, address: u256) -> Option<Account> {
     for ref result in proofs.items() {
         if field(result, "address") == address {
