@@ -1134,6 +1134,9 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     var parent_root: u256 = 0
     var unproven: u64 = 0
     var first_calls = false
+    // What `summary.json` adds for a block validated statelessly.
+    var stateless_summary = MemBuffer::empty()
+    var stateless_ok = false
     if proving {
         let Option::Some(doc) = load_json(dir, "proofs.json") else {
             return 1
@@ -1582,7 +1585,8 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         // witness and fevm's end state, against the header.
         if first_calls && system_calls {
             let computed = stateless::state_root(world, parent_root, proofs, keys, code_unknown)
-            if computed.root == field(header, "stateRoot") {
+            stateless_ok = computed.root == field(header, "stateRoot")
+            if stateless_ok {
                 println!(
                     "state root: fevm's end state (",
                     computed.accounts,
@@ -1618,18 +1622,91 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                 storage_bytes / 1024,
                 " KiB of it in storage proofs; heaviest storage:",
             )
+            var heavy_json = MemBuffer::empty()
             for h in 0 .. heaviest.len() {
+                let w = heaviest[h]
+                // The same account and slots alone in a binary tree, for
+                // its own path from the root, as its account proof is.
+                var alone = fevm::WorldState::empty()
+                let _ = alone.ensure_account(w.address)
+                let slots = proof::slots_of(keys, w.address)
+                for s in 0 .. slots.len() {
+                    let _ = alone.storage_store(w.address, slots[s], 1)
+                }
+                let solo = binary::estimate(alone)
+                let per_slot = w.nodes * 10 / w.slots
                 println!(
                     "  storage witness 0x",
-                    core::text::hex(heaviest[h].address, 20),
+                    core::text::hex(w.address, 20),
                     ": ",
-                    heaviest[h].bytes / 1024,
+                    w.bytes / 1024,
                     " KiB, ",
-                    heaviest[h].slots,
-                    " slots",
+                    w.slots,
+                    " slots, ",
+                    per_slot / 10,
+                    ".",
+                    per_slot % 10,
+                    " nodes a slot; with its account proof ",
+                    (w.bytes + w.account_bytes) / 1024,
+                    " KiB, binary tree ",
+                    solo.low_bytes / 1024,
+                    " to ",
+                    solo.high_bytes / 1024,
+                    " KiB",
                 )
+                if h > 0 {
+                    ",".fmt(mut heavy_json)
+                }
+                "{\"address\":\"0x".fmt(mut heavy_json)
+                core::text::hex(w.address, 20).fmt(mut heavy_json)
+                "\",\"storage_bytes\":".fmt(mut heavy_json)
+                core::text::decimal(w.bytes as u256).fmt(mut heavy_json)
+                ",\"account_bytes\":".fmt(mut heavy_json)
+                core::text::decimal(w.account_bytes as u256).fmt(mut heavy_json)
+                ",\"slots\":".fmt(mut heavy_json)
+                core::text::decimal(w.slots as u256).fmt(mut heavy_json)
+                ",\"proof_nodes\":".fmt(mut heavy_json)
+                core::text::decimal(w.nodes as u256).fmt(mut heavy_json)
+                ",\"binary_low\":".fmt(mut heavy_json)
+                core::text::decimal(solo.low_bytes as u256).fmt(mut heavy_json)
+                ",\"binary_high\":".fmt(mut heavy_json)
+                core::text::decimal(solo.high_bytes as u256).fmt(mut heavy_json)
+                "}".fmt(mut heavy_json)
             }
             let bin = binary::estimate(keys)
+            json_num(
+                mut stateless_summary,
+                "witness_nodes",
+                computed.witness_nodes,
+            )
+            json_num(
+                mut stateless_summary,
+                "witness_bytes",
+                computed.witness_bytes,
+            )
+            json_num(
+                mut stateless_summary,
+                "block_proof_nodes",
+                computed.hinted,
+            )
+            json_num(
+                mut stateless_summary,
+                "block_proof_bytes",
+                computed.hinted_bytes,
+            )
+            json_num(
+                mut stateless_summary,
+                "assumed_branches",
+                computed.assumed,
+            )
+            json_num(mut stateless_summary, "storage_bytes", storage_bytes)
+            json_num(mut stateless_summary, "binary_stems", bin.stems)
+            json_num(mut stateless_summary, "binary_values", bin.values)
+            json_num(mut stateless_summary, "binary_low", bin.low_bytes)
+            json_num(mut stateless_summary, "binary_high", bin.high_bytes)
+            ",\"heaviest\":[".fmt(mut stateless_summary)
+            heavy_json.span().fmt(mut stateless_summary)
+            "]".fmt(mut stateless_summary)
             println!(
                 "binary tree (EIP-7864), estimated for the same keys: ",
                 bin.stems,
@@ -1725,11 +1802,31 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
             " credited; pass an RPC URL or fetch proofs to check the recipients' balances",
         )
     }
-    if matched == count.downcast_unchecked() && right == checked && unknown == 0 && unproven == 0 {
-        0
+    let clean = matched == count.downcast_unchecked()
+        && right == checked
+        && unknown == 0
+        && unproven == 0
+    // The run in short, for `follow` and the stateless page.
+    var summary = MemBuffer::empty()
+    "{\"number\":".fmt(mut summary)
+    core::text::decimal(env.number).fmt(mut summary)
+    ",\"hash\":\"0x".fmt(mut summary)
+    core::text::hex(field(header, "hash"), 32).fmt(mut summary)
+    "\",\"matched\":".fmt(mut summary)
+    core::text::decimal(matched as u256).fmt(mut summary)
+    ",\"transactions\":".fmt(mut summary)
+    core::text::decimal(count as u256).fmt(mut summary)
+    ",\"gas_used\":".fmt(mut summary)
+    core::text::decimal(cumulative_gas).fmt(mut summary)
+    if clean && stateless_ok {
+        ",\"every_root\":true".fmt(mut summary)
     } else {
-        1
+        ",\"every_root\":false".fmt(mut summary)
     }
+    stateless_summary.span().fmt(mut summary)
+    "}".fmt(mut summary)
+    let _ = fs.write(fetch::join(dir, "summary.json"), summary.span())
+    if clean { 0 } else { 1 }
 }
 
 // The header's transactionsRoot (each transaction re-encoded, and hashing
@@ -1813,6 +1910,14 @@ uses (out: mut Stdout)
         )
     }
     wrong
+}
+
+// `,"name":value` into a JSON object being written.
+fn json_num(_ out: mut MemBuffer, _ name: String<24>, _ value: u64) {
+    ",\"".fmt(mut out)
+    name.fmt(mut out)
+    "\":".fmt(mut out)
+    core::text::decimal(value as u256).fmt(mut out)
 }
 
 // Whether `dir/name` exists (and reads).

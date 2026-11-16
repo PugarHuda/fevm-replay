@@ -25,6 +25,7 @@
   table.map .addr { font-family: var(--mono); font-size: 0.85rem; }
   table.map .kind { font-size: 0.85rem; color: var(--steel); white-space: normal; }
   .why { max-width: var(--measure); }
+  .badge { display: inline-block; font-size: 0.8rem; font-weight: 600; padding: 0.1rem 0.5rem; border-radius: 999px; border: 1px solid var(--rule); white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -68,10 +69,10 @@
 
   <section>
     <h2>Whose storage weighs the most</h2>
-    <p class="intro">Each block's five contracts with the heaviest storage proofs in the parent's witness (distinct node bytes), summed over the blocks above. A few token contracts with huge storage tries carry much of a block's witness.</p>
+    <p class="intro">Each block's five contracts with the heaviest storage proofs in the parent's witness, summed over the blocks above. <strong>Nodes a slot</strong> is the length of a slot's proof path: the deeper a contract's storage trie, the more each slot it touches costs. <strong>Binary tree</strong> is the same account and slots alone in EIP-7864's unified tree (estimated, as above), against their Merkle-Patricia witness with the account proof: deep storage tries shrink, while a contract with a small trie can grow, since in the unified tree each of its slots sits on its own path from the root.</p>
     <div class="scroll">
       <table class="map">
-        <thead><tr><th scope="col">Contract</th><th scope="col" class="n">Blocks</th><th scope="col" class="n">Slots proven</th><th scope="col" class="n">Storage witness</th></tr></thead>
+        <thead><tr><th scope="col">Contract</th><th scope="col" class="n">Blocks</th><th scope="col" class="n">Slots proven</th><th scope="col" class="n">Nodes a slot</th><th scope="col" class="n">Bytes a slot</th><th scope="col" class="n">Merkle-Patricia</th><th scope="col" class="n">Binary tree, est.</th></tr></thead>
         <tbody id="heavy"></tbody>
       </table>
     </div>
@@ -92,19 +93,25 @@
 
 <script>
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;"})[c]);
-const kib = (n) => n >= 1024 ? (n / 1024).toFixed(1) + " MiB" : n + " KiB";
+const size = (bytes) => bytes >= 1048576 ? (bytes / 1048576).toFixed(1) + " MiB" : Math.round(bytes / 1024) + " KiB";
+const NAMES = {
+  "0xdac17f958d2ee523a2206206994597c13d831ec7": "USDT",
+  "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": "USDC",
+  "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2": "WETH",
+  "0x6b175474e89094c44da98b954eedeac495271d0f": "DAI",
+};
 fetch("data/stateless.json").then((r) => r.json()).then((rows) => {
   rows.sort((a, b) => b.number - a.number);
   const ok = rows.filter((r) => r.every_root);
+  const wit = (r) => r.witness_bytes + (r.block_proof_bytes || 0);
   const txs = ok.reduce((a, r) => a + r.transactions, 0);
-  const wit = ok.reduce((a, r) => a + r.witness_kib + (r.block_proof_kib || 0), 0);
+  const bytes = ok.reduce((a, r) => a + wit(r), 0);
   const gas = ok.reduce((a, r) => a + r.gas_used, 0);
-  const bin = ok.filter((r) => r.binary_kib_low != null);
-  const ratio = bin.length ? bin.reduce((a, r) => a + (r.witness_kib + (r.block_proof_kib || 0)) / ((r.binary_kib_low + r.binary_kib_high) / 2), 0) / bin.length : null;
+  const ratio = ok.length ? ok.reduce((a, r) => a + wit(r) / ((r.binary_low + r.binary_high) / 2), 0) / ok.length : null;
   document.getElementById("facts").innerHTML =
     `<div><b>${ok.length}</b><span>blocks where every root in the header came out of fevm (of ${rows.length} taken)</span></div>` +
     `<div><b>${txs.toLocaleString("en")}</b><span>transactions in them, all matching</span></div>` +
-    `<div><b>${txs ? (wit / txs).toFixed(1) : "–"} KiB</b><span>of witness per transaction, ${gas ? Math.round(wit / (gas / 1e6)) : "–"} KiB per million gas</span></div>` +
+    `<div><b>${txs ? (bytes / txs / 1024).toFixed(1) : "–"} KiB</b><span>of witness per transaction, ${gas ? size(bytes / (gas / 1e6)) : "–"} per million gas</span></div>` +
     (ratio ? `<div><b>${ratio.toFixed(1)}×</b><span>smaller with a binary tree (EIP-7864), estimated, on average</span></div>` : "");
   const body = document.getElementById("rows");
   rows.forEach((r) => {
@@ -113,35 +120,36 @@ fetch("data/stateless.json").then((r) => r.json()).then((rows) => {
     if (!("matched" in r)) {
       tr.innerHTML = `<td>${link}</td><td class="n">–</td><td class="kind" colspan="5">${esc(r.result)}</td>`;
     } else {
-      const w = r.witness_kib + (r.block_proof_kib || 0);
+      const badge = r.every_root
+        ? `<span class="badge" title="block ${esc(r.hash || "")}: every root in its header computed by fevm">validated by fevm</span>`
+        : `<strong>differs</strong>`;
       tr.innerHTML =
         `<td>${link}</td>` +
         `<td class="n">${r.matched}/${r.transactions}</td>` +
-        `<td>${r.every_root ? "match" : "<strong>differs</strong>"}</td>` +
-        `<td class="n">${kib(w)}</td>` +
-        `<td class="n">${(w / Math.max(1, r.transactions)).toFixed(1)} KiB</td>` +
-        `<td class="n">${r.gas_used ? Math.round(w / (r.gas_used / 1e6)) + " KiB" : "–"}</td>` +
-        `<td class="n">${r.binary_kib_low != null ? kib(r.binary_kib_low) + " – " + kib(r.binary_kib_high) : "–"}</td>`;
+        `<td>${badge}</td>` +
+        `<td class="n">${size(wit(r))}</td>` +
+        `<td class="n">${(wit(r) / Math.max(1, r.transactions) / 1024).toFixed(1)} KiB</td>` +
+        `<td class="n">${r.gas_used ? size(wit(r) / (r.gas_used / 1e6)) : "–"}</td>` +
+        `<td class="n">${r.binary_low != null ? size(r.binary_low) + " – " + size(r.binary_high) : "–"}</td>`;
     }
     body.append(tr);
   });
-  const NAMES = {
-    "0xdac17f958d2ee523a2206206994597c13d831ec7": "USDT",
-    "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": "USDC",
-    "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2": "WETH",
-    "0x6b175474e89094c44da98b954eedeac495271d0f": "DAI",
-  };
   const heavy = {};
-  rows.filter((r) => r.heaviest).forEach((r) => r.heaviest.forEach(([a, kb, slots]) => {
-    const h = heavy[a] || (heavy[a] = { blocks: 0, kib: 0, slots: 0 });
-    h.blocks += 1; h.kib += kb; h.slots += slots;
+  ok.filter((r) => r.heaviest).forEach((r) => r.heaviest.forEach((h) => {
+    const t = heavy[h.address] || (heavy[h.address] = { blocks: 0, storage: 0, account: 0, slots: 0, nodes: 0, low: 0, high: 0 });
+    t.blocks += 1; t.storage += h.storage_bytes; t.account += h.account_bytes; t.slots += h.slots;
+    t.nodes += h.proof_nodes; t.low += h.binary_low; t.high += h.binary_high;
   }));
   const hb = document.getElementById("heavy");
-  Object.entries(heavy).sort((x, y) => y[1].kib - x[1].kib).slice(0, 12).forEach(([a, h]) => {
+  Object.entries(heavy).sort((x, y) => y[1].storage - x[1].storage).slice(0, 12).forEach(([a, t]) => {
     const tr = document.createElement("tr");
     const name = NAMES[a] ? `<strong>${NAMES[a]}</strong> ` : "";
     tr.innerHTML = `<td>${name}<a class="addr" href="https://etherscan.io/address/${esc(a)}">${esc(a)}</a></td>` +
-      `<td class="n">${h.blocks}</td><td class="n">${h.slots.toLocaleString("en")}</td><td class="n">${kib(h.kib)}</td>`;
+      `<td class="n">${t.blocks}</td><td class="n">${t.slots.toLocaleString("en")}</td>` +
+      `<td class="n">${(t.nodes / t.slots).toFixed(1)}</td>` +
+      `<td class="n">${(t.storage / t.slots / 1024).toFixed(1)} KiB</td>` +
+      `<td class="n">${size(t.storage + t.account)}</td>` +
+      `<td class="n">${size(t.low)} – ${size(t.high)}</td>`;
     hb.append(tr);
   });
 }).catch(() => {

@@ -103,6 +103,13 @@ jobs:
           echo "$out" | grep -q "hash to the header's requestsHash"
           echo "$out" | grep -q "hashes to the header's stateRoot"
           echo "$out" | grep -q "binary tree (EIP-7864), estimated for the same keys: 564 stems, 947 values"
+          python3 - <<'PY'
+          import json
+          s = json.load(open("proven/0x19335e5/summary.json"))
+          assert s["number"] == 26424805 and s["matched"] == s["transactions"] == 71, s
+          assert s["every_root"] and s["binary_stems"] == 564, s
+          assert s["heaviest"][0]["address"] == "0xdac17f958d2ee523a2206206994597c13d831ec7", s["heaviest"][0]
+          PY
 
       - name: One wei more in a withdrawal fails the stateless state root and the withdrawals root
         run: |

@@ -880,7 +880,16 @@ fn shared_prefix_keys_change_like_a_fresh_build() {
 
 /// What one account's storage adds to the parent's witness: the distinct
 /// bytes of the nodes in its storage proofs, and how many slots they prove.
-pub struct StorageWitness { pub address: u256, pub bytes: u64, pub slots: u64 }
+pub struct StorageWitness {
+    pub address: u256,
+    pub bytes: u64,
+    pub slots: u64,
+    /// Proof nodes over all its slots, shared ones counted each time: a
+    /// slot's path length, summed.
+    pub nodes: u64,
+    /// Its account proof's bytes.
+    pub account_bytes: u64,
+}
 
 impl Copy for StorageWitness {}
 
@@ -896,9 +905,15 @@ pub fn heaviest_storage(_ proofs: Value, count: usize) -> (MemVec<StorageWitness
         let _ = seen.ensure_account(address)
         var bytes: u64 = 0
         var slots: u64 = 0
+        var nodes: u64 = 0
+        var account_bytes: u64 = 0
+        for ref node in result["accountProof"].items() {
+            account_bytes += hex_bytes(node.text()).len().downcast_unchecked()
+        }
         for ref entry in result["storageProof"].items() {
             slots += 1
             for ref node in entry["proof"].items() {
+                nodes += 1
                 let raw = hex_bytes(node.text())
                 let hash = keccak256_word(raw.span())
                 if seen.storage_load(address, hash) == 0 {
@@ -909,7 +924,9 @@ pub fn heaviest_storage(_ proofs: Value, count: usize) -> (MemVec<StorageWitness
         }
         total += bytes
         if slots > 0 {
-            all.push(StorageWitness { address, bytes, slots })
+            all.push(
+                StorageWitness { address, bytes, slots, nodes, account_bytes },
+            )
         }
     }
     // ponytail: selection of the top few, O(accounts x count); fine for a block.
