@@ -1508,6 +1508,50 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         print!(text)
         print_checked("end state", "the block's", post)
         unproven += post.differ + post.broken + post.unproven
+        // Stateless: the end-state root itself, computed from the parent's
+        // witness and fevm's end state, against the header.
+        if first_calls && system_calls {
+            let computed = stateless::state_root(world, parent_root, proofs, keys, code_unknown)
+            if computed.root == field(header, "stateRoot") {
+                println!(
+                    "state root: fevm's end state (",
+                    computed.accounts,
+                    " accounts and ",
+                    computed.slots,
+                    " slots written) on the parent's witness (",
+                    computed.witness_nodes,
+                    " nodes, ",
+                    computed.witness_bytes / 1024,
+                    " KiB) hashes to the header's stateRoot",
+                )
+            } else {
+                unproven += 1
+                println!(
+                    "STATE ROOT fevm's end state hashes to 0x",
+                    core::text::hex(computed.root, 32),
+                    ", the header's stateRoot is 0x",
+                    core::text::hex(field(header, "stateRoot"), 32),
+                )
+                if computed.stage > 0 {
+                    println!(
+                        "  a node is missing at 0x",
+                        core::text::hex(computed.stuck, 20),
+                        " (stage ",
+                        computed.stage,
+                        ")",
+                    )
+                }
+            }
+            if computed.hinted > 0 || computed.assumed > 0 {
+                println!(
+                    "  ",
+                    computed.hinted,
+                    " nodes a deletion moved up came from the block's proofs (checked by hash), ",
+                    computed.assumed,
+                    " were taken to be branches",
+                )
+            }
+        }
         if paid > 0 {
             println!(
                 "withdrawals: ",

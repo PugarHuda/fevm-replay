@@ -1,0 +1,684 @@
+//! fevm as a stateless client: the block's end-state root, computed. The
+//! parent's proofs are a witness: the trie nodes on the path to every
+//! account and slot the block touched, each checked by its hash from the
+//! parent's state root down. fevm's end state is written into that partial
+//! trie (accounts and storage, inserted, changed or deleted) and the root
+//! is hashed again. It must equal the header's `stateRoot`: then fevm's
+//! values are the chain's for every touched key, with no proof of the
+//! end state taken from the node.
+//!
+//! One case needs a node the parent's proofs do not hold: deleting a key
+//! whose branch is left with one child, which moves that sibling up. The
+//! block's own proofs often hold the moved node; any node is used only if
+//! it hashes to the hash its parent names, so this adds nothing to trust.
+//! Like `proof`, this reaches neither the network nor the disk.
+
+use core::{MemBuffer, MemSpan, MemVec}
+use core::hash::keccak256_word
+use fevm::WorldState
+use json::Value
+use ingot::load::{field, hex_bytes}
+use ingot::proof
+use ingot::receipts::{hex_prefix, put_child, put_list, put_string, put_word}
+
+/// Trie nodes by their hash, and what the computation used.
+pub struct Nodes {
+    // Under account 1: slot = a node's hash, value = its position + 1.
+    index: WorldState,
+    nodes: MemVec<MemBuffer>,
+    // The leaves the block's own proofs end in, with their 64-nibble keys,
+    // and the extension nodes they hold: candidates for a sibling that a
+    // deletion moves up.
+    leaf_keys: MemVec<MemBuffer>,
+    leaf_values: MemVec<MemBuffer>,
+    extensions: MemVec<MemBuffer>,
+    /// The parent's witness: distinct nodes and their bytes.
+    pub witness_nodes: u64,
+    pub witness_bytes: u64,
+    /// Siblings found among the block's own proofs.
+    pub hinted: u64,
+    /// Siblings neither proof holds, taken to be branches.
+    pub assumed: u64,
+}
+
+fn copy(_ bytes: MemSpan) -> MemBuffer {
+    var out = MemBuffer::empty()
+    for i in 0 .. bytes.len() {
+        out.push(bytes[i])
+    }
+    out
+}
+
+fn word(_ bytes: MemSpan) -> u256 {
+    var value: u256 = 0
+    for i in 0 .. bytes.len() {
+        value = (value << 8) | (bytes[i] as u256)
+    }
+    value
+}
+
+fn add(_ db: mut Nodes, _ node: MemSpan, witness: bool) {
+    let hash = keccak256_word(node)
+    if db.index.storage_load(1, hash) != 0 {
+        return
+    }
+    db.nodes.push(copy(node))
+    let _ = db.index.storage_store(1, hash, db.nodes.len() as u256)
+    if witness {
+        db.witness_nodes += 1
+        db.witness_bytes += node.len().downcast_unchecked()
+    }
+}
+
+fn lookup(_ db: Nodes, _ hash: u256) -> Option<MemBuffer> {
+    let at = db.index.storage_load(1, hash)
+    if at == 0 {
+        return Option::None
+    }
+    let i: usize = (at - 1).downcast_unchecked()
+    Option::Some(copy(db.nodes[i].span()))
+}
+
+// RLP: where the item at `at` has its payload (start, end), and whether it
+// is a list.
+fn span_of(_ data: MemSpan, _ at: usize) -> Option<(usize, usize, bool)> {
+    if at >= data.len() {
+        return Option::None
+    }
+    let b = data[at]
+    var start = at + 1
+    var len: usize = 0
+    var list = false
+    if b < 0x80 {
+        start = at
+        len = 1
+    } else if b < 0xb8 {
+        len = (b - 0x80) as usize
+    } else if b < 0xc0 {
+        let n = (b - 0xb7) as usize
+        len = word(data.slice(offset: at + 1, len: n)).downcast_unchecked()
+        start = at + 1 + n
+    } else if b < 0xf8 {
+        len = (b - 0xc0) as usize
+        list = true
+    } else {
+        let n = (b - 0xf7) as usize
+        len = word(data.slice(offset: at + 1, len: n)).downcast_unchecked()
+        start = at + 1 + n
+        list = true
+    }
+    if start + len > data.len() {
+        return Option::None
+    }
+    Option::Some((start, start + len, list))
+}
+
+// The items of the RLP list `node`, each as encoded (header included).
+fn items(_ node: MemSpan) -> Option<MemVec<MemBuffer>> {
+    let (start, end, list) = span_of(node, 0)?
+    if !list || end != node.len() {
+        return Option::None
+    }
+    var out: MemVec<MemBuffer> = MemVec::new()
+    var at = start
+    while at < end {
+        let (_, next, _) = span_of(node, at)?
+        if next > end {
+            return Option::None
+        }
+        out.push(copy(node.slice(offset: at, len: next - at)))
+        at = next
+    }
+    Option::Some(out)
+}
+
+// The bytes of an RLP string item.
+fn payload(_ item: MemSpan) -> Option<MemBuffer> {
+    let (start, end, list) = span_of(item, 0)?
+    if list {
+        return Option::None
+    }
+    Option::Some(copy(item.slice(offset: start, len: end - start)))
+}
+
+// The nibbles of a hex-prefix encoded path.
+fn path_of(_ encoded: MemSpan) -> MemBuffer {
+    var out = MemBuffer::empty()
+    if encoded.len() == 0 {
+        return out
+    }
+    if (encoded[0] >> 4) % 2 == 1 {
+        out.push(encoded[0] & 0xf)
+    }
+    for i in 1 .. encoded.len() {
+        out.push(encoded[i] >> 4)
+        out.push(encoded[i] & 0xf)
+    }
+    out
+}
+
+fn is_leaf(_ encoded: MemSpan) -> bool {
+    encoded.len() > 0 && (encoded[0] >> 4) >= 2
+}
+
+fn is_empty_item(_ item: MemSpan) -> bool {
+    item.len() == 0 || (item.len() == 1 && item[0] == 0x80)
+}
+
+fn leaf(_ nibbles: MemSpan, from: usize, _ value: MemSpan) -> MemBuffer {
+    var path = MemBuffer::empty()
+    hex_prefix(mut path, nibbles, from, leaf: true)
+    var body = MemBuffer::empty()
+    put_string(mut body, path.span())
+    put_string(mut body, value)
+    var out = MemBuffer::empty()
+    put_list(mut out, body.span())
+    out
+}
+
+// An extension along `nibbles` from `from` to the child `item` (as its
+// parent holds it).
+fn extension(_ nibbles: MemSpan, from: usize, _ item: MemSpan) -> MemBuffer {
+    var path = MemBuffer::empty()
+    hex_prefix(mut path, nibbles, from, leaf: false)
+    var body = MemBuffer::empty()
+    put_string(mut body, path.span())
+    for i in 0 .. item.len() {
+        body.push(item[i])
+    }
+    var out = MemBuffer::empty()
+    put_list(mut out, body.span())
+    out
+}
+
+fn branch(_ children: MemVec<MemBuffer>) -> MemBuffer {
+    var body = MemBuffer::empty()
+    for i in 0 .. 16 {
+        let child = children[i].span()
+        for k in 0 .. child.len() {
+            body.push(child[k])
+        }
+    }
+    body.push(0x80)
+    var out = MemBuffer::empty()
+    put_list(mut out, body.span())
+    out
+}
+
+// How a parent holds `node`: empty, inline under 32 bytes, else by hash
+// (and the node is kept, for the updates that pass it later).
+fn reference(_ db: mut Nodes, _ node: MemSpan) -> MemBuffer {
+    var out = MemBuffer::empty()
+    if node.len() == 0 {
+        out.push(0x80)
+        return out
+    }
+    if node.len() >= 32 {
+        add(mut db, node, witness: false)
+    }
+    put_child(mut out, node)
+    out
+}
+
+// The node a parent's `item` names: none, inline, or by hash (None when no
+// node with that hash is known).
+fn resolve(_ db: Nodes, _ item: MemSpan) -> Option<MemBuffer> {
+    if is_empty_item(item) {
+        return Option::Some(MemBuffer::empty())
+    }
+    if item[0] >= 0xc0 {
+        return Option::Some(copy(item))
+    }
+    if item.len() == 33 && item[0] == 0xa0 {
+        return lookup(db, word(item.slice(offset: 1, len: 32)))
+    }
+    Option::None
+}
+
+fn concat(_ a: MemSpan, _ b: MemSpan, from: usize) -> MemBuffer {
+    var out = copy(a)
+    for i in from .. b.len() {
+        out.push(b[i])
+    }
+    out
+}
+
+// `node` placed under the nibbles `prefix`: a leaf or an extension takes
+// them into its path, a branch gets an extension above it.
+fn under(_ db: mut Nodes, _ prefix: MemSpan, _ node: MemSpan) -> Option<MemBuffer> {
+    if node.len() == 0 {
+        return Option::Some(MemBuffer::empty())
+    }
+    let parts = items(node)?
+    if parts.len() == 2 {
+        let encoded = payload(parts[0].span())?
+        let joined = concat(prefix, path_of(encoded.span()).span(), from: 0)
+        if is_leaf(encoded.span()) {
+            let value = payload(parts[1].span())?
+            return Option::Some(leaf(joined.span(), from: 0, value.span()))
+        }
+        return Option::Some(extension(joined.span(), from: 0, parts[1].span()))
+    }
+    let item = reference(mut db, node)
+    Option::Some(extension(prefix, from: 0, item.span()))
+}
+
+// A branch at `depth` left with its one child `item`, at nibble `at`: the
+// child moves up. A child no proof holds is looked for among the block's
+// own proofs, by its hash; failing that it is taken to be a branch.
+fn collapse(_ db: mut Nodes, _ item: MemSpan, at: u8, depth: usize) -> Option<MemBuffer> {
+    var prefix = MemBuffer::empty()
+    prefix.push(at)
+    if let Option::Some(node) = resolve(db, item) {
+        return under(mut db, prefix.span(), node.span())
+    }
+    let hash = word(item.slice(offset: 1, len: 32))
+    for h in 0 .. db.leaf_keys.len() {
+        let key = db.leaf_keys[h].span()
+        if key[depth] != at {
+            continue
+        }
+        let candidate = leaf(key, from: depth + 1, db.leaf_values[h].span())
+        if keccak256_word(candidate.span()) == hash {
+            db.hinted += 1
+            return Option::Some(leaf(key, from: depth, db.leaf_values[h].span()))
+        }
+    }
+    for e in 0 .. db.extensions.len() {
+        let parts = items(db.extensions[e].span())?
+        let path = path_of(payload(parts[0].span())?.span())
+        if path.len() < 2 { continue }
+        let candidate = extension(path.span(), from: 1, parts[1].span())
+        if keccak256_word(candidate.span()) == hash {
+            db.hinted += 1
+            let joined = concat(prefix.span(), path.span(), from: 1)
+            return Option::Some(extension(joined.span(), from: 0, parts[1].span()))
+        }
+    }
+    db.assumed += 1
+    Option::Some(extension(prefix.span(), from: 0, item))
+}
+
+// A branch where `path` (from `depth`) and `key` part after `c` shared
+// nibbles: the old child `old` at `path[c]`, a new leaf at `key[depth + c]`,
+// under an extension of the shared nibbles.
+fn split(
+    _ db: mut Nodes,
+    _ path: MemSpan,
+    c: usize,
+    _ old: MemSpan,
+    _ key: MemSpan,
+    depth: usize,
+    _ value: MemSpan,
+) -> MemBuffer {
+    let fresh = leaf(key, from: depth + c + 1, value)
+    let fresh_item = reference(mut db, fresh.span())
+    var children: MemVec<MemBuffer> = MemVec::new()
+    for i in 0 .. 16 {
+        let nibble: u8 = i.downcast_truncate()
+        if nibble == path[c] {
+            children.push(copy(old))
+        } else if nibble == key[depth + c] {
+            children.push(copy(fresh_item.span()))
+        } else {
+            var none = MemBuffer::empty()
+            none.push(0x80)
+            children.push(none)
+        }
+    }
+    let node = branch(children)
+    if c == 0 { return node }
+    let item = reference(mut db, node.span())
+    extension(path.slice(offset: 0, len: c), from: 0, item.span())
+}
+
+// `node` (at `depth` of a trie of 64-nibble keys) with `key` set to
+// `value`, or removed for an empty `value`. None when a node is missing.
+fn put(_ db: mut Nodes, _ node: MemSpan, _ key: MemSpan, depth: usize, _ value: MemSpan) -> Option<
+    MemBuffer,
+> {
+    if node.len() == 0 {
+        if value.len() == 0 {
+            return Option::Some(MemBuffer::empty())
+        }
+        return Option::Some(leaf(key, from: depth, value))
+    }
+    let parts = items(node)?
+    if parts.len() == 17 {
+        let n = key[depth]
+        let child = resolve(db, parts[n as usize].span())?
+        let updated = put(mut db, child.span(), key, depth: depth + 1, value)?
+        let updated_item = reference(mut db, updated.span())
+        var children: MemVec<MemBuffer> = MemVec::new()
+        var count: usize = 0
+        var other: u8 = 0
+        for i in 0 .. 16 {
+            let nibble: u8 = i.downcast_truncate()
+            if nibble == n {
+                children.push(copy(updated_item.span()))
+            } else {
+                children.push(copy(parts[i].span()))
+            }
+            if !is_empty_item(children[i].span()) {
+                count += 1
+                if nibble != n {
+                    other = nibble
+                }
+            }
+        }
+        if count == 0 {
+            return Option::Some(MemBuffer::empty())
+        }
+        if count == 1 && updated.len() == 0 {
+            return collapse(mut db, children[other as usize].span(), at: other, depth)
+        }
+        return Option::Some(branch(children))
+    }
+    if parts.len() != 2 {
+        return Option::None
+    }
+    let encoded = payload(parts[0].span())?
+    let path = path_of(encoded.span())
+    var c: usize = 0
+    while c < path.len() && depth + c < key.len() && path.span()[c] == key[depth + c] {
+        c += 1
+    }
+    if is_leaf(encoded.span()) {
+        if c == path.len() && depth + c == key.len() {
+            if value.len() == 0 {
+                return Option::Some(MemBuffer::empty())
+            }
+            return Option::Some(leaf(key, from: depth, value))
+        }
+        if value.len() == 0 {
+            return Option::Some(copy(node))
+        }
+        let old = payload(parts[1].span())?
+        let moved = leaf(path.span(), from: c + 1, old.span())
+        let moved_item = reference(mut db, moved.span())
+        return Option::Some(
+            split(
+                mut db,
+                path.span(),
+                c,
+                moved_item.span(),
+                key,
+                depth,
+                value,
+            ),
+        )
+    }
+    if c == path.len() {
+        let child = resolve(db, parts[1].span())?
+        let updated = put(mut db, child.span(), key, depth: depth + c, value)?
+        return under(mut db, path.span(), updated.span())
+    }
+    if value.len() == 0 {
+        return Option::Some(copy(node))
+    }
+    let rest = if c + 1 == path.len() {
+        copy(parts[1].span())
+    } else {
+        let shorter = extension(path.span(), from: c + 1, parts[1].span())
+        reference(mut db, shorter.span())
+    }
+    Option::Some(
+        split(mut db, path.span(), c, rest.span(), key, depth, value),
+    )
+}
+
+// The 64 nibbles of keccak256 of the first `len` bytes of `value`.
+fn key_of(_ value: u256, len: usize) -> MemBuffer {
+    var bytes = MemBuffer::with_capacity(32)
+    bytes.write_word(offset: 0, value: value << (8 * (32 - len) as u256))
+    bytes.truncate(len)
+    let hash = keccak256_word(bytes.span())
+    var out = MemBuffer::empty()
+    var n: u256 = 0
+    while n < 64 {
+        out.push(((hash >> (4 * (63 - n))) & 0xf).downcast_truncate())
+        n += 1
+    }
+    out
+}
+
+// The node a trie's root hash names: none for the empty trie.
+fn root_node(_ db: Nodes, _ root: u256) -> Option<MemBuffer> {
+    if root == proof::EMPTY_TRIE {
+        return Option::Some(MemBuffer::empty())
+    }
+    lookup(db, root)
+}
+
+fn hash_root(_ node: MemSpan) -> u256 {
+    if node.len() == 0 {
+        proof::EMPTY_TRIE
+    } else {
+        keccak256_word(node)
+    }
+}
+
+// Adds a proof's nodes to `db`; for the block's own proofs, also the leaf
+// it ends in (with its full key, from walking `key`) and its extensions.
+fn add_proof(_ db: mut Nodes, _ entries: Value, _ key: MemSpan, witness: bool) {
+    var depth: usize = 0
+    for ref entry in entries.items() {
+        let node = hex_bytes(entry.text())
+        add(mut db, node.span(), witness)
+        if witness { continue }
+        let Option::Some(parts) = items(node.span()) else {
+            return
+        }
+        if parts.len() == 17 {
+            depth += 1
+        } else if parts.len() == 2 {
+            let Option::Some(encoded) = payload(parts[0].span()) else {
+                return
+            }
+            let path = path_of(encoded.span())
+            if is_leaf(encoded.span()) {
+                let Option::Some(value) = payload(parts[1].span()) else {
+                    return
+                }
+                if depth <= 64 {
+                    db.leaf_keys
+                        .push(
+                            concat(key.slice(offset: 0, len: depth), path.span(), from: 0),
+                        )
+                    db.leaf_values.push(value)
+                }
+                return
+            }
+            db.extensions.push(copy(node.span()))
+            depth += path.len()
+        }
+    }
+}
+
+// The root of a storage trie, `node` at the parent, with `slots` of
+// `address` set to their values in `world`. None when a node is missing.
+fn with_slots(
+    _ db: mut Nodes,
+    _ node: MemSpan,
+    _ world: WorldState,
+    _ address: u256,
+    _ slots: MemVec<u256>,
+) -> Option<u256> {
+    var storage = copy(node)
+    for s in 0 .. slots.len() {
+        let value = world.storage_load(address, slots[s])
+        var encoded = MemBuffer::empty()
+        if value != 0 {
+            put_word(mut encoded, value, width: 0)
+        }
+        let slot_key = key_of(slots[s], len: 32)
+        storage = put(
+            mut db,
+            storage.span(),
+            slot_key.span(),
+            depth: 0,
+            encoded.span(),
+        )?
+    }
+    Option::Some(hash_root(storage.span()))
+}
+
+fn add_side(_ db: mut Nodes, _ side: Value, witness: bool) {
+    for ref result in side.items() {
+        let account_key = key_of(field(result, "address"), len: 20)
+        add_proof(
+            mut db,
+            result["accountProof"],
+            account_key.span(),
+            witness,
+        )
+        for ref entry in result["storageProof"].items() {
+            let slot_key = key_of(field(entry, "key"), len: 32)
+            add_proof(mut db, entry["proof"], slot_key.span(), witness)
+        }
+    }
+}
+
+/// What computing the end-state root found.
+pub struct Computed {
+    /// The root fevm's end state hashes to; zero if a node was missing.
+    pub root: u256,
+    pub accounts: u64,
+    pub slots: u64,
+    pub witness_nodes: u64,
+    pub witness_bytes: u64,
+    pub hinted: u64,
+    pub assumed: u64,
+    /// When `root` is zero: the account whose node was missing, and what
+    /// for (1 the state root, 2 its proof, 3 its storage root, 4 a slot,
+    /// 5 the account).
+    pub stuck: u256,
+    pub stage: u8,
+}
+
+impl Copy for Computed {}
+
+/// The state root of `world` (fevm's end state) for every account and slot
+/// in `keys`, written into the trie the parent's proofs (`proofs["pre"]`)
+/// witness under `parent_root`. The block's own proofs (`proofs["post"]`)
+/// only offer nodes, each checked by its hash. An account in
+/// `code_unknown` keeps the parent's code.
+pub fn state_root(
+    _ world: WorldState,
+    parent_root: u256,
+    _ proofs: Value,
+    _ keys: WorldState,
+    code_unknown: MemVec<u256>,
+) -> Computed {
+    var db = Nodes {
+        index: WorldState::empty(),
+        nodes: MemVec::new(),
+        leaf_keys: MemVec::new(),
+        leaf_values: MemVec::new(),
+        extensions: MemVec::new(),
+        witness_nodes: 0,
+        witness_bytes: 0,
+        hinted: 0,
+        assumed: 0,
+    }
+    let _ = db.index.ensure_account(1)
+    var found = Computed {
+        root: 0,
+        accounts: 0,
+        slots: 0,
+        witness_nodes: 0,
+        witness_bytes: 0,
+        hinted: 0,
+        assumed: 0,
+        stuck: 0,
+        stage: 0,
+    }
+    add_side(mut db, proofs["pre"], witness: true)
+    add_side(mut db, proofs["post"], witness: false)
+    found.witness_nodes = db.witness_nodes
+    found.witness_bytes = db.witness_bytes
+    let Option::Some(start) = root_node(db, parent_root) else {
+        found.stage = 1
+        return found
+    }
+    var accounts = start
+    for k in 0 .. keys.account_count() {
+        let address = keys.account_at(k).address
+        let Option::Some(parent) = proof::find_account(
+            proofs["pre"],
+            state_root: parent_root,
+            address,
+        ) else {
+            found.stuck = address
+            found.stage = 2
+            return found
+        }
+        let slots = proof::slots_of(keys, address)
+        // No touched slot: the storage is the parent's, whose root node
+        // the witness need not hold.
+        var storage_root = parent.storage_root
+        if slots.len() > 0 {
+            let Option::Some(first) = root_node(db, parent.storage_root) else {
+                found.stuck = address
+                found.stage = 3
+                return found
+            }
+            let Option::Some(root) = with_slots(mut db, first.span(), world, address, slots) else {
+                found.stuck = address
+                found.stage = 4
+                return found
+            }
+            storage_root = root
+            found.slots += slots.len().downcast_unchecked()
+        }
+        let exists = world.exists(address)
+        let nonce = if exists { world.nonce(address) } else { 0 }
+        let balance = if exists { world.balance(address) } else { 0 }
+        var code_hash = if exists {
+            keccak256_word(world.code(address))
+        } else {
+            proof::EMPTY_CODE
+        }
+        for u in 0 .. code_unknown.len() {
+            if code_unknown[u] == address {
+                code_hash = parent.code_hash
+            }
+        }
+        if nonce == parent.nonce
+            && balance == parent.balance
+            && storage_root == parent.storage_root
+            && code_hash == parent.code_hash {
+            continue
+        }
+        var encoded = MemBuffer::empty()
+        if nonce != 0
+            || balance != 0
+            || code_hash != proof::EMPTY_CODE
+            || storage_root != proof::EMPTY_TRIE {
+            var fields = MemBuffer::empty()
+            put_word(mut fields, nonce, width: 0)
+            put_word(mut fields, balance, width: 0)
+            put_word(mut fields, storage_root, width: 32)
+            put_word(mut fields, code_hash, width: 32)
+            put_list(mut encoded, fields.span())
+        }
+        let account_key = key_of(address, len: 20)
+        let Option::Some(next) = put(
+            mut db,
+            accounts.span(),
+            account_key.span(),
+            depth: 0,
+            encoded.span(),
+        ) else {
+            found.stuck = address
+            found.stage = 5
+            return found
+        }
+        accounts = next
+        found.accounts += 1
+    }
+    found.root = hash_root(accounts.span())
+    found.hinted = db.hinted
+    found.assumed = db.assumed
+    found
+}
