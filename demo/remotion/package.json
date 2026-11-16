@@ -1,0 +1,23 @@
+{
+  "name": "fevm-replay-tour",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "tts": "python tts.py",
+    "capture": "node capture/capture.ts",
+    "studio": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts Tour ../tour-v2-draft.mp4 --concurrency=2 --crf=18",
+    "check": "node check.ts"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.543",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.543"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.12",
+    "playwright": "1.65.1",
+    "typescript": "5.6.3"
+  }
+}

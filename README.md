@@ -29,7 +29,7 @@ Replaying is fast: those 5,129 transactions take 5.9 seconds once fetched.
 | **Fe ports** | 5 ports (USDT, every Uniswap V2 pair, WETH9, DAI, USDC's proxy) certified by mainnet replay, mainnet mutations, fuzzing and mutation testing ([verified page](https://fevm-replay.vercel.app/verified.html)) |
 | **Fe-specific** | Effects prove the verdict and the proof verifier offline; `const fn` + `static_assert` check the blob fee against a real block; std units, `core::fixed`, `msg`/`recv` ([Fe highlight](#fe-highlight)) |
 | **Found** | 3 bugs in the Fe ports, 2 node tracer bugs, the transactions the Osaka fork changed, and where Fe's code costs more than solc's ([argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002)) |
-| **Watch** | [3-minute narrated tour](demo/tour-narrated.mp4) |
+| **Watch** | [3-minute tour](demo/tour-v2.mp4): the site and real terminal runs, driven like a user, with captions, highlights and a neural voice |
 | **Try** | No Fe needed: [three commands](#try-it-without-fe) with the release binary |
 
 The rest of this README is the full account: [problem](#the-problem),
@@ -401,11 +401,11 @@ the free `https://eth.drpc.org`; pass another URL as the last argument.
 ![fevm-replay fetching and replaying a mainnet transaction, a negative fixture, a whole block and a shadow replay of Fe WETH9](demo/demo.svg)
 
 The recording is [`demo/demo.sh`](demo/demo.sh) (asciinema, svg-term).
-Videos: [`demo/tour-narrated.mp4`](demo/tour-narrated.mp4), a 3-minute
-narrated tour (narration in [`demo/narration.txt`](demo/narration.txt),
-neural voice through `edge-tts`; scenes are HTML pages with real output,
-[`demo/make_tour.py`](demo/make_tour.py)); [`demo/tour.mp4`](demo/tour.mp4),
-the same captioned only; [`demo/explorer-tour.mp4`](demo/explorer-tour.mp4),
+Videos: [`demo/tour-v2.mp4`](demo/tour-v2.mp4), the current tour (2:59): Playwright drives the
+site like a user, real asciinema recordings of the tool ([`demo/casts`](demo/casts)) play
+as terminals, and Remotion adds highlights, zooms, captions and an `edge-tts` voice
+([`demo/remotion`](demo/remotion)); [`demo/tour-narrated.mp4`](demo/tour-narrated.mp4) and
+[`demo/tour.mp4`](demo/tour.mp4), the earlier tour ([`demo/make_tour.py`](demo/make_tour.py)); [`demo/explorer-tour.mp4`](demo/explorer-tour.mp4),
 [the explorer](https://fevm-replay.vercel.app/explorer.html) in 25 seconds.
 The same steps by hand are in [docs/details.md](docs/details.md#the-demo-by-hand).
 

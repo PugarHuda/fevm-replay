@@ -1,0 +1,418 @@
+{
+ "hero": {
+  "audio": 10.392,
+  "captions": [
+   {
+    "start": 0.084041,
+    "end": 1.397041,
+    "text": "This is fevm-replay."
+   },
+   {
+    "start": 1.397041,
+    "end": 7.016791,
+    "text": "It runs real Ethereum mainnet transactions inside fevm, the EVM written in Fe,"
+   },
+   {
+    "start": 7.016791,
+    "end": 10.373541000000001,
+    "text": "and checks that each one ends exactly as it did on chain."
+   }
+  ],
+  "cues": {
+   "This is": 0.084041,
+   "exactly as it did": 8.508416
+  }
+ },
+ "results": {
+  "audio": 7.8,
+  "captions": [
+   {
+    "start": 0.084041,
+    "end": 4.915958,
+    "text": "115,213 mainnet transactions, and no fevm bug:"
+   },
+   {
+    "start": 4.915958,
+    "end": 7.7684999999999995,
+    "text": "every difference was traced to a cause outside the interpreter."
+   }
+  ],
+  "cues": {
+   "115,213": 0.084041,
+   "Every difference": 4.915958
+  }
+ },
+ "proof": {
+  "audio": 15.432,
+  "captions": [
+   {
+    "start": 0.084041,
+    "end": 1.134458,
+    "text": "Now the headline:"
+   },
+   {
+    "start": 1.134458,
+    "end": 3.235291,
+    "text": "every root in the header comes out of fevm."
+   },
+   {
+    "start": 3.235291,
+    "end": 5.514708,
+    "text": "The parent's Merkle proofs are a witness:"
+   },
+   {
+    "start": 5.514708,
+    "end": 7.058833,
+    "text": "fevm runs the block on it,"
+   },
+   {
+    "start": 7.058833,
+    "end": 10.462166,
+    "text": "writes its end state into that partial trie and hashes it again."
+   },
+   {
+    "start": 10.462166,
+    "end": 13.75,
+    "text": "That must be the header's state root, as a stateless client checks it."
+   },
+   {
+    "start": 13.75,
+    "end": 15.436541,
+    "text": "Every other root must match too."
+   }
+  ],
+  "cues": {
+   "every root": 1.134458,
+   "That must be": 10.462166,
+   "Every other root": 13.75
+  }
+ },
+ "stateless": {
+  "audio": 26.472,
+  "captions": [
+   {
+    "start": 0.094541,
+    "end": 1.502083,
+    "text": "Here is that run:"
+   },
+   {
+    "start": 1.502083,
+    "end": 7.237375,
+    "text": "block 26,424,805, checked by CI on every push."
+   },
+   {
+    "start": 7.237375,
+    "end": 10.168083,
+    "text": "71 of 71 transactions match."
+   },
+   {
+    "start": 10.168083,
+    "end": 14.149166,
+    "text": "They re-encode to the transactions root, the requests hash matches,"
+   },
+   {
+    "start": 14.149166,
+    "end": 15.913875,
+    "text": "and the state root is the header's."
+   },
+   {
+    "start": 15.913875,
+    "end": 21.113458,
+    "text": "It also estimates EIP-7864's binary-tree witness:"
+   },
+   {
+    "start": 21.113458,
+    "end": 22.016791,
+    "text": "about half (stems and values exact, depth and positions assumed),"
+   },
+   {
+    "start": 22.016791,
+    "end": 26.465958,
+    "text": "505 to 557 KiB against 1,002."
+   }
+  ],
+  "cues": {
+   "71 of 71": 7.237375,
+   "They re-encode": 10.168083,
+   "the requests hash": 12.447458,
+   "the state root is": 14.201666,
+   "binary-tree": 19.852958
+  }
+ },
+ "one-wei": {
+  "audio": 9.576,
+  "captions": [
+   {
+    "start": 0.084041,
+    "end": 3.413875,
+    "text": "Change one withdrawal by one wei, and the withdrawals root,"
+   },
+   {
+    "start": 3.413875,
+    "end": 6.491583,
+    "text": "the end-state proof and the computed state root all fail."
+   },
+   {
+    "start": 6.491583,
+    "end": 9.554166,
+    "text": "A clean run rests on one 32-byte block hash."
+   }
+  ],
+  "cues": {
+   "Change one withdrawal": 0.084041
+  }
+ },
+ "effects": {
+  "audio": 7.968,
+  "captions": [
+   {
+    "start": 0.199583,
+    "end": 2.247916,
+    "text": "Fe functions declare their effects."
+   },
+   {
+    "start": 2.247916,
+    "end": 5.766791,
+    "text": "The function that decides match or diff gets a text buffer and nothing else,"
+   },
+   {
+    "start": 5.766791,
+    "end": 7.957583,
+    "text": "so calling the network from it is a type error."
+   }
+  ],
+  "cues": {
+   "declare their effects": 0.808833,
+   "text buffer": 4.107125
+  }
+ },
+ "verified": {
+  "audio": 8.928,
+  "captions": [
+   {
+    "start": 0.063041,
+    "end": 2.111333,
+    "text": "Is a Fe port a drop-in replacement?"
+   },
+   {
+    "start": 2.111333,
+    "end": 2.951666,
+    "text": "Ask mainnet."
+   },
+   {
+    "start": 2.951666,
+    "end": 8.923916,
+    "text": "The USDT port ran in 21,230 mainnet transactions, and none behaved differently."
+   }
+  ],
+  "cues": {
+   "Ask mainnet": 2.111333,
+   "21,230": 4.537833
+  }
+ },
+ "certificate": {
+  "audio": 11.064,
+  "captions": [
+   {
+    "start": 0.084041,
+    "end": 1.481083,
+    "text": "DAI's certificate:"
+   },
+   {
+    "start": 1.481083,
+    "end": 9.044125,
+    "text": "10,562 mainnet transactions, 211,240 mutated runs, none different,"
+   },
+   {
+    "start": 9.044125,
+    "end": 11.045791,
+    "text": "all 21 planted mutants caught."
+   }
+  ],
+  "cues": {
+   "10,562": 1.481083,
+   "211,240": 4.936958,
+   "all 21": 9.044125
+  }
+ },
+ "explorer": {
+  "audio": 8.16,
+  "captions": [
+   {
+    "start": 0.084041,
+    "end": 2.5,
+    "text": "The explorer shows where two runs part:"
+   },
+   {
+    "start": 2.5,
+    "end": 6.134458,
+    "text": "before its fix, the Fe port reverted on a bot's packed address."
+   },
+   {
+    "start": 6.134458,
+    "end": 8.157125,
+    "text": "After the fix, they no longer part."
+   }
+  ],
+  "cues": {
+   "where two runs part": 0.976875,
+   "before its fix": 2.5,
+   "no longer part": 7.121833,
+   "After the fix": 6.134458
+  }
+ },
+ "opgas": {
+  "audio": 6.888,
+  "captions": [
+   {
+    "start": 0.073541,
+    "end": 4.884458,
+    "text": "Opcode by opcode, Fe spends 44% less gas than solc on stack shuffling,"
+   },
+   {
+    "start": 4.884458,
+    "end": 6.865124,
+    "text": "but 25% more on memory."
+   }
+  ],
+  "cues": {
+   "Opcode by opcode": 0.073541,
+   "44% less": 1.754208
+  }
+ },
+ "try": {
+  "audio": 5.952,
+  "captions": [
+   {
+    "start": 0.084041,
+    "end": 1.607125,
+    "text": "No Fe install needed:"
+   },
+   {
+    "start": 1.607125,
+    "end": 5.940749,
+    "text": "the release binary runs the seven saved mainnet fixtures, and all seven match."
+   }
+  ],
+  "cues": {
+   "all seven": 4.758416
+  }
+ },
+ "end": {
+  "audio": 12.936,
+  "captions": [
+   {
+    "start": 0.136541,
+    "end": 3.886541,
+    "text": "fevm-replay validates whole mainnet blocks statelessly."
+   },
+   {
+    "start": 3.886541,
+    "end": 7.321416,
+    "text": "It found three bugs in the Fe ports, two node tracer bugs,"
+   },
+   {
+    "start": 7.321416,
+    "end": 9.201666,
+    "text": "and what the Osaka fork changed."
+   },
+   {
+    "start": 9.201666,
+    "end": 12.905041,
+    "text": "Code on GitHub, results at fevm-replay.vercel.app."
+   }
+  ],
+  "cues": {}
+ },
+ "chain": {
+  "audio": 16.872,
+  "captions": [
+   {
+    "start": 0.136541,
+    "end": 2.815125,
+    "text": "Three consecutive mainnet blocks, in one run."
+   },
+   {
+    "start": 2.815125,
+    "end": 3.7605,
+    "text": "Block one:"
+   },
+   {
+    "start": 3.7605,
+    "end": 6.176458,
+    "text": "230 transactions, all matching."
+   },
+   {
+    "start": 6.176458,
+    "end": 6.953791,
+    "text": "Block two:"
+   },
+   {
+    "start": 6.953791,
+    "end": 8.319333,
+    "text": "256."
+   },
+   {
+    "start": 8.319333,
+    "end": 9.264708,
+    "text": "Block three:"
+   },
+   {
+    "start": 9.264708,
+    "end": 10.63025,
+    "text": "186."
+   },
+   {
+    "start": 10.63025,
+    "end": 11.743708,
+    "text": "And the links hold:"
+   },
+   {
+    "start": 11.743708,
+    "end": 13.970583,
+    "text": "each block's parent is the one before it,"
+   },
+   {
+    "start": 13.970583,
+    "end": 16.854624,
+    "text": "its pre-state proven against the state root fevm computed."
+   }
+  ],
+  "cues": {
+   "Block one": 2.815125,
+   "Block two": 6.176458,
+   "Block three": 8.319333,
+   "the links hold": 10.693291
+  }
+ },
+ "stateless-page": {
+  "audio": 15.48,
+  "captions": [
+   {
+    "start": 0.073541,
+    "end": 4.117666,
+    "text": "A follower takes the block two behind the chain head, proves it and validates it."
+   },
+   {
+    "start": 4.117666,
+    "end": 8.834041,
+    "text": "This page lists every block it took, with the witness per transaction and per million gas."
+   },
+   {
+    "start": 8.834041,
+    "end": 11.2605,
+    "text": "It also shows whose storage weighs the most:"
+   },
+   {
+    "start": 11.2605,
+    "end": 15.468041000000001,
+    "text": "the deeper a contract's storage trie, the more each slot it touches costs."
+   }
+  ],
+  "cues": {
+   "every block it took": 4.9895,
+   "the witness per": 6.176458,
+   "whose storage": 9.495791
+  }
+ }
+}
