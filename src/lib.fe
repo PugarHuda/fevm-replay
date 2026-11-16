@@ -1608,6 +1608,24 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                     )
                 }
             }
+            let bin = binary::estimate(keys)
+            println!(
+                "binary tree (EIP-7864), estimated for the same keys: ",
+                bin.stems,
+                " stems, ",
+                bin.values,
+                " values, ",
+                bin.low_bytes / 1024,
+                " to ",
+                bin.high_bytes / 1024,
+                " KiB at ",
+                bin.low_depth,
+                " to ",
+                bin.high_depth,
+                " levels above the stems (Merkle-Patricia: ",
+                (computed.witness_bytes + computed.hinted_bytes) / 1024,
+                " KiB)",
+            )
             if computed.hinted > 0 {
                 // eth_getProof names keys, and these are keys no
                 // transaction touched: their nodes come from the block's

@@ -397,3 +397,16 @@ fn transactions_encode_to_their_mainnet_hashes() {
             == 0x4ba798126dc24806af0d586ed4d03da9aeec028f4da4601d013a35ff535a7d47,
     )
 }
+
+// One account and no slots: one stem holding two values (basic data and
+// code hash). Inside the stem, the two share 7 of 8 levels, so 7 sibling
+// hashes; above it, one per level. 31 + 32 * (7 + 2) + 32 * levels bytes.
+#[test]
+fn a_lone_account_costs_one_path_in_the_binary_tree() {
+    var keys = fevm::WorldState::empty()
+    let _ = keys.ensure_account(0x1234)
+    let e = ingot::binary::estimate(keys)
+    assert!(e.stems == 1 && e.values == 2)
+    assert!(e.low_bytes == 31 + 32 * 9 + 32 * 28)
+    assert!(e.high_bytes == 31 + 32 * 9 + 32 * 31)
+}

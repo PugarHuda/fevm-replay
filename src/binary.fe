@@ -1,0 +1,139 @@
+//! An estimate of the block's witness in the unified binary tree of
+//! EIP-7864, for the same accounts and slots the Merkle-Patricia witness
+//! covers. The tree groups 256 values under a 31-byte stem: an account's
+//! basic data and code hash and its first 64 storage slots share the
+//! account's header stem; other slots go 256 to a stem by slot number.
+//! Exact here: the stems and values the block touches, and how their paths
+//! share nodes. Assumed: the stems' positions (keccak stands in for the
+//! EIP's hash; any uniform hash gives the same shape on average) and the
+//! tree's depth, given as a range. Code chunks are left out, as code is
+//! left out of the Merkle-Patricia witness it is compared with.
+
+use core::{MemBuffer, MemVec}
+use core::hash::keccak256_word
+use fevm::WorldState
+use ingot::proof
+
+/// The estimate, for a tree `low_depth` and `high_depth` levels deep above
+/// the stems.
+pub struct Estimate {
+    pub stems: u64,
+    pub values: u64,
+    pub low_depth: u64,
+    pub high_depth: u64,
+    pub low_bytes: u64,
+    pub high_bytes: u64,
+}
+
+impl Copy for Estimate {}
+
+const LOW_DEPTH: u64 = 28
+const HIGH_DEPTH: u64 = 31
+
+// EIP-7864: where storage slots past the header start (256^31), in stems.
+const MAIN_STORAGE_STEMS: u256 = 1 << 240
+const HEADER_STORAGE_OFFSET: u256 = 64
+
+// The stem of (`address`, `tree_index`): 248 bits of a hash of both.
+fn stem(_ address: u256, _ tree_index: u256) -> u256 {
+    var bytes = MemBuffer::with_capacity(64)
+    bytes.write_word(offset: 0, value: address)
+    bytes.write_word(offset: 32, value: tree_index)
+    keccak256_word(bytes.span()) >> 8
+}
+
+// Under account `set`, marks `key`; true if it was new.
+fn mark(_ sets: mut WorldState, set: u256, key: u256) -> bool {
+    if sets.storage_load(set, key) != 0 {
+        return false
+    }
+    let _ = sets.storage_store(set, key, 1)
+    true
+}
+
+// Sibling hashes a proof of all `keys` needs over `levels` levels of a
+// subtree whose positions are the keys' low `bits` bits (higher bits name
+// the subtree): at each level, a node on some path whose sibling is on
+// none. `set` names the scratch sets.
+fn siblings(
+    _ sets: mut WorldState,
+    _ keys: MemVec<u256>,
+    bits: u256,
+    levels: u64,
+    set: u256,
+) -> u64 {
+    var count: u64 = 0
+    var level: u64 = 1
+    while level <= levels {
+        let shift = bits - level as u256
+        let name = set + level as u256
+        let _ = sets.ensure_account(name)
+        var prefixes: MemVec<u256> = MemVec::new()
+        for k in 0 .. keys.len() {
+            let prefix = keys[k] >> shift
+            if mark(mut sets, set: name, key: prefix) {
+                prefixes.push(prefix)
+            }
+        }
+        for p in 0 .. prefixes.len() {
+            if sets.storage_load(name, prefixes[p] ^ 1) == 0 {
+                count += 1
+            }
+        }
+        level += 1
+    }
+    count
+}
+
+/// The binary-tree witness for every account and slot in `keys`.
+pub fn estimate(_ keys: WorldState) -> Estimate {
+    var sets = WorldState::empty()
+    let _ = sets.ensure_account(1)
+    // Each value as stem << 8 | suffix.
+    var values: MemVec<u256> = MemVec::new()
+    for a in 0 .. keys.account_count() {
+        let address = keys.account_at(a).address
+        let header = stem(address, 0) << 8
+        // Basic data (nonce, balance, code size) and code hash.
+        if mark(mut sets, set: 1, key: header) {
+            values.push(header)
+        }
+        if mark(mut sets, set: 1, key: header | 1) {
+            values.push(header | 1)
+        }
+        let slots = proof::slots_of(keys, address)
+        for s in 0 .. slots.len() {
+            let slot = slots[s]
+            let at = if slot < HEADER_STORAGE_OFFSET {
+                header | (HEADER_STORAGE_OFFSET + slot)
+            } else {
+                (stem(address, MAIN_STORAGE_STEMS + (slot >> 8)) << 8) | (slot & 0xff)
+            }
+            if mark(mut sets, set: 1, key: at) {
+                values.push(at)
+            }
+        }
+    }
+    var stems: MemVec<u256> = MemVec::new()
+    let _ = sets.ensure_account(2)
+    for v in 0 .. values.len() {
+        if mark(mut sets, set: 2, key: values[v] >> 8) {
+            stems.push(values[v] >> 8)
+        }
+    }
+    // Inside each stem, its 256 values form an 8-level tree.
+    let inner = siblings(mut sets, values, bits: 8, levels: 8, set: 1000)
+    let low = siblings(mut sets, stems, bits: 248, levels: LOW_DEPTH, set: 2000)
+    let high = siblings(mut sets, stems, bits: 248, levels: HIGH_DEPTH, set: 3000)
+    // A stem (31 bytes) per stem, a hash (32) per sibling, 32 per value.
+    let fixed = 31 * stems.len().downcast_unchecked()
+        + 32 * (inner + values.len().downcast_unchecked())
+    Estimate {
+        stems: stems.len().downcast_unchecked(),
+        values: values.len().downcast_unchecked(),
+        low_depth: LOW_DEPTH,
+        high_depth: HIGH_DEPTH,
+        low_bytes: fixed + 32 * low,
+        high_bytes: fixed + 32 * high,
+    }
+}

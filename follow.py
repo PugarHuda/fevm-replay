@@ -2,6 +2,9 @@
 
     python3 follow.py <fevm_replay> <work-dir> <out.json> [minutes] [rpc-url]
 
+With 0 minutes it runs `chain` again on every block already recorded (for
+a newer tool), keeping the fetch times.
+
 Every round takes the block two behind the head, saves it (fetch-block),
 fetches the parent's and the block's proofs (fetch-proofs) and runs
 `chain` on it, then appends what `chain` printed to <out.json>: the
@@ -35,7 +38,43 @@ def number(pattern, text, default=0):
     return int(m.group(1)) if m else default
 
 
+def analyze(record, d):
+    code, text = run("chain", d)
+    m = re.search(r"(\d+)/(\d+) transactions MATCH", text)
+    b = re.search(r"estimated for the same keys: (\d+) stems, (\d+) values, (\d+) to (\d+) KiB", text)
+    record.update({
+        "matched": int(m.group(1)) if m else 0,
+        "transactions": int(m.group(2)) if m else 0,
+        "gas_used": number(r"header: fevm's gas \((\d+)\)", text),
+        "every_root": code == 0 and "hashes to the header's stateRoot" in text,
+        "witness_nodes": number(r"parent's witness \((\d+) nodes", text),
+        "witness_kib": number(r"nodes, (\d+) KiB\) hashes", text),
+        "block_proof_nodes": number(r"plus (\d+) nodes the parent's proofs lack", text),
+        "block_proof_kib": number(r"lack \((\d+) KiB\)", text),
+        "assumed_branches": number(r"taken to be branches: (\d+)", text),
+        "binary_stems": int(b.group(1)) if b else None,
+        "binary_values": int(b.group(2)) if b else None,
+        "binary_kib_low": int(b.group(3)) if b else None,
+        "binary_kib_high": int(b.group(4)) if b else None,
+    })
+    record["result"] = "every root matches" if record["every_root"] else "DIFF: " + " | ".join(
+        l for l in text.splitlines() if l[:1].isupper() and not l.startswith("chain"))[:300]
+
+
+def save(records):
+    with open(out + ".tmp", "w") as f:
+        json.dump(records, f, indent=1)
+    os.replace(out + ".tmp", out)
+
+
 records = json.load(open(out)) if os.path.exists(out) else []
+if minutes == 0:
+    for r in records:
+        if "matched" in r:
+            analyze(r, os.path.join(work, hex(r["number"])))
+            print(r, flush=True)
+    save(records)
+    sys.exit(0)
 done = {r["number"] for r in records}
 end = time.time() + minutes * 60
 os.makedirs(work, exist_ok=True)
@@ -59,24 +98,8 @@ while time.time() < end:
     if code != 0:
         record["result"] = "not proven: " + (text.strip().splitlines() or ["?"])[-1][:160]
     else:
-        code, text = run("chain", d)
-        m = re.search(r"(\d+)/(\d+) transactions MATCH", text)
-        record.update({
-            "matched": int(m.group(1)) if m else 0,
-            "transactions": int(m.group(2)) if m else 0,
-            "gas_used": number(r"header: fevm's gas \((\d+)\)", text),
-            "every_root": code == 0 and "hashes to the header's stateRoot" in text,
-            "witness_nodes": number(r"parent's witness \((\d+) nodes", text),
-            "witness_kib": number(r"nodes, (\d+) KiB\) hashes", text),
-            "block_proof_nodes": number(r"plus (\d+) nodes the parent's proofs lack", text),
-            "block_proof_kib": number(r"lack \((\d+) KiB\)", text),
-            "assumed_branches": number(r"taken to be branches: (\d+)", text),
-        })
-        record["result"] = "every root matches" if record["every_root"] else "DIFF: " + " | ".join(
-            l for l in text.splitlines() if l[:1].isupper() and not l.startswith("chain"))[:300]
+        analyze(record, d)
     done.add(n)
     records.append(record)
-    with open(out + ".tmp", "w") as f:
-        json.dump(records, f, indent=1)
-    os.replace(out + ".tmp", out)
+    save(records)
     print(record, flush=True)
