@@ -877,3 +877,57 @@ fn spread_keys_change_like_a_fresh_build() {
 fn shared_prefix_keys_change_like_a_fresh_build() {
     differential(count: 300, shared: true)
 }
+
+/// What one account's storage adds to the parent's witness: the distinct
+/// bytes of the nodes in its storage proofs, and how many slots they prove.
+pub struct StorageWitness { pub address: u256, pub bytes: u64, pub slots: u64 }
+
+impl Copy for StorageWitness {}
+
+/// The `count` accounts whose storage proofs in `proofs` (the parent's,
+/// `proofs["pre"]`) weigh the most, heaviest first, and the bytes of all
+/// storage proofs together.
+pub fn heaviest_storage(_ proofs: Value, count: usize) -> (MemVec<StorageWitness>, u64) {
+    var all: MemVec<StorageWitness> = MemVec::new()
+    var total: u64 = 0
+    var seen = WorldState::empty()
+    for ref result in proofs.items() {
+        let address = field(result, "address")
+        let _ = seen.ensure_account(address)
+        var bytes: u64 = 0
+        var slots: u64 = 0
+        for ref entry in result["storageProof"].items() {
+            slots += 1
+            for ref node in entry["proof"].items() {
+                let raw = hex_bytes(node.text())
+                let hash = keccak256_word(raw.span())
+                if seen.storage_load(address, hash) == 0 {
+                    let _ = seen.storage_store(address, hash, 1)
+                    bytes += raw.len().downcast_unchecked()
+                }
+            }
+        }
+        total += bytes
+        if slots > 0 {
+            all.push(StorageWitness { address, bytes, slots })
+        }
+    }
+    // ponytail: selection of the top few, O(accounts x count); fine for a block.
+    var top: MemVec<StorageWitness> = MemVec::new()
+    var taken = WorldState::empty()
+    while top.len() < count && top.len() < all.len() {
+        var best: usize = 0
+        var best_bytes: u64 = 0
+        var found = false
+        for i in 0 .. all.len() {
+            if !taken.exists(i as u256) && (!found || all[i].bytes > best_bytes) {
+                best = i
+                best_bytes = all[i].bytes
+                found = true
+            }
+        }
+        let _ = taken.ensure_account(best as u256)
+        top.push(all[best])
+    }
+    (top, total)
+}

@@ -1,3 +1,4 @@
 [
-{"number":26425266,"at":"2026-11-16 04:43 UTC","matched":367,"transactions":367,"gas_used":42889407,"every_root":true,"witness_nodes":16401,"witness_kib":5626,"block_proof_nodes":199,"block_proof_kib":81,"assumed_branches":1,"binary_stems":2525,"binary_kib_low":2098,"binary_kib_high":2335,"older_hashes":false,"result":"every root matches"}
+{"number":26425266,"at":"2026-11-16 04:43 UTC","matched":367,"transactions":367,"gas_used":42889407,"every_root":true,"witness_nodes":16401,"witness_kib":5626,"block_proof_nodes":199,"block_proof_kib":81,"assumed_branches":1,"binary_stems":2525,"binary_kib_low":2098,"binary_kib_high":2335,"older_hashes":false,"result":"every root matches"},
+{"number":26425288,"at":"2026-11-16 04:47 UTC","matched":239,"transactions":239,"gas_used":59994981,"every_root":true,"witness_nodes":8145,"witness_kib":2860,"block_proof_nodes":111,"block_proof_kib":38,"assumed_branches":0,"binary_stems":1282,"binary_kib_low":1103,"binary_kib_high":1223,"older_hashes":false,"result":"every root matches"}
 ]

@@ -1612,6 +1612,23 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                     )
                 }
             }
+            let (heaviest, storage_bytes) = stateless::heaviest_storage(proofs["pre"], count: 5)
+            println!(
+                "witness: ",
+                storage_bytes / 1024,
+                " KiB of it in storage proofs; heaviest storage:",
+            )
+            for h in 0 .. heaviest.len() {
+                println!(
+                    "  storage witness 0x",
+                    core::text::hex(heaviest[h].address, 20),
+                    ": ",
+                    heaviest[h].bytes / 1024,
+                    " KiB, ",
+                    heaviest[h].slots,
+                    " slots",
+                )
+            }
             let bin = binary::estimate(keys)
             println!(
                 "binary tree (EIP-7864), estimated for the same keys: ",

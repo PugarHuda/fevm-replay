@@ -134,6 +134,12 @@ header: fevm's gas (9743588), the blob gas and fevm's logs bloom are the header'
 requests: fevm's 0 deposits, 0 withdrawal and 0 consolidation requests hash to the header's requestsHash
 end state: 213 accounts and 521 slots proven against the block's state root, 0 differ
 state root: fevm's end state (149 accounts and 521 slots written) on the parent's witness (2969 nodes, 992 KiB) hashes to the header's stateRoot
+witness: 448 KiB of it in storage proofs; heaviest storage:
+  storage witness 0xdac17f958d2ee523a2206206994597c13d831ec7: 116 KiB, 52 slots
+  storage witness 0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48: 68 KiB, 31 slots
+  storage witness 0xe37a2663cc9c119ba41572c40fab0bbb23a5402f: 39 KiB, 34 slots
+  storage witness 0xa6cc3c2531fdaa6ae1a3ca84c2855806728693e8: 34 KiB, 34 slots
+  storage witness 0xf02d53d62af4e5c1e0769c36ed0353b29b443c58: 28 KiB, 85 slots
 binary tree (EIP-7864), estimated for the same keys: 564 stems, 947 values, 505 to 557 KiB at 28 to 31 levels above the stems (Merkle-Patricia: 1002 KiB)
   plus 26 nodes the parent's proofs lack (9 KiB), siblings a deletion moved up, taken from the block's proofs by the hashes the parent's nodes name
 withdrawals: 16 credited, their recipients checked by the end state's proofs
@@ -152,19 +158,15 @@ withdrawals: 16 credited, their recipients checked by the end state's proofs
 
 **Stateless.** The parent's proofs (EIP-1186) are a witness: the trie
 nodes from the parent's state root to every account and slot the block
-touched, each checked by its hash. fevm's end state is written into that
-partial trie (insertions, changes and deletions, accounts and their storage
-tries) and hashed again, the way a stateless client validates a block. The
-result must be the header's `stateRoot`, so fevm's value for every touched
-key is the chain's. One case needs nodes the parent's proofs do not hold:
-a deletion that leaves a branch with one child moves that child up, and
-the child belongs to a key no transaction touched, which `eth_getProof`
-cannot name (an execution witness would carry it, but no free endpoint
-serves `debug_executionWitness`). Such a node is taken from the block's own
-proofs, found by the hash a parent's node names, so it too hashes into the
-parent's state root; `chain` counts these nodes and their bytes (26 nodes,
-9 KiB, in the block above). The block's proofs serve as a source of nodes,
-not as the answer.
+touched. fevm's end state is written into that partial trie (inserts,
+changes, deletions, storage tries too) and hashed again, as a stateless
+client validates a block; the result must be the header's `stateRoot`. A
+deletion that leaves a branch with one child moves that child up; it may
+belong to an untouched key `eth_getProof` cannot name (no free endpoint
+serves `debug_executionWitness`): it is then taken from the block's own
+proofs by the hash a parent's node names, and counted (26 nodes, 9 KiB,
+above). Differential tests check the trie code against a build from
+nothing, with inline nodes and merged extensions.
 
 | Block | Transactions | Witness nodes | Witness size | |
 | ---: | ---: | ---: | ---: | --- |
@@ -181,11 +183,9 @@ values exact, stem positions from a stand-in hash, 28 to 31 levels deep.
 For the block above: 505 to 557 KiB against 1,002 KiB, code left out.
 
 **Following the chain.** `fevm_replay follow <dir> <out.json> <blocks>`
-([`src/follow.fe`](src/follow.fe)) takes the block two behind the head,
-saves and proves it and runs `chain`, by running itself, again and again;
-the [stateless blocks page](https://fevm-replay.vercel.app/stateless.html)
-lists every block it took, with the witness per transaction and per
-million gas and the binary-tree estimate.
+([`src/follow.fe`](src/follow.fe)) validates the block two behind the head,
+again and again, by running itself; the [stateless blocks page](https://fevm-replay.vercel.app/stateless.html)
+lists each block's witness, binary estimate and heaviest storage tries.
 
 In every block of the table all transactions and every root match. The
 witness size counts the parent's distinct proof nodes; code comes on top,
@@ -193,9 +193,8 @@ checked against the proven code hashes. Earlier proven blocks are in
 [docs/details.md](docs/details.md#proven-against-the-state-root).
 
 **Consecutive blocks as one chain.** Given several block directories,
-`chain` validates each and then links them: a block's parent must be the
-block before it, and the state root its pre-state was proven against must
-be the one fevm computed for that block.
+`chain` validates each and links them: each block's parent is the one
+before, whose state root fevm computed and the next pre-state rests on.
 
 ```
 $ ./out/fevm_replay chain 0x193361d 0x193361e 0x193361f

@@ -66,6 +66,17 @@
     </table>
   </div>
 
+  <section>
+    <h2>Whose storage weighs the most</h2>
+    <p class="intro">Each block's five contracts with the heaviest storage proofs in the parent's witness (distinct node bytes), summed over the blocks above. A few token contracts with huge storage tries carry much of a block's witness.</p>
+    <div class="scroll">
+      <table class="map">
+        <thead><tr><th scope="col">Contract</th><th scope="col" class="n">Blocks</th><th scope="col" class="n">Slots proven</th><th scope="col" class="n">Storage witness</th></tr></thead>
+        <tbody id="heavy"></tbody>
+      </table>
+    </div>
+  </section>
+
   <section class="why">
     <h2>What the columns are</h2>
     <p><strong>Witness</strong> is what fevm needed besides code: the parent's distinct proof nodes, account and storage, plus the nodes a deletion moved up that the parent's proofs lack (taken from the block's own proofs by the hash a parent's node names). Contract code comes on top, checked against the proven code hashes.</p>
@@ -113,6 +124,25 @@ fetch("data/stateless.json").then((r) => r.json()).then((rows) => {
         `<td class="n">${r.binary_kib_low != null ? kib(r.binary_kib_low) + " – " + kib(r.binary_kib_high) : "–"}</td>`;
     }
     body.append(tr);
+  });
+  const NAMES = {
+    "0xdac17f958d2ee523a2206206994597c13d831ec7": "USDT",
+    "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": "USDC",
+    "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2": "WETH",
+    "0x6b175474e89094c44da98b954eedeac495271d0f": "DAI",
+  };
+  const heavy = {};
+  rows.filter((r) => r.heaviest).forEach((r) => r.heaviest.forEach(([a, kb, slots]) => {
+    const h = heavy[a] || (heavy[a] = { blocks: 0, kib: 0, slots: 0 });
+    h.blocks += 1; h.kib += kb; h.slots += slots;
+  }));
+  const hb = document.getElementById("heavy");
+  Object.entries(heavy).sort((x, y) => y[1].kib - x[1].kib).slice(0, 12).forEach(([a, h]) => {
+    const tr = document.createElement("tr");
+    const name = NAMES[a] ? `<strong>${NAMES[a]}</strong> ` : "";
+    tr.innerHTML = `<td>${name}<a class="addr" href="https://etherscan.io/address/${esc(a)}">${esc(a)}</a></td>` +
+      `<td class="n">${h.blocks}</td><td class="n">${h.slots.toLocaleString("en")}</td><td class="n">${kib(h.kib)}</td>`;
+    hb.append(tr);
   });
 }).catch(() => {
   document.getElementById("facts").textContent = "Could not load the data.";

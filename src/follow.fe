@@ -312,6 +312,34 @@ uses (args: Args, fs: mut Fs, proc: mut Spawn, out: mut Stdout)
                 decimal(second_after(t, " values, ".span())),
             )
             put_bool(mut record, "older_hashes", older)
+            put_field(
+                mut record,
+                "storage_kib",
+                decimal(number_after(t, "witness: ".span())),
+            )
+            // `  storage witness 0x<address>: <kib> KiB, <slots> slots`
+            ",\"heaviest\":[".fmt(mut record)
+            var at: usize = 0
+            var listed: u64 = 0
+            while let Option::Some(found) = find(t, "storage witness 0x".span(), from: at) {
+                let start = found + 16
+                if listed > 0 {
+                    ",".fmt(mut record)
+                }
+                "[\"".fmt(mut record)
+                for i in start .. start + 42 {
+                    record.push(t[i])
+                }
+                "\",".fmt(mut record)
+                let rest = t.slice(offset: start + 42, len: t.len() - start - 42)
+                decimal(number_after(rest, ": ".span())).fmt(mut record)
+                ",".fmt(mut record)
+                decimal(number_after(rest, " KiB, ".span())).fmt(mut record)
+                "]".fmt(mut record)
+                listed += 1
+                at = start + 42
+            }
+            "]".fmt(mut record)
             if every_root {
                 ",\"result\":\"every root matches\"}".fmt(mut record)
             } else {
