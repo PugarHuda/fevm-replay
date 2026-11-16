@@ -89,6 +89,35 @@ jobs:
           echo "$out" | grep -q "pre-state: .* 0 differ"
           echo "$out" | grep -q "end state: .* 0 differ"
 
+      - name: A mainnet block validated statelessly, every root in its header from fevm
+        run: |
+          tar xzf fixtures/proven/0x19335e5.tar.gz -C proven
+          out=$(./out/fevm_replay chain proven/0x19335e5)
+          echo "$out"
+          echo "$out" | grep -q "71/71 transactions MATCH"
+          echo "$out" | grep -q "system calls: fevm ran EIP-4788"
+          echo "$out" | grep -q "receipts: fevm's 71 receipts hash to the header's receiptsRoot"
+          echo "$out" | grep -q "transactions: 71 re-encoded, each hashes to its hash, and they hash to the header's transactionsRoot"
+          echo "$out" | grep -q "withdrawals: 16 hash to the header's withdrawalsRoot"
+          echo "$out" | grep -q "are the header's gasUsed, blobGasUsed and logsBloom"
+          echo "$out" | grep -q "hash to the header's requestsHash"
+          echo "$out" | grep -q "hashes to the header's stateRoot"
+
+      - name: One wei more in a withdrawal fails the stateless state root and the withdrawals root
+        run: |
+          cp -r proven/0x19335e5 proven/tampered2
+          python3 - <<'PY'
+          import json
+          p = "proven/tampered2/block.json"
+          doc = json.load(open(p))
+          w = doc["result"]["withdrawals"][0]
+          w["amount"] = hex(int(w["amount"], 16) + 1)
+          json.dump(doc, open(p, "w"))
+          PY
+          if ./out/fevm_replay chain proven/tampered2 > tampered2.txt; then cat tampered2.txt; exit 1; fi
+          grep "STATE ROOT" tampered2.txt
+          grep "WITHDRAWALS" tampered2.txt
+
       - name: One wei more in the saved prestate fails the proof
         run: |
           cp -r proven/0x192f56b proven/tampered
