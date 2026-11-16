@@ -111,6 +111,17 @@ jobs:
           assert s["heaviest"][0]["address"] == "0xdac17f958d2ee523a2206206994597c13d831ec7", s["heaviest"][0]
           PY
 
+      - name: Two consecutive mainnet blocks validated as one chain, and refused in the wrong order
+        run: |
+          curl -sSfL -o pair.tar.gz https://github.com/PugarHuda/fevm-replay/releases/download/fixtures-1/0x19338ca-0x19338cb.tar.gz
+          echo "0c773ddc1082f0d1c5945964744e2a1e378218e8bd6ed8cbbac34a192c445bbf  pair.tar.gz" | sha256sum -c
+          tar xzf pair.tar.gz -C proven
+          out=$(./out/fevm_replay chain proven/0x19338ca proven/0x19338cb)
+          echo "$out" | grep -E "MATCH|stateRoot|chain of"
+          echo "$out" | grep -q "chain of 2 blocks: 1 of 1 links hold"
+          if ./out/fevm_replay chain proven/0x19338cb proven/0x19338ca > swapped.txt; then cat swapped.txt; exit 1; fi
+          grep "LINK proven/0x19338ca" swapped.txt
+
       - name: One wei more in a withdrawal fails the stateless state root and the withdrawals root
         run: |
           cp -r proven/0x19335e5 proven/tampered2
