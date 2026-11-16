@@ -1,0 +1,11 @@
+{"version": 2, "width": 150, "height": 20, "timestamp": 1794800324, "env": {"SHELL": "/bin/bash", "TERM": "xterm-256color"}}
+[0.010012, "o", "\u001b[1;32m$\u001b[0m tar xzf fixtures/proven/0x19335e5.tar.gz -C proven\r\n"]
+[2.02057, "o", "\u001b[1;32m$\u001b[0m ./out/fevm_replay chain proven/0x19335e5\r\n"]
+[2.753797, "o", "headers: block 0x633b9caee6ca3358cd64e5f7a20a277125c1a71de9fd2cf855bcb600aed2ccd6 and its parent hash to themselves\r\npre-state: 210 accounts and 513 slots proven against the parent's state root, 0 differ\r\n"]
+[2.755108, "o", "system calls: fevm ran EIP-4788 (beacon root) and EIP-2935 (parent hash) before the first transaction\r\n"]
+[2.807175, "o", "chain proven/0x19335e5: 71/71 transactions MATCH (100%)\r\n"]
+[2.807664, "o", "receipts: fevm's 71 receipts hash to the header's receiptsRoot\r\n"]
+[2.810887, "o", "transactions: 71 re-encoded, each hashes to its hash, and they hash to the header's transactionsRoot\r\nwithdrawals: 16 hash to the header's withdrawalsRoot\r\nheader: fevm's gas (9743588), the blob gas and fevm's logs bloom are the header's gasUsed, blobGasUsed and logsBloom\r\n"]
+[2.81399, "o", "requests: fevm's 0 deposits, 0 withdrawal and 0 consolidation requests hash to the header's requestsHash\r\n"]
+[2.841008, "o", "end state: 213 accounts and 521 slots proven against the block's state root, 0 differ\r\n"]
+[2.951588, "o", "state root: fevm's end state (149 accounts and 521 slots written) on the parent's witness (2969 nodes, 992 KiB) hashes to the header's stateRoot\r\n  4 nodes a deletion moved up came from the block's proofs (checked by hash), 0 were taken to be branches\r\nwithdrawals: 16 credited, their recipients checked by the end state's proofs\r\n"]

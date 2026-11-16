@@ -1,0 +1,9 @@
+{"version": 2, "width": 150, "height": 12, "timestamp": 1794800328, "env": {"SHELL": "/bin/bash", "TERM": "xterm-256color"}}
+[0.003784, "o", "\u001b[1;32m$\u001b[0m ./out/fevm_replay fixtures/mainnet/*.json\r\n"]
+[0.618863, "o", "MATCH fixtures/mainnet/eip7702-delegate-missing-from-trace.json\r\n"]
+[0.62035, "o", "MATCH fixtures/mainnet/eth-transfer-legacy.json\r\n"]
+[0.626578, "o", "MATCH fixtures/mainnet/mev-bot.json\r\n"]
+[0.629803, "o", "MATCH fixtures/mainnet/router-swap.json\r\n"]
+[0.631882, "o", "MATCH fixtures/mainnet/uni-token-transfer.json\r\n"]
+[0.63417, "o", "MATCH fixtures/mainnet/usdc-approve.json\r\n"]
+[0.63618, "o", "MATCH fixtures/mainnet/usdt-transfer.json\r\n"]
