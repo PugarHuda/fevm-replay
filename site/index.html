@@ -79,17 +79,36 @@
   </section>
 
   <section id="proven" class="wrap">
-    <h2>Proven against the state root, not the node</h2>
-    <p class="intro">A node's traces are the starting point of every replay. With <code>fetch-proofs</code>, they no longer have to be trusted: fevm-replay saves the Merkle-Patricia proofs (<code>eth_getProof</code>) of every account and slot a block touched, at the parent and at the block, and <code>chain</code> checks them offline. Both headers must hash to the block's hash and its parent hash; the pre-state must match the parent's state root and the state fevm reaches after every transaction must match the block's.</p>
-<pre><code>$ fevm-replay fetch-block 0x192f56b blocks/0x192f56b
-$ fevm-replay fetch-proofs blocks/0x192f56b
-$ fevm-replay chain blocks/0x192f56b
-headers: block 0x6ad2e653…ee16 and its parent hash to themselves
-pre-state: 252 accounts and 463 slots proven against the parent's state root, 0 differ
-chain blocks/0x192f56b: 126/126 transactions MATCH (100%)
-receipts: fevm's 126 receipts hash to the header's receiptsRoot
-end state: 253 accounts and 463 slots proven against the block's state root, 0 differ</code></pre>
-    <p>A clean run rests on one 32-byte block hash. Change one balance in the saved traces by one wei, or one byte of a proof, and the run fails. The verifier is about 300 lines of Fe on std's RLP and core's Keccak, and like the replay it cannot reach the network. fevm's own receipts are built into a trie and matched against the header's <code>receiptsRoot</code> for every saved block: 185 of 185 fully matching blocks agree. With proofs, fevm also runs the end-of-block system calls (EIP-7002, EIP-7251) on the proven request contracts, and the deposits from its own logs with their output hash to the header's <code>requestsHash</code> (EIP-7685, sha256 through fevm's own precompile): state, receipts and requests, three header commitments, all from fevm.</p>
+    <h2>Every root in the header, out of fevm</h2>
+    <p class="intro">A node's traces are the starting point of every replay. With <code>fetch-proofs</code>, they no longer have to be trusted. The parent's Merkle-Patricia proofs (<code>eth_getProof</code>) are a witness: fevm runs the block's system calls and every transaction on it, writes its end state into that partial trie and hashes it again. The result must be the header's <code>stateRoot</code>, the way a stateless client validates a block, and every other commitment in the header has to come out of fevm too. Block 26,424,805, checked by CI on every push:</p>
+<pre><code>$ tar xzf fixtures/proven/0x19335e5.tar.gz -C proven
+$ fevm-replay chain proven/0x19335e5
+headers: block 0x633b9caee6ca3358cd64e5f7a20a277125c1a71de9fd2cf855bcb600aed2ccd6 and its parent hash to themselves
+pre-state: 210 accounts and 513 slots proven against the parent's state root, 0 differ
+system calls: fevm ran EIP-4788 (beacon root) and EIP-2935 (parent hash) before the first transaction
+chain proven/0x19335e5: 71/71 transactions MATCH (100%)
+receipts: fevm's 71 receipts hash to the header's receiptsRoot
+transactions: 71 re-encoded, each hashes to its hash, and they hash to the header's transactionsRoot
+withdrawals: 16 hash to the header's withdrawalsRoot
+header: fevm's gas (9743588), the blob gas and fevm's logs bloom are the header's gasUsed, blobGasUsed and logsBloom
+requests: fevm's 0 deposits, 0 withdrawal and 0 consolidation requests hash to the header's requestsHash
+end state: 213 accounts and 521 slots proven against the block's state root, 0 differ
+state root: fevm's end state (149 accounts and 521 slots written) on the parent's witness (2969 nodes, 992 KiB) hashes to the header's stateRoot
+  4 nodes a deletion moved up came from the block's proofs (checked by hash), 0 were taken to be branches
+withdrawals: 16 credited, their recipients checked by the end state's proofs</code></pre>
+    <table class="numbers">
+      <thead><tr><th scope="col">Header field</th><th scope="col">Matched with</th></tr></thead>
+      <tbody>
+        <tr><td><code>stateRoot</code></td><td>computed from the parent's witness and fevm's end state</td></tr>
+        <tr><td><code>transactionsRoot</code></td><td>every transaction re-encoded, each hashing to its own hash</td></tr>
+        <tr><td><code>receiptsRoot</code></td><td>fevm's status, gas and logs</td></tr>
+        <tr><td><code>withdrawalsRoot</code></td><td>the withdrawals fevm credits</td></tr>
+        <tr><td><code>requestsHash</code></td><td>deposits from fevm's logs, EIP-7002 and EIP-7251 system calls run in fevm</td></tr>
+        <tr><td><code>parentBeaconBlockRoot</code>, <code>parentHash</code></td><td>stored by the EIP-4788 and EIP-2935 system calls, run in fevm</td></tr>
+        <tr><td><code>gasUsed</code>, <code>blobGasUsed</code>, <code>logsBloom</code></td><td>fevm's gas, the blobs, fevm's logs</td></tr>
+      </tbody>
+    </table>
+    <p>Six mainnet blocks match every root, three of them consecutive (26,424,861 to 26,424,863), one with an EIP-7002 withdrawal request. Their witnesses run from 2,969 to 22,178 trie nodes (about 1 to 7.7 MiB). A clean run rests on one 32-byte block hash: change one withdrawal by one wei and the withdrawals root, the end state's proof and the computed state root all fail. The trie code is Fe on std's RLP and core's Keccak, and like the replay it cannot reach the network.</p>
   </section>
 
   <section id="shadow" class="wrap">
