@@ -26,7 +26,7 @@ Replaying is fast: those 5,129 transactions take 5.9 seconds once fetched.
 | --- | --- |
 | **What** | fevm-replay replays real mainnet history in fevm, validates whole blocks statelessly against every root in their headers, and checks Fe ports of Solidity contracts against real traffic. All Fe, from the HTTP call to the verdict. |
 | **fevm on mainnet** | 115,213 transactions replayed, 290 blocks as chains, no fevm bug |
-| **Stateless** | With the parent's proofs as a witness, fevm runs a block's system calls and transactions and *computes* its `stateRoot`; `transactionsRoot`, `receiptsRoot`, `withdrawalsRoot`, `requestsHash`, `logsBloom` and `gasUsed` come out of fevm too. 16 mainnet blocks so far match every root (3 consecutive ones as one chain), and `follow` keeps taking more from the chain head; one is checked in CI on every push. A MATCH rests on the block hash, not the node ([details](#every-root-in-the-header)) |
+| **Stateless** | With the parent's proofs as a witness, fevm runs a block's system calls and transactions and *computes* its `stateRoot`; `transactionsRoot`, `receiptsRoot`, `withdrawalsRoot`, `requestsHash`, `logsBloom` and `gasUsed` come out of fevm too. every block validated so far matched every root (the badge above counts them; 3 consecutive ones as one chain), and `follow` keeps taking more from the chain head; one is checked in CI on every push. A MATCH rests on the block hash, not the node ([details](#every-root-in-the-header)) |
 | **Fe ports** | 5 ports (USDT, every Uniswap V2 pair, WETH9, DAI, USDC's proxy) certified by mainnet replay, mainnet mutations, fuzzing and mutation testing ([verified page](https://fevm-replay.vercel.app/verified.html)) |
 | **Fe-specific** | Effects prove the verdict and the proof verifier offline; `const fn` + `static_assert` check the blob fee against a real block; std units, `core::fixed`, `msg`/`recv` ([Fe highlight](#fe-highlight)) |
 | **Found** | 3 bugs in the Fe ports, 2 node tracer bugs, the transactions the Osaka fork changed, and where Fe's code costs more than solc's ([argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002)) |
@@ -181,7 +181,7 @@ For the block above: 505 to 557 KiB against 1,002 KiB, code left out.
 **Who makes the witness big.** Storage is 62% of it; XEN Crypto's trie is
 the deepest (8.2 nodes a slot), a USDT or USDC slot needs 7.4 nodes, about
 2 KiB. A binary tree shrinks such tries but can grow a small one, whose
-slots then each sit on their own path from the root. Eight findings, with
+slots then each sit on their own path from the root. The findings, with
 numbers: [docs/stateless-findings.md](docs/stateless-findings.md).
 
 **Following the chain.** `fevm_replay follow <dir> <out.json> <blocks>`
@@ -459,8 +459,8 @@ What a MATCH or a clean certificate rests on:
   for about 100 blocks back, so `fetch-proofs` must follow the chain head.
   A deletion that moves up a node the parent's proofs lack takes it from
   the block's own proofs (checked by its hash); failing that, the node is
-  taken to be a branch and the output counts it (13 times over 22 blocks;
-  every state root still matched). Proofs saved
+  taken to be a branch and the output counts it (rarely, see the
+  findings; every state root still matched). Proofs saved
   before the first system contracts' code was saved fall back to checking
   the end state key by key.
 - **Osaka with mainnet's BPO2 blob schedule only.** Older blocks may follow

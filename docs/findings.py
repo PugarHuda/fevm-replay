@@ -1,0 +1,162 @@
+"""Writes docs/stateless-findings.md from site/data/stateless.json.
+
+    python3 docs/findings.py
+
+Every number in the findings is computed here from the blocks that
+`fevm_replay follow` and `chain` recorded (each block's `summary.json`), so
+the text follows the data as more blocks and days come in. The measuring is
+the Fe tool's; this only adds up its numbers.
+"""
+import json
+import os
+import statistics as st
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+rows = json.load(open(os.path.join(ROOT, "site", "data", "stateless.json")))
+d = [r for r in rows if r.get("every_root") and "by_kind" in r]
+if not d:
+    raise SystemExit("no validated blocks with per-kind data")
+
+KiB, MiB = 1024, 1048576
+wit = lambda r: r["witness_bytes"] + r.get("block_proof_bytes", 0)
+per_tx = lambda r: wit(r) / r["transactions"]
+per_mgas = lambda r: wit(r) / (r["gas_used"] / 1e6)
+ratio = lambda r: wit(r) / ((r["binary_low"] + r["binary_high"]) / 2)
+f1 = lambda v: f"{v:.1f}"
+num = lambda v: f"{v:,}"
+
+n = len(d)
+tx = sum(r["transactions"] for r in d)
+gas = sum(r["gas_used"] for r in d)
+W = sum(wit(r) for r in d)
+days = sorted({(r.get("at") or "")[:10] for r in d if (r.get("at") or "")[:4].isdigit()})
+first, last = min(r["number"] for r in d), max(r["number"] for r in d)
+stor = sum(r["storage_bytes"] for r in d)
+bpn = sum(r.get("block_proof_nodes", 0) for r in d)
+bpb = sum(r.get("block_proof_bytes", 0) for r in d)
+wn = sum(r["witness_nodes"] for r in d)
+assumed = sum(r.get("assumed_branches", 0) for r in d)
+
+heavy = {}
+for r in d:
+    for h in r["heaviest"]:
+        t = heavy.setdefault(h["address"], dict(blocks=0, slots=0, nodes=0, storage=0, account=0, low=0, high=0))
+        t["blocks"] += 1
+        t["slots"] += h["slots"]
+        t["nodes"] += h["proof_nodes"]
+        t["storage"] += h["storage_bytes"]
+        t["account"] += h["account_bytes"]
+        t["low"] += h["binary_low"]
+        t["high"] += h["binary_high"]
+NAMES = {
+    "0x06450dee7fd2fb8e39061434babcfc05599a6fb8": "XEN Crypto",
+    "0xdac17f958d2ee523a2206206994597c13d831ec7": "USDT",
+    "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": "USDC",
+    "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2": "WETH",
+    "0x000000000004444c5dc75cb358380d2e3de08a90": "Uniswap v4's PoolManager",
+}
+top = sorted(heavy.items(), key=lambda x: -x[1]["storage"])
+top3 = top[:3]
+named = lambda a: NAMES.get(a, a[:6] + "…" + a[-4:])
+deep = [(a, t) for a, t in top[:8]]
+grow = [(a, t) for a, t in heavy.items() if t["low"] > t["storage"] + t["account"]]
+acc = [h["account_bytes"] for r in d for h in r["heaviest"]]
+
+KINDS = ["ETH transfer", "contract call", "contract creation", "blob transaction", "set-code transaction"]
+kinds = []
+for k, name in enumerate(KINDS):
+    c = sum(r["by_kind"][k][0] for r in d)
+    b = sum(r["by_kind"][k][1] for r in d)
+    m = max(r["by_kind"][k][2] for r in d)
+    kinds.append((name, c, b, m))
+share = [r["tx_witness_sum"] / r["witness_bytes"] for r in d]
+
+h = n // 2
+by_blob = sorted(d, key=lambda r: r["blob_gas_used"])
+by_gas = sorted(d, key=lambda r: r["gas_used"])
+blobs = lambda r: r["blob_gas_used"] // 131072
+
+out = []
+w = out.append
+w(f"# What {n} mainnet blocks say about stateless Ethereum\n")
+w(f"*Measured by fevm-replay over {n} mainnet blocks between {num(first)} and {num(last)} "
+  f"({num(tx)} transactions, {num(round(gas / 1e6))} million gas"
+  + (f", taken on {len(days)} day{'s' if len(days) != 1 else ''}: {', '.join(days)}" if days else "")
+  + "), each one validated statelessly by fevm: every root in its header computed from the parent's "
+  "witness. The live numbers, with every block, are on the "
+  "[stateless blocks page](https://fevm-replay.vercel.app/stateless.html). This file is written by "
+  "[`docs/findings.py`](findings.py) from the page's data.*\n")
+w("## How it was measured\n")
+w("For each block, `chain` takes the parent's Merkle proofs (EIP-1186) of every account and slot the "
+  "block touched as the witness, runs the block's system calls and transactions in fevm, writes fevm's "
+  "end state into that partial trie and hashes it again; the result is the header's `stateRoot` in every "
+  "block here. The witness is what that took: the parent's distinct proof nodes, account and storage, plus "
+  "the few nodes a deletion moved up that the parent's proofs lack. Contract code is left out (it comes on "
+  "top, checked against the proven code hashes). A transaction's witness \"alone\" is the distinct proof "
+  "bytes of the accounts and slots it touched, as if it were the only transaction in its block. The "
+  "binary-tree figures are estimates for EIP-7864's unified tree over the same keys: stems and values "
+  "exact, stems placed by keccak (the EIP has not fixed its hash), the tree taken to be 28 to 31 levels "
+  "deep above them.\n")
+w("## Findings\n")
+w(f"1. **A transaction needs about {f1(st.median(map(per_tx, d)) / KiB)} KiB of witness.** Median per "
+  f"block {f1(st.median(map(per_tx, d)) / KiB)} KiB, mean {f1(W / tx / KiB)} KiB, from "
+  f"{f1(min(map(per_tx, d)) / KiB)} to {f1(max(map(per_tx, d)) / KiB)} KiB. A block needed "
+  f"{min(wit(r) for r in d) / MiB:.2f} to {max(wit(r) for r in d) / MiB:.2f} MiB.")
+w(f"2. **What a transaction needs depends on what it does.** Alone in a block, on average:")
+for name, c, b, m in kinds:
+    if c:
+        w(f"   - {name}: {f1(b / c / KiB)} KiB ({num(c)} transactions, the largest {f1(m / KiB)} KiB)")
+w(f"3. **Transactions in a block share their witness.** Each on its own, a block's transactions would "
+  f"need {st.median(share):.2f} times the block's witness (median; {min(share):.2f} to {max(share):.2f}): "
+  "they touch the same tokens, pools and trie nodes near the root.")
+w(f"4. **Per gas, the cost varies about {max(map(per_mgas, d)) / min(map(per_mgas, d)):.0f}-fold.** "
+  f"Median {round(st.median(map(per_mgas, d)) / KiB)} KiB of witness per million gas, from "
+  f"{round(min(map(per_mgas, d)) / KiB)} to {round(max(map(per_mgas, d)) / KiB)}. The busier half of the "
+  f"blocks by gas needs more witness per transaction ({f1(st.median(map(per_tx, by_gas[h:])) / KiB)} against "
+  f"{f1(st.median(map(per_tx, by_gas[:h])) / KiB)} KiB) but less per gas "
+  f"({round(st.median(map(per_mgas, by_gas[h:])) / KiB)} against {round(st.median(map(per_mgas, by_gas[:h])) / KiB)} KiB per million).")
+w(f"5. **Blobs do not weigh on the witness.** Blocks carried {min(map(blobs, d))} to {max(map(blobs, d))} "
+  f"blobs; the half with more needed {f1(st.median(map(per_tx, by_blob[h:])) / KiB)} KiB a transaction, "
+  f"the half with fewer {f1(st.median(map(per_tx, by_blob[:h])) / KiB)}. Blob data never enters the "
+  "state; a blob transaction's witness is that of the accounts it touches.")
+w(f"6. **Storage is most of the witness: {100 * stor / W:.1f}% of its bytes.** A few contracts carry it: "
+  f"{', '.join(named(a) for a, _ in top3)} account for {100 * sum(t['storage'] for _, t in top3) / stor:.1f}% "
+  "of all storage witness bytes.")
+w("7. **Deep storage tries make each slot expensive.** Nodes on a slot's proof path, on average: "
+  + "; ".join(f"{named(a)} {t['nodes'] / t['slots']:.1f}" for a, t in deep[:5])
+  + f". That is about {f1(sum(t['storage'] for _, t in deep[:3]) / sum(t['slots'] for _, t in deep[:3]) / KiB)} KiB "
+  "of witness for every slot a transaction touches in the largest tries.")
+w(f"8. **An account proof is the size EIP-7864 expects.** The account proofs of the heaviest contracts "
+  f"weigh {num(round(st.median(acc)))} bytes (median of {num(len(acc))}); the EIP's rationale puts one "
+  "branch of a hexary tree of 2^32 leaves at 15 × 32 × log16(2^32) = 3,840 bytes "
+  "([EIP-7864](https://eips.ethereum.org/EIPS/eip-7864)).")
+lowr, medr, highr = min(map(ratio, d)), st.median(map(ratio, d)), max(map(ratio, d))
+xen = heavy.get("0x06450dee7fd2fb8e39061434babcfc05599a6fb8")
+w(f"9. **A binary tree would shrink the witness {lowr:.1f} to {highr:.1f} times** (median {medr:.1f}) on these "
+  "blocks, less than the 3.75 times the EIP's rationale gives for a single branch (2,880 bytes at 16 "
+  "children against 768 at 2, for 2^24 leaves): a block's branches share their upper nodes in either tree, "
+  "and a binary tree also carries each stem and its values."
+  + (f" Deep storage tries gain most: XEN Crypto's {(xen['storage'] + xen['account']) / MiB:.1f} MiB becomes "
+     f"an estimated {xen['low'] / MiB:.1f} to {xen['high'] / MiB:.1f} MiB." if xen else ""))
+if grow:
+    a, t = max(grow, key=lambda x: x[1]["low"] - x[1]["storage"] - x[1]["account"])
+    w(f"10. **But not every contract gains.** A contract with a small storage trie can grow: in the unified "
+      "tree each of its slots sits on its own path from the root, where its own trie kept them close. "
+      f"{len(grow)} of the {len(heavy)} heaviest contracts grow{'s' if len(grow) == 1 else ''}; {named(a)} ({t['slots']} slots, "
+      f"{t['nodes'] / t['slots']:.1f} nodes a slot) from {round((t['storage'] + t['account']) / KiB)} KiB to an "
+      f"estimated {round(t['low'] / KiB)} KiB.")
+w(f"11. **eth_getProof is almost a full witness.** A deletion that leaves a branch with one child moves "
+  "that child up, and the child may belong to a key no transaction touched, which `eth_getProof` cannot "
+  f"name. Such nodes were {100 * bpn / (wn + bpn):.2f}% of the nodes and {100 * bpb / W:.2f}% of the bytes; "
+  "they were taken from the block's own proofs, each checked by the hash its parent names. "
+  f"{assumed} times over the {n} blocks such a node was in neither proof and was taken to be a branch; "
+  "every state root still matched.\n")
+w("## Reproduce\n")
+w("```sh\n./out/fevm_replay follow blocks stateless.json 3     # takes, proves and validates 3 head blocks\n"
+  "mkdir proven && tar xzf fixtures/proven/0x19335e5.tar.gz -C proven\n"
+  "./out/fevm_replay chain proven/0x19335e5             # one block: witness, per-kind, heaviest tries\n"
+  "python3 docs/findings.py                             # this file, from the page's data\n```\n")
+w("Each block's numbers are in its `summary.json`, written by `chain`; the page's data is "
+  "[site/data/stateless.json](../site/data/stateless.json).")
+open(os.path.join(ROOT, "docs", "stateless-findings.md"), "w", encoding="utf-8", newline="\n").write("\n".join(out) + "\n")
+print(f"{n} blocks, {tx} transactions")
