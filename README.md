@@ -25,7 +25,7 @@ Replaying is fast: those 5,129 transactions take 5.9 seconds once fetched.
 | --- | --- |
 | **What** | fevm-replay replays real mainnet history in fevm, validates whole blocks statelessly against every root in their headers, and checks Fe ports of Solidity contracts against real traffic. All Fe, from the HTTP call to the verdict. |
 | **fevm on mainnet** | 115,213 transactions replayed, 290 blocks as chains, no fevm bug |
-| **Stateless** | With the parent's proofs as a witness, fevm runs a block's system calls and transactions and *computes* its `stateRoot`; `transactionsRoot`, `receiptsRoot`, `withdrawalsRoot`, `requestsHash`, `logsBloom` and `gasUsed` come out of fevm too. 6 mainnet blocks (3 of them consecutive) match every root; one is checked in CI on every push. A MATCH rests on the block hash, not the node ([details](#every-root-in-the-header)) |
+| **Stateless** | With the parent's proofs as a witness, fevm runs a block's system calls and transactions and *computes* its `stateRoot`; `transactionsRoot`, `receiptsRoot`, `withdrawalsRoot`, `requestsHash`, `logsBloom` and `gasUsed` come out of fevm too. 16 mainnet blocks so far match every root (3 consecutive ones as one chain), and `follow` keeps taking more from the chain head; one is checked in CI on every push. A MATCH rests on the block hash, not the node ([details](#every-root-in-the-header)) |
 | **Fe ports** | 5 ports (USDT, every Uniswap V2 pair, WETH9, DAI, USDC's proxy) certified by mainnet replay, mainnet mutations, fuzzing and mutation testing ([verified page](https://fevm-replay.vercel.app/verified.html)) |
 | **Fe-specific** | Effects prove the verdict and the proof verifier offline; `const fn` + `static_assert` check the blob fee against a real block; std units, `core::fixed`, `msg`/`recv` ([Fe highlight](#fe-highlight)) |
 | **Found** | 3 bugs in the Fe ports, 2 node tracer bugs, the transactions the Osaka fork changed, and where Fe's code costs more than solc's ([argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002)) |
@@ -168,29 +168,28 @@ proofs by the hash a parent's node names, and counted (26 nodes, 9 KiB,
 above). Differential tests check the trie code against a build from
 nothing, with inline nodes and merged extensions.
 
-| Block | Transactions | Witness nodes | Witness size | |
-| ---: | ---: | ---: | ---: | --- |
-| 26,424,722 | 313 | 12,765 | 4,198 KiB | |
-| 26,424,772 | 286 | 8,794 | 3,025 KiB | one EIP-7002 withdrawal request, matched with `requestsHash` |
-| 26,424,805 | 71 | 2,969 | 992 KiB | the CI fixture |
-| 26,424,861 | 230 | 9,514 | 3,278 KiB | three consecutive blocks: each one's parent hash is the hash of the one before |
-| 26,424,862 | 256 | 22,178 | 7,855 KiB | |
-| 26,424,863 | 186 | 7,506 | 2,530 KiB | |
+Block 26,424,772 carries an EIP-7002 withdrawal request matched with
+`requestsHash`; every validated block, with its witness, is on the
+[stateless blocks page](https://fevm-replay.vercel.app/stateless.html).
 
 **Binary tree.** `chain` also estimates the witness EIP-7864's binary tree
 would need for the same keys ([`src/binary.fe`](src/binary.fe)): stems and
 values exact, stems placed by keccak (the EIP's hash is not fixed yet), 28 to 31 levels deep.
 For the block above: 505 to 557 KiB against 1,002 KiB, code left out.
 
+**Who makes the witness big.** Over the 16 blocks on the stateless page,
+XEN Crypto's storage trie is the deepest (8.2 nodes a slot); a USDT or
+USDC slot needs 7.4 nodes, about 2 KiB of witness. In EIP-7864's unified
+tree such deep tries shrink, but a contract with a small trie can grow,
+as each of its slots then sits on its own path from the root.
+
 **Following the chain.** `fevm_replay follow <dir> <out.json> <blocks>`
 ([`src/follow.fe`](src/follow.fe)) validates the block two behind the head,
 again and again, by running itself; the [stateless blocks page](https://fevm-replay.vercel.app/stateless.html)
 lists each block's witness, binary estimate and heaviest storage tries.
 
-In every block of the table all transactions and every root match. The
-witness size counts the parent's distinct proof nodes; code comes on top,
-checked against the proven code hashes. Earlier proven blocks are in
-[docs/details.md](docs/details.md#proven-against-the-state-root).
+In every block all transactions and roots match; witness sizes leave
+code out. Earlier proofs: [docs/details.md](docs/details.md#proven-against-the-state-root).
 
 **Consecutive blocks as one chain.** Given several block directories,
 `chain` validates each and links them: each block's parent is the one
