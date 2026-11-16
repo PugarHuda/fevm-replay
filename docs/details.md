@@ -1,11 +1,13 @@
 # fevm-replay in detail
 
-The full account behind the [README](../README.md): shadow replay of the
-Fe ports, fuzzing, labels, gas, the year across forks, blocks as chains,
-the first proofs against the state root, mutation testing, certificates
-and the explorer.
+The full account behind the [README](../README.md): every difference the
+mainnet runs showed, shadow replay of the Fe ports, fuzzing, labels, gas,
+the year across forks, blocks as chains, how proofs against the state root
+came in, mutation testing, certificates, the explorer, the limits of shadow
+replay and fuzzing, and the demo by hand. Stateless validation and the
+witness are in the README and on the stateless blocks page.
 
-### Every difference, explained
+## Every difference, explained
 
 The 132 differences of the mainnet runs in the README's Results, by cause:
 
@@ -650,6 +652,13 @@ carried state holds every value the node's prestate lists.
 
 ### Proven against the state root
 
+> How proofs came in, step by step (14 and 15 November): state roots key
+> by key, then receipts, then requests. Since then every root in the header
+> is computed by fevm and the end state's root is computed statelessly; see
+> the README's [Every root in the header](../README.md#every-root-in-the-header)
+> and the [stateless blocks page](https://fevm-replay.vercel.app/stateless.html)
+> for the current checks and counts.
+
 Everything above trusts the node: its prestate is the starting point, its
 diffs and receipts the reference. `fetch-proofs` removes that trust for a
 block's state. It saves, beside the block, the Merkle-Patricia proofs
@@ -704,7 +713,7 @@ withdrawals: 16 credited, their recipients checked by the end state's proofs
 Block 26,408,299 the same way: 253 accounts and 463 slots proven at both
 ends, 126/126 MATCH, 0 differ; its proofs took 1 minute 36 seconds to fetch.
 Block 26,416,188 (5 transactions): 28 and 29 accounts, 139 slots, 5/5
-MATCH, receipts root matched, 0 differ. Three blocks proven in all; the
+MATCH, receipts root matched, 0 differ. Three blocks were proven by then; the
 free endpoint's rate limit, not the tool, is what keeps the count low.
 
 Block 26,408,299 is saved in [`fixtures/proven`](../fixtures/proven) (4.4 MB): CI
