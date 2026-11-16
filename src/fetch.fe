@@ -672,10 +672,12 @@ uses (proc: mut Spawn, fs: mut Fs)
 /// `first + count` of `keys` (a set made by `proof::touched`), each with its
 /// slots, at the end of block `number`, as the JSON text of their results in
 /// that order, comma-separated; None if the node did not answer them all.
-/// Three accounts go in a request (free endpoints take three) and up to
-/// four requests at once (more draw rate limits), through one curl with `--parallel`, each into a
-/// file in `dir`. A node keeps the state for proofs only for recent blocks
-/// (about 128), so speed matters.
+/// Three requests go in a batch (free endpoints take three) and up to four
+/// batches at once (more draw rate limits), through one curl with
+/// `--parallel`, each into a file in `dir`. An account with more slots than
+/// a node proves at once (1,024) is asked for in pieces, joined again. A
+/// node keeps the state for proofs only for recent blocks (about 128), so
+/// speed matters.
 pub fn proofs<U: Display, D: Display>(
     _ url: U,
     _ keys: WorldState,
@@ -686,28 +688,55 @@ pub fn proofs<U: Display, D: Display>(
 ) -> Option<MemBuffer>
 uses (proc: mut Spawn, fs: mut Fs)
 {
-    let groups = (count + 2) / 3
+    // The pieces: an account, and a run of its slots.
+    var piece_account: core::MemVec<u256> = core::MemVec::new()
+    var piece_from: core::MemVec<usize> = core::MemVec::new()
+    var piece_len: core::MemVec<usize> = core::MemVec::new()
+    for a in 0 .. count {
+        let address = keys.account_at(first + a).address
+        let total = ingot::proof::slots_of(keys, address).len()
+        var from: usize = 0
+        while true {
+            let len = if total - from > PROOF_SLOTS {
+                PROOF_SLOTS
+            } else {
+                total - from
+            }
+            piece_account.push(address)
+            piece_from.push(from)
+            piece_len.push(len)
+            from += len
+            if from >= total { break }
+        }
+    }
+    let pieces = piece_account.len()
+    let groups = (pieces + 2) / 3
     var command = Command::new("curl").arg("--parallel").arg("--parallel-max").arg("4")
     for g in 0 .. groups {
         if g > 0 {
             command = command.arg("--next")
         }
-        let size = if count - g * 3 < 3 { count - g * 3 } else { 3 }
+        let size = if pieces - g * 3 < 3 {
+            pieces - g * 3
+        } else {
+            3
+        }
         var body = MemBuffer::empty()
         "[".fmt(mut body)
         for i in 0 .. size {
             if i > 0 { ",".fmt(mut body) }
-            let address = keys.account_at(first + g * 3 + i).address
+            let p = g * 3 + i
+            let address = piece_account[p]
             let slots = ingot::proof::slots_of(keys, address)
             "{\"jsonrpc\":\"2.0\",\"id\":".fmt(mut body)
             core::text::decimal(i as u256).fmt(mut body)
             ",\"method\":\"eth_getProof\",\"params\":[\"0x".fmt(mut body)
             core::text::hex(address, 20).fmt(mut body)
             "\",[".fmt(mut body)
-            for k in 0 .. slots.len() {
+            for k in 0 .. piece_len[p] {
                 if k > 0 { ",".fmt(mut body) }
                 "\"0x".fmt(mut body)
-                core::text::hex(slots[k], 32).fmt(mut body)
+                core::text::hex(slots[piece_from[p] + k], 32).fmt(mut body)
                 "\"".fmt(mut body)
             }
             "],\"".fmt(mut body)
@@ -742,8 +771,14 @@ uses (proc: mut Spawn, fs: mut Fs)
         return Option::None
     }
     var text = MemBuffer::empty()
+    // Proofs written for the account being joined.
+    var written: usize = 0
     for g in 0 .. groups {
-        let size = if count - g * 3 < 3 { count - g * 3 } else { 3 }
+        let size = if pieces - g * 3 < 3 {
+            pieces - g * 3
+        } else {
+            3
+        }
         let Result::Ok(bytes) = fs.read(part(dir, g)) else {
             return Option::None
         }
@@ -754,15 +789,32 @@ uses (proc: mut Spawn, fs: mut Fs)
             return Option::None
         }
         for i in 0 .. size {
+            let p = g * 3 + i
             // In the order asked, whatever order they came in.
             var found = false
             for ref answer in doc.items() {
                 if !found && field(answer, "id") == i as u256 && answer.has("result") {
-                    if g > 0 || i > 0 {
-                        ",".fmt(mut text)
-                    }
-                    answer["result"].write(mut text)
                     found = true
+                    let result = ref answer["result"]
+                    if piece_from[p] == 0 {
+                        if p > 0 { ",".fmt(mut text) }
+                        "{\"address\":".fmt(mut text)
+                        result["address"].write(mut text)
+                        ",\"accountProof\":".fmt(mut text)
+                        result["accountProof"].write(mut text)
+                        ",\"storageProof\":[".fmt(mut text)
+                        written = 0
+                    }
+                    for ref entry in result["storageProof"].items() {
+                        if written > 0 {
+                            ",".fmt(mut text)
+                        }
+                        entry.write(mut text)
+                        written += 1
+                    }
+                    if p + 1 == pieces || piece_from[p + 1] == 0 {
+                        "]}".fmt(mut text)
+                    }
                 }
             }
             if !found {
@@ -772,6 +824,10 @@ uses (proc: mut Spawn, fs: mut Fs)
     }
     Option::Some(text)
 }
+
+// The most slots asked for in one `eth_getProof`: nodes answer up to 1,024,
+// but a piece that large outlasts the 20-second limit on a free endpoint.
+const PROOF_SLOTS: usize = 200
 
 // Where the `g`th parallel request of `proofs` writes its answer.
 fn part<D: Display>(_ dir: D, _ g: usize) -> MemBuffer {
