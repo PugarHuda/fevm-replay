@@ -1,14 +1,43 @@
 [
  {
-  "number": 26424722,
   "at": "2026-11-16 (earlier run)",
   "older_hashes": false,
   "result": "every root matches",
+  "number": 26424722,
   "hash": "0x5393a94499035695dbbd12b363c7381615d3822b06834b08ef7cc527d871eaf1",
   "matched": 313,
   "transactions": 313,
   "gas_used": 30167275,
   "every_root": true,
+  "blob_gas_used": 2097152,
+  "tx_witness_sum": 9026529,
+  "by_kind": [
+   [
+    179,
+    1860998,
+    10813
+   ],
+   [
+    125,
+    6635271,
+    647576
+   ],
+   [
+    0,
+    0,
+    0
+   ],
+   [
+    5,
+    184555,
+    73038
+   ],
+   [
+    4,
+    345705,
+    167780
+   ]
+  ],
   "witness_nodes": 12765,
   "witness_bytes": 4299638,
   "block_proof_nodes": 172,
@@ -68,15 +97,44 @@
   ]
  },
  {
-  "number": 26424772,
   "at": "2026-11-16 (earlier run)",
   "older_hashes": false,
   "result": "every root matches",
+  "number": 26424772,
   "hash": "0x192042dbe0c7ee285d391653042f58a4ab13567639c03c180ab2677dd356e3e8",
   "matched": 286,
   "transactions": 286,
   "gas_used": 19992475,
   "every_root": true,
+  "blob_gas_used": 524288,
+  "tx_witness_sum": 6747159,
+  "by_kind": [
+   [
+    158,
+    1637533,
+    13417
+   ],
+   [
+    118,
+    4290497,
+    147242
+   ],
+   [
+    1,
+    10330,
+    10330
+   ],
+   [
+    2,
+    131030,
+    86298
+   ],
+   [
+    7,
+    677769,
+    216776
+   ]
+  ],
   "witness_nodes": 8794,
   "witness_bytes": 3098331,
   "block_proof_nodes": 83,
@@ -136,15 +194,44 @@
   ]
  },
  {
-  "number": 26424805,
   "at": "2026-11-16 (earlier run)",
   "older_hashes": false,
   "result": "every root matches",
+  "number": 26424805,
   "hash": "0x633b9caee6ca3358cd64e5f7a20a277125c1a71de9fd2cf855bcb600aed2ccd6",
   "matched": 71,
   "transactions": 71,
   "gas_used": 9743588,
   "every_root": true,
+  "blob_gas_used": 917504,
+  "tx_witness_sum": 1750324,
+  "by_kind": [
+   [
+    34,
+    345249,
+    10481
+   ],
+   [
+    30,
+    1085527,
+    157909
+   ],
+   [
+    0,
+    0,
+    0
+   ],
+   [
+    2,
+    83953,
+    73617
+   ],
+   [
+    5,
+    235595,
+    128662
+   ]
+  ],
   "witness_nodes": 2969,
   "witness_bytes": 1016573,
   "block_proof_nodes": 26,
@@ -204,15 +291,44 @@
   ]
  },
  {
-  "number": 26424861,
   "at": "2026-11-16 (earlier run)",
   "older_hashes": false,
   "result": "every root matches",
+  "number": 26424861,
   "hash": "0x0207d1b660d251b0bca397a78c4e07c2c139c1120143e87e5dc2a9e7a05888d3",
   "matched": 230,
   "transactions": 230,
   "gas_used": 23054386,
   "every_root": true,
+  "blob_gas_used": 1703936,
+  "tx_witness_sum": 6806938,
+  "by_kind": [
+   [
+    104,
+    1085747,
+    19699
+   ],
+   [
+    118,
+    5291211,
+    513682
+   ],
+   [
+    0,
+    0,
+    0
+   ],
+   [
+    4,
+    75500,
+    44714
+   ],
+   [
+    4,
+    354480,
+    134848
+   ]
+  ],
   "witness_nodes": 9514,
   "witness_bytes": 3356990,
   "block_proof_nodes": 116,
@@ -272,15 +388,44 @@
   ]
  },
  {
-  "number": 26424862,
   "at": "2026-11-16 (earlier run)",
   "older_hashes": false,
   "result": "every root matches",
+  "number": 26424862,
   "hash": "0x8a69eeebf1ef8bcdba914da8e35629df6e2bd1900b6ecbde9038894a07825929",
   "matched": 256,
   "transactions": 256,
   "gas_used": 48310675,
   "every_root": true,
+  "blob_gas_used": 262144,
+  "tx_witness_sum": 12485374,
+  "by_kind": [
+   [
+    147,
+    1508961,
+    10616
+   ],
+   [
+    103,
+    10549158,
+    955474
+   ],
+   [
+    0,
+    0,
+    0
+   ],
+   [
+    2,
+    131057,
+    85703
+   ],
+   [
+    4,
+    296198,
+    191700
+   ]
+  ],
   "witness_nodes": 22178,
   "witness_bytes": 8043978,
   "block_proof_nodes": 324,
@@ -340,15 +485,44 @@
   ]
  },
  {
-  "number": 26424863,
   "at": "2026-11-16 (earlier run)",
   "older_hashes": false,
   "result": "every root matches",
+  "number": 26424863,
   "hash": "0xd41c27d0c916ce7de196b4545122644adc8a18a9e8fefe346bfc6fcedce9d6b2",
   "matched": 186,
   "transactions": 186,
   "gas_used": 21010016,
   "every_root": true,
+  "blob_gas_used": 917504,
+  "tx_witness_sum": 5450477,
+  "by_kind": [
+   [
+    73,
+    767729,
+    16404
+   ],
+   [
+    108,
+    4509192,
+    354330
+   ],
+   [
+    0,
+    0,
+    0
+   ],
+   [
+    2,
+    19651,
+    10327
+   ],
+   [
+    3,
+    153905,
+    76400
+   ]
+  ],
   "witness_nodes": 7506,
   "witness_bytes": 2590924,
   "block_proof_nodes": 95,
@@ -408,15 +582,44 @@
   ]
  },
  {
-  "number": 26425142,
   "at": "2026-11-16 (follower)",
   "older_hashes": false,
   "result": "every root matches",
+  "number": 26425142,
   "hash": "0x245718b0391e8deca93b16a184f1b841985ca8a909ba0ed46815471a3b5cd1c2",
   "matched": 193,
   "transactions": 193,
   "gas_used": 10790498,
   "every_root": true,
+  "blob_gas_used": 131072,
+  "tx_witness_sum": 4442581,
+  "by_kind": [
+   [
+    140,
+    1459977,
+    10881
+   ],
+   [
+    48,
+    2770209,
+    847272
+   ],
+   [
+    0,
+    0,
+    0
+   ],
+   [
+    1,
+    33240,
+    33240
+   ],
+   [
+    4,
+    179155,
+    117739
+   ]
+  ],
   "witness_nodes": 6433,
   "witness_bytes": 2356349,
   "block_proof_nodes": 45,
@@ -476,15 +679,44 @@
   ]
  },
  {
-  "number": 26425148,
   "at": "2026-11-16 (follower)",
   "older_hashes": true,
   "result": "every root matches",
+  "number": 26425148,
   "hash": "0x4bb2a6f2e18254a4bafc04727c0dcbd49b53abbafb779365e1d5279370152621",
   "matched": 249,
   "transactions": 249,
   "gas_used": 27742334,
   "every_root": true,
+  "blob_gas_used": 786432,
+  "tx_witness_sum": 6512335,
+  "by_kind": [
+   [
+    146,
+    1508798,
+    13922
+   ],
+   [
+    90,
+    4601430,
+    956324
+   ],
+   [
+    2,
+    27142,
+    16769
+   ],
+   [
+    2,
+    19809,
+    10308
+   ],
+   [
+    9,
+    355156,
+    97361
+   ]
+  ],
   "witness_nodes": 9760,
   "witness_bytes": 3524035,
   "block_proof_nodes": 132,
@@ -544,15 +776,44 @@
   ]
  },
  {
-  "number": 26425158,
   "at": "2026-11-16 (follower)",
   "older_hashes": false,
   "result": "every root matches",
+  "number": 26425158,
   "hash": "0xa15220ef5e700527673bafeab08e016debb333d03a5ee5553443e88d976839ae",
   "matched": 239,
   "transactions": 239,
   "gas_used": 28390893,
   "every_root": true,
+  "blob_gas_used": 0,
+  "tx_witness_sum": 8729487,
+  "by_kind": [
+   [
+    52,
+    548297,
+    16916
+   ],
+   [
+    183,
+    7971273,
+    954053
+   ],
+   [
+    0,
+    0,
+    0
+   ],
+   [
+    0,
+    0,
+    0
+   ],
+   [
+    4,
+    209917,
+    153521
+   ]
+  ],
   "witness_nodes": 12683,
   "witness_bytes": 4496610,
   "block_proof_nodes": 126,
@@ -612,15 +873,44 @@
   ]
  },
  {
-  "number": 26425266,
   "at": "2026-11-16 (follower)",
   "older_hashes": false,
   "result": "every root matches",
+  "number": 26425266,
   "hash": "0x58ae975c122bb18ccbe459b9d6145f8ab3f2805e61530f49bb4c83cebc333527",
   "matched": 367,
   "transactions": 367,
   "gas_used": 42889407,
   "every_root": true,
+  "blob_gas_used": 655360,
+  "tx_witness_sum": 12219241,
+  "by_kind": [
+   [
+    131,
+    1358778,
+    13824
+   ],
+   [
+    233,
+    10631818,
+    946977
+   ],
+   [
+    1,
+    179303,
+    179303
+   ],
+   [
+    1,
+    9600,
+    9600
+   ],
+   [
+    1,
+    39742,
+    39742
+   ]
+  ],
   "witness_nodes": 16401,
   "witness_bytes": 5761634,
   "block_proof_nodes": 199,
@@ -680,15 +970,44 @@
   ]
  },
  {
-  "number": 26425288,
   "at": "2026-11-16 (follower)",
   "older_hashes": false,
   "result": "every root matches",
+  "number": 26425288,
   "hash": "0x6d59d0d155458aa863997c2bbc1d0a20e2db634295b9be83104ff2d259e55725",
   "matched": 239,
   "transactions": 239,
   "gas_used": 59994981,
   "every_root": true,
+  "blob_gas_used": 262144,
+  "tx_witness_sum": 6623145,
+  "by_kind": [
+   [
+    85,
+    876952,
+    22902
+   ],
+   [
+    150,
+    5705319,
+    202696
+   ],
+   [
+    2,
+    20276,
+    10436
+   ],
+   [
+    2,
+    20598,
+    10479
+   ],
+   [
+    0,
+    0,
+    0
+   ]
+  ],
   "witness_nodes": 8145,
   "witness_bytes": 2928840,
   "block_proof_nodes": 111,
@@ -748,15 +1067,44 @@
   ]
  },
  {
-  "number": 26425306,
   "at": "2026-11-16 (follower)",
   "older_hashes": false,
   "result": "every root matches",
+  "number": 26425306,
   "hash": "0x5c10c37b3504988ea6553a876cf7f3db0aa3fc2a1e50b1bec1163b8d1cd9377d",
   "matched": 211,
   "transactions": 211,
   "gas_used": 30886110,
   "every_root": true,
+  "blob_gas_used": 1703936,
+  "tx_witness_sum": 7690573,
+  "by_kind": [
+   [
+    70,
+    721506,
+    10666
+   ],
+   [
+    134,
+    6794789,
+    953734
+   ],
+   [
+    1,
+    10533,
+    10533
+   ],
+   [
+    4,
+    117565,
+    86213
+   ],
+   [
+    2,
+    46180,
+    39209
+   ]
+  ],
   "witness_nodes": 12762,
   "witness_bytes": 4376634,
   "block_proof_nodes": 211,
@@ -816,15 +1164,44 @@
   ]
  },
  {
-  "number": 26425315,
   "at": "2026-11-16 (follower)",
   "older_hashes": false,
   "result": "every root matches",
+  "number": 26425315,
   "hash": "0x30b2361ef28fc73e9d43915558fc57ef0c9796baecc795b0398fe08b9aa43527",
   "matched": 171,
   "transactions": 171,
   "gas_used": 18273074,
   "every_root": true,
+  "blob_gas_used": 655360,
+  "tx_witness_sum": 4757334,
+  "by_kind": [
+   [
+    91,
+    958504,
+    28421
+   ],
+   [
+    77,
+    3707676,
+    658689
+   ],
+   [
+    1,
+    10391,
+    10391
+   ],
+   [
+    2,
+    80763,
+    70932
+   ],
+   [
+    0,
+    0,
+    0
+   ]
+  ],
   "witness_nodes": 7464,
   "witness_bytes": 2598251,
   "block_proof_nodes": 96,
@@ -884,15 +1261,44 @@
   ]
  },
  {
-  "number": 26425322,
   "at": "2026-11-16 (follower)",
   "older_hashes": false,
   "result": "every root matches",
+  "number": 26425322,
   "hash": "0xf5c1fd04030091ff754e60b5c5c0a835f137a543ac7bf9c258087b412fcad425",
   "matched": 206,
   "transactions": 206,
   "gas_used": 15349816,
   "every_root": true,
+  "blob_gas_used": 786432,
+  "tx_witness_sum": 5832698,
+  "by_kind": [
+   [
+    80,
+    828615,
+    10616
+   ],
+   [
+    117,
+    4712120,
+    137508
+   ],
+   [
+    0,
+    0,
+    0
+   ],
+   [
+    2,
+    53332,
+    43732
+   ],
+   [
+    7,
+    238631,
+    107220
+   ]
+  ],
   "witness_nodes": 7392,
   "witness_bytes": 2590358,
   "block_proof_nodes": 79,
@@ -952,15 +1358,44 @@
   ]
  },
  {
-  "number": 26425332,
   "at": "2026-11-16 (follower)",
   "older_hashes": false,
   "result": "every root matches",
+  "number": 26425332,
   "hash": "0x3130db64202017f2489bdf11f5d4ba27b8c4c606bf831f7485ecee550c5fbfb8",
   "matched": 189,
   "transactions": 189,
   "gas_used": 30849063,
   "every_root": true,
+  "blob_gas_used": 0,
+  "tx_witness_sum": 9094170,
+  "by_kind": [
+   [
+    43,
+    455516,
+    16527
+   ],
+   [
+    139,
+    7868883,
+    948496
+   ],
+   [
+    1,
+    116587,
+    116587
+   ],
+   [
+    0,
+    0,
+    0
+   ],
+   [
+    6,
+    653184,
+    176496
+   ]
+  ],
   "witness_nodes": 14973,
   "witness_bytes": 5245285,
   "block_proof_nodes": 272,
@@ -1020,15 +1455,44 @@
   ]
  },
  {
-  "number": 26425347,
   "at": "2026-11-16 (follower)",
   "older_hashes": false,
   "result": "every root matches",
+  "number": 26425347,
   "hash": "0xa6ca0028fb614855472c252a368f23172e18cb21056bdebec6a3b2d7e668e8c9",
   "matched": 216,
   "transactions": 216,
   "gas_used": 59985354,
   "every_root": true,
+  "blob_gas_used": 655360,
+  "tx_witness_sum": 9712506,
+  "by_kind": [
+   [
+    47,
+    479102,
+    10648
+   ],
+   [
+    166,
+    8938234,
+    949311
+   ],
+   [
+    0,
+    0,
+    0
+   ],
+   [
+    1,
+    10308,
+    10308
+   ],
+   [
+    2,
+    284862,
+    174869
+   ]
+  ],
   "witness_nodes": 16246,
   "witness_bytes": 5709272,
   "block_proof_nodes": 228,
@@ -1088,15 +1552,44 @@
   ]
  },
  {
-  "number": 26425427,
   "at": "2026-11-16 05:15 UTC",
   "older_hashes": true,
   "result": "every root matches",
+  "number": 26425427,
   "hash": "0x80e2dc04ead342ba394ae3bf1f0cbe7e0a3d37e00147f1a3a3332918ca555a02",
   "matched": 227,
   "transactions": 227,
   "gas_used": 25818731,
   "every_root": true,
+  "blob_gas_used": 786432,
+  "tx_witness_sum": 6796624,
+  "by_kind": [
+   [
+    114,
+    1127774,
+    13919
+   ],
+   [
+    106,
+    5153897,
+    183100
+   ],
+   [
+    0,
+    0,
+    0
+   ],
+   [
+    1,
+    10486,
+    10486
+   ],
+   [
+    6,
+    504467,
+    141716
+   ]
+  ],
   "witness_nodes": 9648,
   "witness_bytes": 3332016,
   "block_proof_nodes": 87,
@@ -1156,15 +1649,44 @@
   ]
  },
  {
-  "number": 26425568,
   "at": "2026-11-16 05:43 UTC",
   "older_hashes": false,
   "result": "every root matches",
+  "number": 26425568,
   "hash": "0x428410b58e2151ac8a24ec7f35e2f3ac470b95261a4bb363dac8f9a01351f4e4",
   "matched": 135,
   "transactions": 135,
   "gas_used": 28058786,
   "every_root": true,
+  "blob_gas_used": 262144,
+  "tx_witness_sum": 8258518,
+  "by_kind": [
+   [
+    27,
+    280880,
+    13386
+   ],
+   [
+    95,
+    7296705,
+    1126410
+   ],
+   [
+    1,
+    12908,
+    12908
+   ],
+   [
+    2,
+    56527,
+    46129
+   ],
+   [
+    10,
+    611498,
+    171915
+   ]
+  ],
   "witness_nodes": 15908,
   "witness_bytes": 5734048,
   "block_proof_nodes": 311,
@@ -1224,15 +1746,44 @@
   ]
  },
  {
-  "number": 26425580,
   "at": "2026-11-16 05:46 UTC",
   "older_hashes": false,
   "result": "every root matches",
+  "number": 26425580,
   "hash": "0x71bd0f236886aac43fd27eabec01dfc4003b81120d796c3b16439b1c58246cd3",
   "matched": 116,
   "transactions": 116,
   "gas_used": 20003133,
   "every_root": true,
+  "blob_gas_used": 786432,
+  "tx_witness_sum": 6070643,
+  "by_kind": [
+   [
+    29,
+    299662,
+    10539
+   ],
+   [
+    84,
+    5711271,
+    1130771
+   ],
+   [
+    0,
+    0,
+    0
+   ],
+   [
+    1,
+    10390,
+    10390
+   ],
+   [
+    2,
+    49320,
+    36341
+   ]
+  ],
   "witness_nodes": 11740,
   "witness_bytes": 4191992,
   "block_proof_nodes": 276,
@@ -1292,15 +1843,44 @@
   ]
  },
  {
-  "number": 26425591,
   "at": "2026-11-16 05:48 UTC",
   "older_hashes": false,
   "result": "every root matches",
+  "number": 26425591,
   "hash": "0xecc1d38f2ae2d73d34b7d34167d949372aa5897913f6e36361c1cc7c20648d68",
   "matched": 117,
   "transactions": 117,
   "gas_used": 18840618,
   "every_root": true,
+  "blob_gas_used": 1441792,
+  "tx_witness_sum": 5417951,
+  "by_kind": [
+   [
+    40,
+    418544,
+    13939
+   ],
+   [
+    71,
+    4837136,
+    947563
+   ],
+   [
+    0,
+    0,
+    0
+   ],
+   [
+    3,
+    59395,
+    38513
+   ],
+   [
+    3,
+    102876,
+    50043
+   ]
+  ],
   "witness_nodes": 9020,
   "witness_bytes": 3198110,
   "block_proof_nodes": 127,
@@ -1360,15 +1940,44 @@
   ]
  },
  {
-  "number": 26425598,
   "at": "2026-11-16 05:49 UTC",
   "older_hashes": true,
   "result": "every root matches",
+  "number": 26425598,
   "hash": "0x50b50758351960c10d5385e8838e611b9c1ecbf3a64f9e58aa6972df481048cb",
   "matched": 193,
   "transactions": 193,
   "gas_used": 58007151,
   "every_root": true,
+  "blob_gas_used": 0,
+  "tx_witness_sum": 8937421,
+  "by_kind": [
+   [
+    69,
+    722428,
+    16430
+   ],
+   [
+    120,
+    8044425,
+    1120194
+   ],
+   [
+    1,
+    9822,
+    9822
+   ],
+   [
+    0,
+    0,
+    0
+   ],
+   [
+    3,
+    160746,
+    62908
+   ]
+  ],
   "witness_nodes": 15016,
   "witness_bytes": 5310250,
   "block_proof_nodes": 305,
@@ -1428,15 +2037,44 @@
   ]
  },
  {
-  "number": 26425846,
   "at": "2026-11-16 06:39 UTC",
   "older_hashes": false,
   "result": "every root matches",
+  "number": 26425846,
   "hash": "0x50899cec8b8609011e26fc828c0a864dffa1e1d2c485bd1ce252cd1c0e09f48d",
   "matched": 317,
   "transactions": 317,
   "gas_used": 42544831,
   "every_root": true,
+  "blob_gas_used": 1835008,
+  "tx_witness_sum": 8794725,
+  "by_kind": [
+   [
+    163,
+    1725502,
+    13958
+   ],
+   [
+    137,
+    6415023,
+    371466
+   ],
+   [
+    0,
+    0,
+    0
+   ],
+   [
+    4,
+    151570,
+    84973
+   ],
+   [
+    13,
+    502630,
+    119549
+   ]
+  ],
   "witness_nodes": 12569,
   "witness_bytes": 4440774,
   "block_proof_nodes": 144,
@@ -1492,6 +2130,588 @@
     "proof_nodes": 506,
     "binary_low": 46132,
     "binary_high": 50356
+   }
+  ]
+ },
+ {
+  "at": "2026-11-16 06:53 UTC",
+  "older_hashes": false,
+  "result": "every root matches",
+  "number": 26425917,
+  "hash": "0x28c1ebdc86d09ed5115c0350a5d5ca14a3241a92b962da1e287842bfbbee310a",
+  "matched": 174,
+  "transactions": 174,
+  "gas_used": 19032483,
+  "every_root": true,
+  "blob_gas_used": 0,
+  "tx_witness_sum": 6296872,
+  "by_kind": [
+   [
+    46,
+    479343,
+    13446
+   ],
+   [
+    121,
+    5602856,
+    601803
+   ],
+   [
+    1,
+    27842,
+    27842
+   ],
+   [
+    0,
+    0,
+    0
+   ],
+   [
+    6,
+    186831,
+    45250
+   ]
+  ],
+  "witness_nodes": 9180,
+  "witness_bytes": 3337122,
+  "block_proof_nodes": 114,
+  "block_proof_bytes": 52333,
+  "assumed_branches": 1,
+  "storage_bytes": 2183118,
+  "binary_stems": 1656,
+  "binary_values": 2411,
+  "binary_low": 1422216,
+  "binary_high": 1581192,
+  "heaviest": [
+   {
+    "address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+    "storage_bytes": 784939,
+    "account_bytes": 3732,
+    "slots": 424,
+    "proof_nodes": 3078,
+    "binary_low": 382236,
+    "binary_high": 422556
+   },
+   {
+    "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+    "storage_bytes": 437382,
+    "account_bytes": 3847,
+    "slots": 232,
+    "proof_nodes": 1661,
+    "binary_low": 216537,
+    "binary_high": 238713
+   },
+   {
+    "address": "0x000000000004444c5dc75cb358380d2e3de08a90",
+    "storage_bytes": 94144,
+    "account_bytes": 3939,
+    "slots": 54,
+    "proof_nodes": 367,
+    "binary_low": 31746,
+    "binary_high": 34626
+   },
+   {
+    "address": "0xad3cc8eb9d34abeb3b0ca9b98cbfd3837b7d40c8",
+    "storage_bytes": 87312,
+    "account_bytes": 3897,
+    "slots": 67,
+    "proof_nodes": 391,
+    "binary_low": 57000,
+    "binary_high": 62376
+   },
+   {
+    "address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "storage_bytes": 86995,
+    "account_bytes": 3794,
+    "slots": 43,
+    "proof_nodes": 309,
+    "binary_low": 44180,
+    "binary_high": 48404
+   }
+  ]
+ },
+ {
+  "at": "2026-11-16 06:55 UTC",
+  "older_hashes": false,
+  "result": "every root matches",
+  "number": 26425924,
+  "hash": "0x035708feff567ac0befa9d597a5d26e834cbd2098a06a801b5b5833c06a80c92",
+  "matched": 326,
+  "transactions": 326,
+  "gas_used": 27343507,
+  "every_root": true,
+  "blob_gas_used": 393216,
+  "tx_witness_sum": 8451989,
+  "by_kind": [
+   [
+    142,
+    1454345,
+    13457
+   ],
+   [
+    179,
+    6774670,
+    384085
+   ],
+   [
+    1,
+    13752,
+    13752
+   ],
+   [
+    1,
+    45511,
+    45511
+   ],
+   [
+    3,
+    163711,
+    106988
+   ]
+  ],
+  "witness_nodes": 11285,
+  "witness_bytes": 4069059,
+  "block_proof_nodes": 148,
+  "block_proof_bytes": 64169,
+  "assumed_branches": 0,
+  "storage_bytes": 2313351,
+  "binary_stems": 2010,
+  "binary_values": 3143,
+  "binary_low": 1713222,
+  "binary_high": 1906182,
+  "heaviest": [
+   {
+    "address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+    "storage_bytes": 639270,
+    "account_bytes": 3732,
+    "slots": 340,
+    "proof_nodes": 2475,
+    "binary_low": 310319,
+    "binary_high": 342671
+   },
+   {
+    "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+    "storage_bytes": 365929,
+    "account_bytes": 3847,
+    "slots": 190,
+    "proof_nodes": 1384,
+    "binary_low": 176837,
+    "binary_high": 194789
+   },
+   {
+    "address": "0x004395edb43efca9885cedad51ec9faf93bd34ac",
+    "storage_bytes": 192110,
+    "account_bytes": 3847,
+    "slots": 111,
+    "proof_nodes": 762,
+    "binary_low": 69276,
+    "binary_high": 75804
+   },
+   {
+    "address": "0x000000000004444c5dc75cb358380d2e3de08a90",
+    "storage_bytes": 164124,
+    "account_bytes": 3939,
+    "slots": 103,
+    "proof_nodes": 700,
+    "binary_low": 61125,
+    "binary_high": 66789
+   },
+   {
+    "address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "storage_bytes": 61182,
+    "account_bytes": 3794,
+    "slots": 29,
+    "proof_nodes": 210,
+    "binary_low": 30850,
+    "binary_high": 33730
+   }
+  ]
+ },
+ {
+  "at": "2026-11-16 06:57 UTC",
+  "older_hashes": false,
+  "result": "every root matches",
+  "number": 26425937,
+  "hash": "0xbbdaeb521edffa249e282eb74a6f853326c83707055db64e6091553efc596d40",
+  "matched": 245,
+  "transactions": 245,
+  "gas_used": 20918880,
+  "every_root": true,
+  "blob_gas_used": 1441792,
+  "tx_witness_sum": 7129560,
+  "by_kind": [
+   [
+    98,
+    1025564,
+    22013
+   ],
+   [
+    142,
+    6015422,
+    1183520
+   ],
+   [
+    0,
+    0,
+    0
+   ],
+   [
+    4,
+    75677,
+    44761
+   ],
+   [
+    1,
+    12897,
+    12897
+   ]
+  ],
+  "witness_nodes": 11154,
+  "witness_bytes": 4053135,
+  "block_proof_nodes": 93,
+  "block_proof_bytes": 46251,
+  "assumed_branches": 0,
+  "storage_bytes": 2516677,
+  "binary_stems": 1569,
+  "binary_values": 2884,
+  "binary_low": 1369599,
+  "binary_high": 1520223,
+  "heaviest": [
+   {
+    "address": "0x06450dee7fd2fb8e39061434babcfc05599a6fb8",
+    "storage_bytes": 986712,
+    "account_bytes": 3847,
+    "slots": 452,
+    "proof_nodes": 3719,
+    "binary_low": 136062,
+    "binary_high": 148542
+   },
+   {
+    "address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+    "storage_bytes": 293777,
+    "account_bytes": 3732,
+    "slots": 142,
+    "proof_nodes": 1050,
+    "binary_low": 132501,
+    "binary_high": 145845
+   },
+   {
+    "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+    "storage_bytes": 147494,
+    "account_bytes": 3847,
+    "slots": 69,
+    "proof_nodes": 519,
+    "binary_low": 67004,
+    "binary_high": 73532
+   },
+   {
+    "address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "storage_bytes": 70948,
+    "account_bytes": 3794,
+    "slots": 34,
+    "proof_nodes": 241,
+    "binary_low": 35389,
+    "binary_high": 38749
+   },
+   {
+    "address": "0x000000000004444c5dc75cb358380d2e3de08a90",
+    "storage_bytes": 60104,
+    "account_bytes": 3939,
+    "slots": 32,
+    "proof_nodes": 216,
+    "binary_low": 20557,
+    "binary_high": 22381
+   }
+  ]
+ },
+ {
+  "at": "2026-11-16 06:59 UTC",
+  "older_hashes": true,
+  "result": "every root matches",
+  "number": 26425948,
+  "hash": "0x409e28c696ed84d4c40cd8af636f8df5e723698f84803b408ed9d59770fe1d8f",
+  "matched": 172,
+  "transactions": 172,
+  "gas_used": 59990136,
+  "every_root": true,
+  "blob_gas_used": 131072,
+  "tx_witness_sum": 5788133,
+  "by_kind": [
+   [
+    49,
+    520186,
+    17313
+   ],
+   [
+    119,
+    5111663,
+    392143
+   ],
+   [
+    0,
+    0,
+    0
+   ],
+   [
+    1,
+    44596,
+    44596
+   ],
+   [
+    3,
+    111688,
+    56469
+   ]
+  ],
+  "witness_nodes": 8641,
+  "witness_bytes": 3100191,
+  "block_proof_nodes": 111,
+  "block_proof_bytes": 49771,
+  "assumed_branches": 0,
+  "storage_bytes": 1959806,
+  "binary_stems": 1443,
+  "binary_values": 2467,
+  "binary_low": 1260893,
+  "binary_high": 1399421,
+  "heaviest": [
+   {
+    "address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+    "storage_bytes": 454922,
+    "account_bytes": 3732,
+    "slots": 234,
+    "proof_nodes": 1714,
+    "binary_low": 216601,
+    "binary_high": 238777
+   },
+   {
+    "address": "0xb55c5cac5014c662fdbf21a2c59cd45403c482fd",
+    "storage_bytes": 306620,
+    "account_bytes": 3772,
+    "slots": 262,
+    "proof_nodes": 1443,
+    "binary_low": 111028,
+    "binary_high": 121396
+   },
+   {
+    "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+    "storage_bytes": 229541,
+    "account_bytes": 3847,
+    "slots": 113,
+    "proof_nodes": 811,
+    "binary_low": 109519,
+    "binary_high": 120367
+   },
+   {
+    "address": "0x000000000004444c5dc75cb358380d2e3de08a90",
+    "storage_bytes": 105610,
+    "account_bytes": 3939,
+    "slots": 62,
+    "proof_nodes": 417,
+    "binary_low": 38875,
+    "binary_high": 42427
+   },
+   {
+    "address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "storage_bytes": 93232,
+    "account_bytes": 3794,
+    "slots": 46,
+    "proof_nodes": 327,
+    "binary_low": 47185,
+    "binary_high": 51697
+   }
+  ]
+ },
+ {
+  "at": "2026-11-16 07:02 UTC",
+  "older_hashes": false,
+  "result": "every root matches",
+  "number": 26425959,
+  "hash": "0x943047014006ea40945fcc60348ec0d8192e00f8e34a8544ea55bcb5f8c0bbf8",
+  "matched": 190,
+  "transactions": 190,
+  "gas_used": 19433167,
+  "every_root": true,
+  "blob_gas_used": 1048576,
+  "tx_witness_sum": 6140897,
+  "by_kind": [
+   [
+    64,
+    695535,
+    13878
+   ],
+   [
+    117,
+    5056519,
+    324610
+   ],
+   [
+    0,
+    0,
+    0
+   ],
+   [
+    3,
+    107076,
+    86342
+   ],
+   [
+    6,
+    281767,
+    108432
+   ]
+  ],
+  "witness_nodes": 8072,
+  "witness_bytes": 2868073,
+  "block_proof_nodes": 92,
+  "block_proof_bytes": 34899,
+  "assumed_branches": 0,
+  "storage_bytes": 1609563,
+  "binary_stems": 1294,
+  "binary_values": 2305,
+  "binary_low": 1144402,
+  "binary_high": 1268626,
+  "heaviest": [
+   {
+    "address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+    "storage_bytes": 356992,
+    "account_bytes": 3732,
+    "slots": 174,
+    "proof_nodes": 1289,
+    "binary_low": 161526,
+    "binary_high": 177846
+   },
+   {
+    "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+    "storage_bytes": 204435,
+    "account_bytes": 3847,
+    "slots": 99,
+    "proof_nodes": 742,
+    "binary_low": 95998,
+    "binary_high": 105406
+   },
+   {
+    "address": "0xc36442b4a4522e871399cd717abdd847ab11fe88",
+    "storage_bytes": 138583,
+    "account_bytes": 3911,
+    "slots": 71,
+    "proof_nodes": 471,
+    "binary_low": 36158,
+    "binary_high": 39422
+   },
+   {
+    "address": "0x000000000004444c5dc75cb358380d2e3de08a90",
+    "storage_bytes": 119473,
+    "account_bytes": 3939,
+    "slots": 70,
+    "proof_nodes": 477,
+    "binary_low": 42392,
+    "binary_high": 46232
+   },
+   {
+    "address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "storage_bytes": 85979,
+    "account_bytes": 3794,
+    "slots": 43,
+    "proof_nodes": 312,
+    "binary_low": 44276,
+    "binary_high": 48500
+   }
+  ]
+ },
+ {
+  "at": "2026-11-16 07:03 UTC",
+  "older_hashes": false,
+  "result": "every root matches",
+  "number": 26425968,
+  "hash": "0xedeccff635ec8c901d5e8699303b590362dd3b67f4a75cf90e567ce673797ab3",
+  "matched": 381,
+  "transactions": 381,
+  "gas_used": 59921126,
+  "every_root": true,
+  "blob_gas_used": 262144,
+  "tx_witness_sum": 13151486,
+  "by_kind": [
+   [
+    102,
+    1071827,
+    17281
+   ],
+   [
+    268,
+    11721048,
+    391665
+   ],
+   [
+    1,
+    9255,
+    9255
+   ],
+   [
+    2,
+    54216,
+    44001
+   ],
+   [
+    8,
+    295140,
+    131660
+   ]
+  ],
+  "witness_nodes": 15176,
+  "witness_bytes": 5267116,
+  "block_proof_nodes": 189,
+  "block_proof_bytes": 81535,
+  "assumed_branches": 0,
+  "storage_bytes": 3206329,
+  "binary_stems": 2707,
+  "binary_values": 4478,
+  "binary_low": 2284749,
+  "binary_high": 2544621,
+  "heaviest": [
+   {
+    "address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+    "storage_bytes": 591252,
+    "account_bytes": 3732,
+    "slots": 311,
+    "proof_nodes": 2326,
+    "binary_low": 284588,
+    "binary_high": 314156
+   },
+   {
+    "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+    "storage_bytes": 352294,
+    "account_bytes": 3847,
+    "slots": 180,
+    "proof_nodes": 1335,
+    "binary_low": 168015,
+    "binary_high": 185007
+   },
+   {
+    "address": "0x004395edb43efca9885cedad51ec9faf93bd34ac",
+    "storage_bytes": 192894,
+    "account_bytes": 3847,
+    "slots": 111,
+    "proof_nodes": 761,
+    "binary_low": 68252,
+    "binary_high": 74780
+   },
+   {
+    "address": "0xc36442b4a4522e871399cd717abdd847ab11fe88",
+    "storage_bytes": 172937,
+    "account_bytes": 3911,
+    "slots": 93,
+    "proof_nodes": 605,
+    "binary_low": 46548,
+    "binary_high": 50772
+   },
+   {
+    "address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "storage_bytes": 140718,
+    "account_bytes": 3794,
+    "slots": 73,
+    "proof_nodes": 526,
+    "binary_low": 72886,
+    "binary_high": 79990
    }
   ]
  }
