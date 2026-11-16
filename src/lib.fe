@@ -983,11 +983,78 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
 fn chain_command() -> i32
 uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut Stdout)
 {
-    if args.count() != 3 && args.count() != 4 {
-        println!("usage: fevm-replay chain <dir> [rpc-url]")
+    if args.count() < 3 {
+        println!(
+            "usage: fevm-replay chain <dir> [rpc-url] | chain <dir> <dir>...",
+        )
         return 2
     }
-    let dir = args.get(2)
+    let rpc = args.count() == 4 && is_url(args.get(3))
+    if args.count() == 3 || rpc {
+        return chain_block(args.get(2), rpc: rpc)
+    }
+    // Consecutive blocks: each validated, then linked. A block's parent
+    // must be the block before it, and the state root its pre-state was
+    // proven against must be that block's, which fevm computed.
+    var failed: u64 = 0
+    var linked: u64 = 0
+    var previous_hash: u256 = 0
+    var previous_root: u256 = 0
+    for i in 2 .. args.count() {
+        println!("== ", args.get(i))
+        if chain_block(args.get(i), rpc: false) != 0 {
+            failed += 1
+        }
+        let Option::Some(block) = load_response(args.get(i), "block.json") else {
+            return 1
+        }
+        let Option::Some(proofs) = load_json(args.get(i), "proofs.json") else {
+            return 1
+        }
+        let header = ref block["result"]
+        let stateless = !proof::code_of(proofs, proof::BEACON_ROOTS).is_empty()
+        if i > 2 {
+            if field(header, "parentHash") == previous_hash
+                && field(proofs["parent"], "stateRoot") == previous_root
+                && stateless {
+                linked += 1
+            } else {
+                failed += 1
+                println!(
+                    "LINK ",
+                    args.get(i),
+                    ": its parent is not the block before it, or it was not validated statelessly",
+                )
+            }
+        }
+        previous_hash = field(header, "hash")
+        previous_root = field(header, "stateRoot")
+    }
+    let blocks = args.count() - 2
+    println!(
+        "chain of ",
+        blocks,
+        " blocks: ",
+        linked,
+        " of ",
+        blocks - 1,
+        " links hold (each block's parent is the block before it, and its pre-state was proven against the state root fevm computed for that block)",
+    )
+    if failed == 0 { 0 } else { 1 }
+}
+
+// `chain` for one saved block; with `rpc`, the URL in argument 3 checks
+// the withdrawal recipients' balances.
+// Whether an argument is a URL (starts with `http`), not a directory.
+fn is_url(_ arg: Arg) -> bool {
+    let bytes = arg.span()
+    bytes.len() > 4 && bytes[0] == 0x68 && bytes[1] == 0x74 && bytes[2] == 0x74 && bytes[3] == 0x70
+}
+
+#[cfg(target_family = "unix")]
+fn chain_block(_ dir: Arg, rpc: bool) -> i32
+uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut Stdout)
+{
     let Option::Some(chain) = load_response(dir, "chain.json") else {
         return 1
     }
@@ -1338,7 +1405,6 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         )
     }
     // Withdrawals: each credits its recipient, in gwei.
-    let rpc = args.count() == 4
     var unknown: u64 = 0
     var code_unknown: core::MemVec<u256> = core::MemVec::new()
     var paid: u64 = 0
@@ -1542,13 +1608,22 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                     )
                 }
             }
-            if computed.hinted > 0 || computed.assumed > 0 {
+            if computed.hinted > 0 {
+                // eth_getProof names keys, and these are keys no
+                // transaction touched: their nodes come from the block's
+                // proofs, each found by a hash a parent's node names.
                 println!(
-                    "  ",
+                    "  plus ",
                     computed.hinted,
-                    " nodes a deletion moved up came from the block's proofs (checked by hash), ",
+                    " nodes the parent's proofs lack (",
+                    computed.hinted_bytes / 1024,
+                    " KiB), siblings a deletion moved up, taken from the block's proofs by the hashes the parent's nodes name",
+                )
+            }
+            if computed.assumed > 0 {
+                println!(
+                    "  siblings found nowhere, taken to be branches: ",
                     computed.assumed,
-                    " were taken to be branches",
                 )
             }
         }

@@ -94,7 +94,7 @@ header: fevm's gas (9743588), the blob gas and fevm's logs bloom are the header'
 requests: fevm's 0 deposits, 0 withdrawal and 0 consolidation requests hash to the header's requestsHash
 end state: 213 accounts and 521 slots proven against the block's state root, 0 differ
 state root: fevm's end state (149 accounts and 521 slots written) on the parent's witness (2969 nodes, 992 KiB) hashes to the header's stateRoot
-  4 nodes a deletion moved up came from the block's proofs (checked by hash), 0 were taken to be branches
+  plus 26 nodes the parent's proofs lack (9 KiB), siblings a deletion moved up, taken from the block's proofs by the hashes the parent's nodes name
 withdrawals: 16 credited, their recipients checked by the end state's proofs</code></pre>
     <table class="numbers">
       <thead><tr><th scope="col">Header field</th><th scope="col">Matched with</th></tr></thead>

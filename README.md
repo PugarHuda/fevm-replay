@@ -134,7 +134,7 @@ header: fevm's gas (9743588), the blob gas and fevm's logs bloom are the header'
 requests: fevm's 0 deposits, 0 withdrawal and 0 consolidation requests hash to the header's requestsHash
 end state: 213 accounts and 521 slots proven against the block's state root, 0 differ
 state root: fevm's end state (149 accounts and 521 slots written) on the parent's witness (2969 nodes, 992 KiB) hashes to the header's stateRoot
-  4 nodes a deletion moved up came from the block's proofs (checked by hash), 0 were taken to be branches
+  plus 26 nodes the parent's proofs lack (9 KiB), siblings a deletion moved up, taken from the block's proofs by the hashes the parent's nodes name
 withdrawals: 16 credited, their recipients checked by the end state's proofs
 ```
 
@@ -155,11 +155,15 @@ touched, each checked by its hash. fevm's end state is written into that
 partial trie (insertions, changes and deletions, accounts and their storage
 tries) and hashed again, the way a stateless client validates a block. The
 result must be the header's `stateRoot`, so fevm's value for every touched
-key is the chain's. One case needs a node the parent's proofs do not hold:
-a deletion that leaves a branch with one child moves that child up. It is
-then taken from the block's own proofs, and used only if it hashes to the
-hash its parent names (4 such nodes in the block above), so those proofs
-serve as a source of nodes, not as the answer.
+key is the chain's. One case needs nodes the parent's proofs do not hold:
+a deletion that leaves a branch with one child moves that child up, and
+the child belongs to a key no transaction touched, which `eth_getProof`
+cannot name (an execution witness would carry it, but no free endpoint
+serves `debug_executionWitness`). Such a node is taken from the block's own
+proofs, found by the hash a parent's node names, so it too hashes into the
+parent's state root; `chain` counts these nodes and their bytes (26 nodes,
+9 KiB, in the block above). The block's proofs serve as a source of nodes,
+not as the answer.
 
 | Block | Transactions | Witness nodes | Witness size | |
 | ---: | ---: | ---: | ---: | --- |
@@ -176,6 +180,17 @@ nodes, account and storage; contract code comes on top, checked against
 the proven code hashes. Earlier blocks proven before the stateless step
 (state roots checked key by key, receipts and requests) are in
 [docs/details.md](docs/details.md#proven-against-the-state-root).
+
+**Consecutive blocks as one chain.** Given several block directories,
+`chain` validates each and then links them: a block's parent must be the
+block before it, and the state root its pre-state was proven against must
+be the one fevm computed for that block.
+
+```
+$ ./out/fevm_replay chain 0x193361d 0x193361e 0x193361f
+...
+chain of 3 blocks: 2 of 2 links hold (each block's parent is the block before it, and its pre-state was proven against the state root fevm computed for that block)
+```
 
 **One wei breaks it.** CI also changes one withdrawal's amount by one wei
 in a copy of the fixture: the withdrawals root, the end state's proof and
@@ -453,7 +468,8 @@ What a MATCH or a clean certificate rests on:
   for about 100 blocks back, so `fetch-proofs` must follow the chain head.
   A deletion that moves up a node the parent's proofs lack takes it from
   the block's own proofs (checked by its hash); failing that, the node is
-  taken to be a branch and the output counts it (none so far). Proofs saved
+  taken to be a branch and the output counts it (once each in blocks
+  26,424,862 and 26,424,863, whose roots still matched). Proofs saved
   before the first system contracts' code was saved fall back to checking
   the end state key by key.
 - **Osaka with mainnet's BPO2 blob schedule only.** Older blocks may follow

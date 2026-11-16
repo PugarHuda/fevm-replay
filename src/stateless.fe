@@ -35,8 +35,11 @@ pub struct Nodes {
     /// The parent's witness: distinct nodes and their bytes.
     pub witness_nodes: u64,
     pub witness_bytes: u64,
-    /// Siblings found among the block's own proofs.
+    /// Nodes the parent's proofs lack, found among the block's own proofs
+    /// (or rebuilt from them) and used: each hashes into the parent's root
+    /// through a node that does.
     pub hinted: u64,
+    pub hinted_bytes: u64,
     /// Siblings neither proof holds, taken to be branches.
     pub assumed: u64,
 }
@@ -57,26 +60,46 @@ fn word(_ bytes: MemSpan) -> u256 {
     value
 }
 
-fn add(_ db: mut Nodes, _ node: MemSpan, witness: bool) {
+// Where a node came from: the parent's proofs, the block's own proofs, or
+// this computation.
+const PARENT: u8 = 0
+const BLOCK: u8 = 1
+const COMPUTED: u8 = 2
+
+fn add(_ db: mut Nodes, _ node: MemSpan, from: u8) {
     let hash = keccak256_word(node)
     if db.index.storage_load(1, hash) != 0 {
         return
     }
     db.nodes.push(copy(node))
     let _ = db.index.storage_store(1, hash, db.nodes.len() as u256)
-    if witness {
+    if from == PARENT {
         db.witness_nodes += 1
         db.witness_bytes += node.len().downcast_unchecked()
+    } else if from == BLOCK {
+        // Under account 2: a node of the block's proofs not used yet.
+        let _ = db.index.storage_store(2, hash, 1)
     }
 }
 
-fn lookup(_ db: Nodes, _ hash: u256) -> Option<MemBuffer> {
+// A node of the block's proofs, used: counted once.
+fn count_hinted(_ db: mut Nodes, _ hash: u256, _ bytes: usize) {
+    if db.index.storage_load(2, hash) == 1 {
+        let _ = db.index.storage_store(2, hash, 2)
+        db.hinted += 1
+        db.hinted_bytes += bytes.downcast_unchecked()
+    }
+}
+
+fn lookup(_ db: mut Nodes, _ hash: u256) -> Option<MemBuffer> {
     let at = db.index.storage_load(1, hash)
     if at == 0 {
         return Option::None
     }
     let i: usize = (at - 1).downcast_unchecked()
-    Option::Some(copy(db.nodes[i].span()))
+    let node = copy(db.nodes[i].span())
+    count_hinted(mut db, hash, node.len())
+    Option::Some(node)
 }
 
 // RLP: where the item at `at` has its payload (start, end), and whether it
@@ -214,7 +237,7 @@ fn reference(_ db: mut Nodes, _ node: MemSpan) -> MemBuffer {
         return out
     }
     if node.len() >= 32 {
-        add(mut db, node, witness: false)
+        add(mut db, node, from: COMPUTED)
     }
     put_child(mut out, node)
     out
@@ -222,7 +245,7 @@ fn reference(_ db: mut Nodes, _ node: MemSpan) -> MemBuffer {
 
 // The node a parent's `item` names: none, inline, or by hash (None when no
 // node with that hash is known).
-fn resolve(_ db: Nodes, _ item: MemSpan) -> Option<MemBuffer> {
+fn resolve(_ db: mut Nodes, _ item: MemSpan) -> Option<MemBuffer> {
     if is_empty_item(item) {
         return Option::Some(MemBuffer::empty())
     }
@@ -230,7 +253,7 @@ fn resolve(_ db: Nodes, _ item: MemSpan) -> Option<MemBuffer> {
         return Option::Some(copy(item))
     }
     if item.len() == 33 && item[0] == 0xa0 {
-        return lookup(db, word(item.slice(offset: 1, len: 32)))
+        return lookup(mut db, word(item.slice(offset: 1, len: 32)))
     }
     Option::None
 }
@@ -269,7 +292,7 @@ fn under(_ db: mut Nodes, _ prefix: MemSpan, _ node: MemSpan) -> Option<MemBuffe
 fn collapse(_ db: mut Nodes, _ item: MemSpan, at: u8, depth: usize) -> Option<MemBuffer> {
     var prefix = MemBuffer::empty()
     prefix.push(at)
-    if let Option::Some(node) = resolve(db, item) {
+    if let Option::Some(node) = resolve(mut db, item) {
         return under(mut db, prefix.span(), node.span())
     }
     let hash = word(item.slice(offset: 1, len: 32))
@@ -281,6 +304,7 @@ fn collapse(_ db: mut Nodes, _ item: MemSpan, at: u8, depth: usize) -> Option<Me
         let candidate = leaf(key, from: depth + 1, db.leaf_values[h].span())
         if keccak256_word(candidate.span()) == hash {
             db.hinted += 1
+            db.hinted_bytes += candidate.len().downcast_unchecked()
             return Option::Some(leaf(key, from: depth, db.leaf_values[h].span()))
         }
     }
@@ -291,6 +315,7 @@ fn collapse(_ db: mut Nodes, _ item: MemSpan, at: u8, depth: usize) -> Option<Me
         let candidate = extension(path.span(), from: 1, parts[1].span())
         if keccak256_word(candidate.span()) == hash {
             db.hinted += 1
+            db.hinted_bytes += candidate.len().downcast_unchecked()
             let joined = concat(prefix.span(), path.span(), from: 1)
             return Option::Some(extension(joined.span(), from: 0, parts[1].span()))
         }
@@ -346,7 +371,7 @@ fn put(_ db: mut Nodes, _ node: MemSpan, _ key: MemSpan, depth: usize, _ value: 
     let parts = items(node)?
     if parts.len() == 17 {
         let n = key[depth]
-        let child = resolve(db, parts[n as usize].span())?
+        let child = resolve(mut db, parts[n as usize].span())?
         let updated = put(mut db, child.span(), key, depth: depth + 1, value)?
         let updated_item = reference(mut db, updated.span())
         var children: MemVec<MemBuffer> = MemVec::new()
@@ -409,7 +434,7 @@ fn put(_ db: mut Nodes, _ node: MemSpan, _ key: MemSpan, depth: usize, _ value: 
         )
     }
     if c == path.len() {
-        let child = resolve(db, parts[1].span())?
+        let child = resolve(mut db, parts[1].span())?
         let updated = put(mut db, child.span(), key, depth: depth + c, value)?
         return under(mut db, path.span(), updated.span())
     }
@@ -443,11 +468,11 @@ fn key_of(_ value: u256, len: usize) -> MemBuffer {
 }
 
 // The node a trie's root hash names: none for the empty trie.
-fn root_node(_ db: Nodes, _ root: u256) -> Option<MemBuffer> {
+fn root_node(_ db: mut Nodes, _ root: u256) -> Option<MemBuffer> {
     if root == proof::EMPTY_TRIE {
         return Option::Some(MemBuffer::empty())
     }
-    lookup(db, root)
+    lookup(mut db, root)
 }
 
 fn hash_root(_ node: MemSpan) -> u256 {
@@ -464,7 +489,11 @@ fn add_proof(_ db: mut Nodes, _ entries: Value, _ key: MemSpan, witness: bool) {
     var depth: usize = 0
     for ref entry in entries.items() {
         let node = hex_bytes(entry.text())
-        add(mut db, node.span(), witness)
+        add(
+            mut db,
+            node.span(),
+            from: if witness { PARENT } else { BLOCK },
+        )
         if witness { continue }
         let Option::Some(parts) = items(node.span()) else {
             return
@@ -548,6 +577,7 @@ pub struct Computed {
     pub witness_nodes: u64,
     pub witness_bytes: u64,
     pub hinted: u64,
+    pub hinted_bytes: u64,
     pub assumed: u64,
     /// When `root` is zero: the account whose node was missing, and what
     /// for (1 the state root, 2 its proof, 3 its storage root, 4 a slot,
@@ -579,9 +609,11 @@ pub fn state_root(
         witness_nodes: 0,
         witness_bytes: 0,
         hinted: 0,
+        hinted_bytes: 0,
         assumed: 0,
     }
     let _ = db.index.ensure_account(1)
+    let _ = db.index.ensure_account(2)
     var found = Computed {
         root: 0,
         accounts: 0,
@@ -589,6 +621,7 @@ pub fn state_root(
         witness_nodes: 0,
         witness_bytes: 0,
         hinted: 0,
+        hinted_bytes: 0,
         assumed: 0,
         stuck: 0,
         stage: 0,
@@ -597,7 +630,7 @@ pub fn state_root(
     add_side(mut db, proofs["post"], witness: false)
     found.witness_nodes = db.witness_nodes
     found.witness_bytes = db.witness_bytes
-    let Option::Some(start) = root_node(db, parent_root) else {
+    let Option::Some(start) = root_node(mut db, parent_root) else {
         found.stage = 1
         return found
     }
@@ -618,7 +651,7 @@ pub fn state_root(
         // the witness need not hold.
         var storage_root = parent.storage_root
         if slots.len() > 0 {
-            let Option::Some(first) = root_node(db, parent.storage_root) else {
+            let Option::Some(first) = root_node(mut db, parent.storage_root) else {
                 found.stuck = address
                 found.stage = 3
                 return found
@@ -679,6 +712,7 @@ pub fn state_root(
     }
     found.root = hash_root(accounts.span())
     found.hinted = db.hinted
+    found.hinted_bytes = db.hinted_bytes
     found.assumed = db.assumed
     found
 }
