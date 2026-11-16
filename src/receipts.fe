@@ -12,7 +12,7 @@ use std::io::Display
 use fevm::LogBuffer
 
 // RLP: a string's encoding into `out`.
-fn put_string(_ out: mut MemBuffer, _ bytes: MemSpan) {
+pub fn put_string(_ out: mut MemBuffer, _ bytes: MemSpan) {
     let len = bytes.len()
     if len == 1 && bytes[0] < 0x80 {
         out.push(bytes[0])
@@ -26,7 +26,7 @@ fn put_string(_ out: mut MemBuffer, _ bytes: MemSpan) {
 
 // RLP: the header of a string (`base` 0x80) or a list (`base` 0xc0) of
 // `len` payload bytes.
-fn put_header(_ out: mut MemBuffer, _ base: u8, _ len: usize) {
+pub fn put_header(_ out: mut MemBuffer, _ base: u8, _ len: usize) {
     if len < 56 {
         out.push(base + len.downcast_truncate())
         return
@@ -46,7 +46,7 @@ fn put_header(_ out: mut MemBuffer, _ base: u8, _ len: usize) {
 }
 
 // RLP: a list of the already encoded `payload`.
-fn put_list(_ out: mut MemBuffer, _ payload: MemSpan) {
+pub fn put_list(_ out: mut MemBuffer, _ payload: MemSpan) {
     put_header(mut out, 0xc0, payload.len())
     for i in 0 .. payload.len() {
         out.push(payload[i])
@@ -55,7 +55,7 @@ fn put_list(_ out: mut MemBuffer, _ payload: MemSpan) {
 
 // The big-endian bytes of `value`: `width` bytes, or with `width` 0 as few
 // as it takes (none for zero), as RLP integers are.
-fn word_bytes(_ value: u256, width: usize) -> MemBuffer {
+pub fn word_bytes(_ value: u256, width: usize) -> MemBuffer {
     var size = width
     if size == 0 {
         var rest = value
@@ -73,7 +73,7 @@ fn word_bytes(_ value: u256, width: usize) -> MemBuffer {
     out
 }
 
-fn put_word(_ out: mut MemBuffer, _ value: u256, width: usize) {
+pub fn put_word(_ out: mut MemBuffer, _ value: u256, width: usize) {
     put_string(mut out, word_bytes(value, width).span())
 }
 
@@ -92,7 +92,14 @@ fn bloom_add(_ bloom: mut [u8; 256], _ bytes: MemSpan) {
 
 /// A receipt as the chain encodes it: `type || rlp([status, cumulative
 /// gas, bloom, logs])`, without the type byte for a legacy transaction.
-pub fn encode(tx_type: u256, success: bool, cumulative_gas: u256, _ logs: LogBuffer) -> MemBuffer {
+/// Its bloom is also added to `block_bloom`, the header's `logsBloom`.
+pub fn encode(
+    tx_type: u256,
+    success: bool,
+    cumulative_gas: u256,
+    _ logs: LogBuffer,
+    block_bloom: mut [u8; 256],
+) -> MemBuffer {
     var bloom: [u8; 256] = [0; 256]
     var all_logs = MemBuffer::empty()
     var index: u64 = 0
@@ -120,6 +127,7 @@ pub fn encode(tx_type: u256, success: bool, cumulative_gas: u256, _ logs: LogBuf
     var bloom_bytes = MemBuffer::empty()
     for i in 0 .. 256 {
         bloom_bytes.push(bloom[i])
+        block_bloom[i] = block_bloom[i] | bloom[i]
     }
     put_string(mut fields, bloom_bytes.span())
     put_list(mut fields, all_logs.span())
@@ -230,7 +238,7 @@ fn node(
 }
 
 // A child in its parent: inline under 32 bytes, otherwise its hash.
-fn put_child(_ out: mut MemBuffer, _ child: MemSpan) {
+pub fn put_child(_ out: mut MemBuffer, _ child: MemSpan) {
     if child.len() < 32 {
         for i in 0 .. child.len() {
             out.push(child[i])
@@ -242,7 +250,7 @@ fn put_child(_ out: mut MemBuffer, _ child: MemSpan) {
 
 // The hex-prefix encoding of `nibbles` from `from` on, flagged as a leaf's
 // or an extension's path.
-fn hex_prefix(_ out: mut MemBuffer, _ nibbles: MemSpan, from: usize, leaf: bool) {
+pub fn hex_prefix(_ out: mut MemBuffer, _ nibbles: MemSpan, from: usize, leaf: bool) {
     let count = nibbles.len() - from
     let odd = count % 2 == 1
     let flag: u8 = (if leaf { 2 } else { 0 }) + (if odd { 1 } else { 0 })

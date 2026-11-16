@@ -59,10 +59,11 @@ fn copy(_ out: mut MemBuffer, _ data: MemSpan, from: usize, len: usize) {
     }
 }
 
-/// Runs the end-of-block system call to `target`: from `SYSTEM`, with
-/// 30M gas, no value, no fee and no nonce, as the chain runs it. Its
-/// output is the requests it dequeued.
-pub fn system_call(_ world: own WorldState, target: u256, _ block: BlockEnv) -> (
+/// Runs a system call to `target` with `input`: from `SYSTEM`, with 30M
+/// gas, no value, no fee and no nonce, as the chain runs it. The
+/// end-of-block ones output the requests they dequeued; the first ones
+/// (EIP-4788, EIP-2935) store their input.
+pub fn system_call(_ world: own WorldState, target: u256, input: MemSpan, _ block: BlockEnv) -> (
     WorldState,
     ExecutionResult,
 ) {
@@ -86,7 +87,7 @@ pub fn system_call(_ world: own WorldState, target: u256, _ block: BlockEnv) -> 
     let checkpoint = tx.checkpoint(is_static: false)
     let result = execute(
         tx.program(target),
-        InputData::copy_bytes(MemBuffer::empty().span()),
+        InputData::copy_bytes(input),
         call,
         block,
         mut tx,

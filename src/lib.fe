@@ -833,6 +833,8 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     // The request contracts the end-of-block system calls run, whether or
     // not a transaction touched them.
     proof::add_request_keys(mut keys)
+    // And the slots the block's first system calls write.
+    proof::add_system_keys(mut keys, header)
     // And the queue entries their system calls read, as the node says the
     // queues stood at the parent; `chain` proves what it uses.
     var requests_at: u256 = proof::WITHDRAWAL_REQUESTS
@@ -936,6 +938,8 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     var contracts: core::MemVec<u256> = core::MemVec::new()
     contracts.push(proof::WITHDRAWAL_REQUESTS)
     contracts.push(proof::CONSOLIDATION_REQUESTS)
+    contracts.push(proof::BEACON_ROOTS)
+    contracts.push(proof::HISTORY)
     let at = fetch::quantity(number - 1)
     let fetched = if args.count() == 4 {
         fetch::write_delegates(args.get(3), contracts, parent: at.span(), mut text)
@@ -1058,6 +1062,7 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     var keys = fevm::WorldState::empty()
     var parent_root: u256 = 0
     var unproven: u64 = 0
+    var first_calls = false
     if proving {
         let Option::Some(doc) = load_json(dir, "proofs.json") else {
             return 1
@@ -1081,6 +1086,33 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
             header,
             recipients: false,
         )
+        // Proofs that saved the first system contracts' code let fevm run
+        // their calls: the world starts as the parent left it, and fevm
+        // writes what EIP-4788 and EIP-2935 store. Older proofs check the
+        // written slots against what the calls store instead.
+        first_calls = !proof::code_of(proofs, proof::BEACON_ROOTS).is_empty()
+            && !proof::code_of(proofs, proof::HISTORY).is_empty()
+        var written: core::MemVec<proof::Written> = proof::system_writes(header)
+        if first_calls {
+            proof::add_system_keys(mut keys, header)
+            for c in 0 .. 2 {
+                let target = if c == 0 {
+                    proof::BEACON_ROOTS
+                } else {
+                    proof::HISTORY
+                }
+                if !proof::load_system_contract(
+                    mut world,
+                    proofs,
+                    state_root: parent_root,
+                    address: target,
+                    keys,
+                ) {
+                    first_calls = false
+                }
+            }
+            written = core::MemVec::new()
+        }
         var text = MemBuffer::empty()
         let pre = with (mut text) {
             proof::check(
@@ -1088,7 +1120,7 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                 state_root: parent_root,
                 proofs["pre"],
                 keys,
-                written: proof::system_writes(header),
+                written,
                 skip: core::MemVec::new(),
                 code_unknown: core::MemVec::new(),
             )
@@ -1101,6 +1133,31 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         )
         print_checked("pre-state", "the parent's", pre)
         unproven += pre.differ + pre.broken + pre.unproven
+        if first_calls {
+            var ran: u64 = 0
+            for c in 0 .. 2 {
+                let (target, input) = if c == 0 {
+                    (proof::BEACON_ROOTS, field(header, "parentBeaconBlockRoot"))
+                } else {
+                    (proof::HISTORY, field(header, "parentHash"))
+                }
+                var bytes = MemBuffer::with_capacity(32)
+                bytes.write_word(offset: 0, value: input)
+                let (after, result) = requests::system_call(world, target, input: bytes.span(), env)
+                world = after
+                if result.status == fevm::OK {
+                    ran += 1
+                }
+            }
+            if ran == 2 {
+                println!(
+                    "system calls: fevm ran EIP-4788 (beacon root) and EIP-2935 (parent hash) before the first transaction",
+                )
+            } else {
+                unproven += 1
+                println!("SYSTEM a first system call failed in fevm")
+            }
+        }
     }
     var matched: u64 = 0
     var old_hashes: u64 = 0
@@ -1109,6 +1166,8 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     // receipts root the header commits to.
     var own_receipts: core::MemVec<MemBuffer> = core::MemVec::new()
     var cumulative_gas: u256 = 0
+    // The OR of their blooms: the header's logsBloom.
+    var block_bloom: [u8; 256] = [0; 256]
     // The deposits fevm's logs hold (EIP-6110), for the requests hash.
     var deposits = MemBuffer::empty()
     var deposits_ok = true
@@ -1153,6 +1212,7 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                     success: applied.receipt.status == fevm::OK,
                     cumulative_gas,
                     applied.receipt.logs,
+                    block_bloom: mut block_bloom,
                 ),
             )
         var text = MemBuffer::empty()
@@ -1264,6 +1324,9 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     if !receipts_match {
         unproven += 1
     }
+    // The rest of what the header commits to about the block's body and
+    // its execution, from the block's own data and fevm's results.
+    unproven += header_commitments(header, gas_used: cumulative_gas, bloom: block_bloom)
     if old_hashes > 0 {
         println!("  of the differences, ", old_hashes, " ran BLOCKHASH")
     }
@@ -1357,7 +1420,12 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                 )
                 continue
             }
-            let (after, result) = requests::system_call(world, target, env)
+            let (after, result) = requests::system_call(
+                world,
+                target,
+                input: MemBuffer::empty().span(),
+                env,
+            )
             world = after
             if result.status != fevm::OK {
                 println!(
@@ -1415,6 +1483,9 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
             header,
             recipients: true,
         )
+        if first_calls {
+            proof::add_system_keys(mut keys, header)
+        }
         var skip: core::MemVec<u256> = core::MemVec::new()
         if system_calls {
             proof::add_request_keys(mut keys)
@@ -1501,6 +1572,89 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     } else {
         1
     }
+}
+
+// The header's transactionsRoot (each transaction re-encoded, and hashing
+// to its own hash), withdrawalsRoot, gasUsed (fevm's cumulative gas),
+// blobGasUsed and logsBloom (fevm's logs). Returns how many do not match.
+fn header_commitments(_ header: Value, gas_used: u256, bloom: [u8; 256]) -> u64
+uses (out: mut Stdout)
+{
+    var wrong: u64 = 0
+    let txs = header["transactions"].items()
+    let (encoded, misencoded) = roots::transactions(header["transactions"])
+    let tx_root = receipts::trie_root(encoded)
+    if misencoded == 0 && tx_root == field(header, "transactionsRoot") {
+        println!(
+            "transactions: ",
+            txs.len(),
+            " re-encoded, each hashes to its hash, and they hash to the header's transactionsRoot",
+        )
+    } else {
+        wrong += 1
+        println!(
+            "TRANSACTIONS ",
+            misencoded,
+            " do not hash to their hash; the trie hashes to 0x",
+            core::text::hex(tx_root, 32),
+            ", the header's transactionsRoot is 0x",
+            core::text::hex(field(header, "transactionsRoot"), 32),
+        )
+    }
+    let withdrawals = roots::withdrawals(header)
+    let w_root = receipts::trie_root(withdrawals)
+    if w_root == field(header, "withdrawalsRoot") {
+        println!(
+            "withdrawals: ",
+            withdrawals.len(),
+            " hash to the header's withdrawalsRoot",
+        )
+    } else {
+        wrong += 1
+        println!(
+            "WITHDRAWALS hash to 0x",
+            core::text::hex(w_root, 32),
+            ", the header's withdrawalsRoot is 0x",
+            core::text::hex(field(header, "withdrawalsRoot"), 32),
+        )
+    }
+    var blob_gas: u256 = 0
+    for ref tx in txs {
+        if tx.has("blobVersionedHashes") {
+            blob_gas += 131072 * tx["blobVersionedHashes"].items().len() as u256
+        }
+    }
+    let bloom_bytes = load::hex_bytes(header["logsBloom"].text())
+    var same_bloom = bloom_bytes.len() == 256
+    for i in 0 .. bloom_bytes.len() {
+        if same_bloom && bloom_bytes.span()[i] != bloom[i] {
+            same_bloom = false
+        }
+    }
+    if gas_used == field(header, "gasUsed")
+        && blob_gas == field(header, "blobGasUsed")
+        && same_bloom {
+        println!(
+            "header: fevm's gas (",
+            gas_used,
+            "), the blob gas and fevm's logs bloom are the header's gasUsed, blobGasUsed and logsBloom",
+        )
+    } else {
+        wrong += 1
+        println!(
+            "HEADER gasUsed: fevm ",
+            gas_used,
+            ", header ",
+            field(header, "gasUsed"),
+            "; blobGasUsed: ",
+            blob_gas,
+            ", header ",
+            field(header, "blobGasUsed"),
+            "; logsBloom ",
+            if same_bloom { "matches" } else { "differs" },
+        )
+    }
+    wrong
 }
 
 // Whether `dir/name` exists (and reads).

@@ -1,0 +1,141 @@
+//! The block's transactions and withdrawals, encoded as the chain encodes
+//! them, for the header's `transactionsRoot` and `withdrawalsRoot`. Each
+//! transaction's encoding must also hash to its own hash: then the
+//! transactions fevm ran are the ones the block holds, whatever the node
+//! sent. Like `proof`, this reaches neither the network nor the disk.
+
+use core::{MemBuffer, MemVec}
+use core::hash::keccak256_word
+use json::{Key, Value}
+use ingot::load::{field, hex_bytes, hex_word}
+use ingot::receipts::{put_list, put_string, put_word}
+
+fn int<K: Key>(_ out: mut MemBuffer, _ object: Value, _ key: K) {
+    put_word(mut out, field(object, key), width: 0)
+}
+
+fn address<K: Key>(_ out: mut MemBuffer, _ object: Value, _ key: K) {
+    put_word(mut out, field(object, key), width: 20)
+}
+
+fn access_list(_ out: mut MemBuffer, _ tx: Value) {
+    var all = MemBuffer::empty()
+    if tx.has("accessList") {
+        for ref entry in tx["accessList"].items() {
+            var item = MemBuffer::empty()
+            address(mut item, entry, "address")
+            var keys = MemBuffer::empty()
+            for ref key in entry["storageKeys"].items() {
+                put_word(mut keys, hex_word(key), width: 32)
+            }
+            put_list(mut item, keys.span())
+            put_list(mut all, item.span())
+        }
+    }
+    put_list(mut out, all.span())
+}
+
+fn signature(_ out: mut MemBuffer, _ tx: Value) {
+    if tx.has("yParity") {
+        int(mut out, tx, "yParity")
+    } else {
+        int(mut out, tx, "v")
+    }
+    int(mut out, tx, "r")
+    int(mut out, tx, "s")
+}
+
+/// A transaction as the chain encodes it (EIP-2718): legacy as an RLP list,
+/// a typed one as its type byte and the RLP list of its kind's fields.
+pub fn encode_tx(_ tx: Value) -> MemBuffer {
+    let kind = field(tx, "type")
+    var fields = MemBuffer::empty()
+    if kind != 0 {
+        int(mut fields, tx, "chainId")
+    }
+    int(mut fields, tx, "nonce")
+    if kind == 0 || kind == 1 {
+        int(mut fields, tx, "gasPrice")
+    } else {
+        int(mut fields, tx, "maxPriorityFeePerGas")
+        int(mut fields, tx, "maxFeePerGas")
+    }
+    int(mut fields, tx, "gas")
+    if !tx.has("to") || tx["to"].is_null() {
+        put_string(mut fields, MemBuffer::empty().span())
+    } else {
+        address(mut fields, tx, "to")
+    }
+    int(mut fields, tx, "value")
+    put_string(mut fields, hex_bytes(tx["input"].text()).span())
+    if kind == 0 {
+        int(mut fields, tx, "v")
+        int(mut fields, tx, "r")
+        int(mut fields, tx, "s")
+        var out = MemBuffer::empty()
+        put_list(mut out, fields.span())
+        return out
+    }
+    access_list(mut fields, tx)
+    if kind == 3 {
+        int(mut fields, tx, "maxFeePerBlobGas")
+        var hashes = MemBuffer::empty()
+        for ref hash in tx["blobVersionedHashes"].items() {
+            put_word(mut hashes, hex_word(hash), width: 32)
+        }
+        put_list(mut fields, hashes.span())
+    }
+    if kind == 4 {
+        var all = MemBuffer::empty()
+        for ref auth in tx["authorizationList"].items() {
+            var item = MemBuffer::empty()
+            int(mut item, auth, "chainId")
+            address(mut item, auth, "address")
+            int(mut item, auth, "nonce")
+            int(mut item, auth, "yParity")
+            int(mut item, auth, "r")
+            int(mut item, auth, "s")
+            put_list(mut all, item.span())
+        }
+        put_list(mut fields, all.span())
+    }
+    signature(mut fields, tx)
+    var out = MemBuffer::empty()
+    out.push(kind.downcast_truncate())
+    put_list(mut out, fields.span())
+    out
+}
+
+/// The encodings of `transactions` (a block's full transaction objects),
+/// and how many of them do not hash to the hash the block lists.
+pub fn transactions(_ transactions: Value) -> (MemVec<MemBuffer>, u64) {
+    var encoded: MemVec<MemBuffer> = MemVec::new()
+    var wrong: u64 = 0
+    for ref tx in transactions.items() {
+        let bytes = encode_tx(tx)
+        if keccak256_word(bytes.span()) != field(tx, "hash") {
+            wrong += 1
+        }
+        encoded.push(bytes)
+    }
+    (encoded, wrong)
+}
+
+/// The encodings of a block's withdrawals (EIP-4895): index, validator,
+/// address and amount in gwei.
+pub fn withdrawals(_ header: Value) -> MemVec<MemBuffer> {
+    var encoded: MemVec<MemBuffer> = MemVec::new()
+    if header.has("withdrawals") {
+        for ref w in header["withdrawals"].items() {
+            var fields = MemBuffer::empty()
+            int(mut fields, w, "index")
+            int(mut fields, w, "validatorIndex")
+            address(mut fields, w, "address")
+            int(mut fields, w, "amount")
+            var out = MemBuffer::empty()
+            put_list(mut out, fields.span())
+            encoded.push(out)
+        }
+    }
+    encoded
+}

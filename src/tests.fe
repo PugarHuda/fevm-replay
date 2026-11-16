@@ -354,12 +354,14 @@ contract C {
 #[test]
 fn receipts_tries_hash_as_mainnet_does() {
     var one: core::MemVec<core::MemBuffer> = core::MemVec::new()
+    var bloom: [u8; 256] = [0; 256]
     one.push(
         ingot::receipts::encode(
             tx_type: 0,
             success: true,
             cumulative_gas: 21000,
             fevm::LogBuffer::new(),
+            block_bloom: mut bloom,
         ),
     )
     assert!(
@@ -369,5 +371,29 @@ fn receipts_tries_hash_as_mainnet_does() {
     let none: core::MemVec<core::MemBuffer> = core::MemVec::new()
     assert!(
         ingot::receipts::trie_root(none) == ingot::proof::EMPTY_TRIE,
+    )
+}
+
+// Two mainnet transactions of block 26,420,759, re-encoded: a legacy
+// transfer (EIP-155 `v`) and a blob transaction hash to their hashes.
+#[test]
+fn transactions_encode_to_their_mainnet_hashes() {
+    let legacy = parse(
+        "{\"type\":\"0x0\",\"chainId\":\"0x1\",\"nonce\":\"0x0\",\"gasPrice\":\"0x77359400\",\"gas\":\"0x5208\",\"to\":\"0x1ca8b56c99ded8d62ef85d220ccc639e8af46ef1\",\"value\":\"0x2da56d5f8bdf400\",\"input\":\"0x\",\"r\":\"0xf433beae1f31602eefc0c7031eef7b540ce9bc7146f1275fed4698a4b976e3db\",\"s\":\"0x7d8b55df27dca018414615cb039479a0f0b6a7a8a10c251e560d56a766ef51f9\",\"v\":\"0x26\"}"
+            .span(),
+    )
+        .unwrap()
+    assert!(
+        core::hash::keccak256_word(ingot::roots::encode_tx(legacy).span())
+            == 0x8b1c90f50a49b7cdd2eba8b254098358b0839b4dffb97ce10da406dfde5c7799,
+    )
+    let blob = parse(
+        "{\"type\":\"0x3\",\"chainId\":\"0x1\",\"nonce\":\"0xdaea\",\"gas\":\"0x5208\",\"maxFeePerGas\":\"0xb2d05e00\",\"maxPriorityFeePerGas\":\"0x3b9aca00\",\"to\":\"0x8c12f051c161c2cda736f3b3fa1c4bdd35b7922c\",\"value\":\"0x0\",\"accessList\":[],\"blobVersionedHashes\":[\"0x018addcad00a037cf686d82737aa056d5a8147f99927f2c651c3a588be77b902\"],\"maxFeePerBlobGas\":\"0x3b9aca00\",\"input\":\"0x\",\"r\":\"0x443f435e2b746283e95da9fce5af21dfc1ab5c5a6c34b0121c26e4e1ba65c0f9\",\"s\":\"0x4ed74a70ebf134a5ae39fb39b7c7f37f048612fed32fd586f2fdc93d175ed270\",\"yParity\":\"0x0\"}"
+            .span(),
+    )
+        .unwrap()
+    assert!(
+        core::hash::keccak256_word(ingot::roots::encode_tx(blob).span())
+            == 0x4ba798126dc24806af0d586ed4d03da9aeec028f4da4601d013a35ff535a7d47,
     )
 }

@@ -579,12 +579,7 @@ pub fn load_request_contract(
     let Option::Some(proven) = find_account(proofs["pre"], state_root, address) else {
         return false
     }
-    var code = MemBuffer::empty()
-    for ref member in proofs["code"].members() {
-        if parse_hex_uint(member.key.span()).unwrap_or(default: 0) == address {
-            code = hex_bytes(member.value.text())
-        }
-    }
+    let code = code_of(proofs, address)
     if keccak256_word(code.span()) != proven.code_hash || proven.code_hash == EMPTY_CODE {
         return false
     }
@@ -657,4 +652,65 @@ pub fn find_account(_ proofs: Value, state_root: u256, address: u256) -> Option<
         }
     }
     Option::None
+}
+
+/// The code `proofs` (a `fetch-proofs` file) saved for `address`; empty if
+/// none.
+pub fn code_of(_ proofs: Value, _ address: u256) -> MemBuffer {
+    if !proofs.has("code") {
+        return MemBuffer::empty()
+    }
+    for ref member in proofs["code"].members() {
+        if parse_hex_uint(member.key.span()).unwrap_or(default: 0) == address {
+            return hex_bytes(member.value.text())
+        }
+    }
+    MemBuffer::empty()
+}
+
+/// Adds the slots the block's first system calls write (`system_writes`)
+/// to `keys`.
+pub fn add_system_keys(_ keys: mut WorldState, _ header: Value) {
+    let writes = system_writes(header)
+    for w in 0 .. writes.len() {
+        let _ = keys.storage_store(writes[w].address, writes[w].slot, 1)
+    }
+}
+
+/// Puts system contract `address` (EIP-4788, EIP-2935) in `world` as it
+/// stood at the parent's end, before the block's first system calls: its
+/// account and code, and every slot of it in `keys`, as the parent's
+/// `proofs` prove them under `state_root`. False when something is not
+/// proven.
+pub fn load_system_contract(
+    _ world: mut WorldState,
+    _ proofs: Value,
+    state_root: u256,
+    address: u256,
+    _ keys: WorldState,
+) -> bool {
+    let Option::Some(proven) = find_account(proofs["pre"], state_root, address) else {
+        return false
+    }
+    let code = code_of(proofs, address)
+    if keccak256_word(code.span()) != proven.code_hash || proven.code_hash == EMPTY_CODE {
+        return false
+    }
+    if !world.set_balance(address, proven.balance) || !world.set_nonce(address, proven.nonce) {
+        return false
+    }
+    world.set_code(address: address, code: code.span())
+    let slots = slots_of(keys, address)
+    for k in 0 .. slots.len() {
+        let Option::Some(value) = find_slot(
+            proofs["pre"],
+            state_root,
+            address,
+            key: slots[k],
+        ) else {
+            return false
+        }
+        let _ = world.storage_store(address, slots[k], value)
+    }
+    true
 }
