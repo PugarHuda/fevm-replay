@@ -180,8 +180,9 @@ would need for the same keys ([`src/binary.fe`](src/binary.fe)): stems and
 values exact, stem positions from a stand-in hash, 28 to 31 levels deep.
 For the block above: 505 to 557 KiB against 1,002 KiB, code left out.
 
-**Following the chain.** [`follow.py`](follow.py) takes the block two
-behind the head, saves and proves it and runs `chain`, again and again;
+**Following the chain.** `fevm_replay follow <dir> <out.json> <blocks>`
+([`src/follow.fe`](src/follow.fe)) takes the block two behind the head,
+saves and proves it and runs `chain`, by running itself, again and again;
 the [stateless blocks page](https://fevm-replay.vercel.app/stateless.html)
 lists every block it took, with the witness per transaction and per
 million gas and the binary-tree estimate.
@@ -332,6 +333,7 @@ Other Fe pieces doing real work:
 | `src/proof.fe` | Merkle-Patricia proofs (EIP-1186) against a state root, block header hashes, a world checked account by account and slot by slot. No host capabilities |
 | `src/receipts.fe` | receipts encoded as the chain encodes them, and a Merkle-Patricia trie built from them, for the header's `receiptsRoot`. No host capabilities |
 | `src/roots.fe` | transactions re-encoded (EIP-2718) and withdrawals, for the header's `transactionsRoot` and `withdrawalsRoot`. No host capabilities |
+| `src/follow.fe` | `follow`: the chain head validated as it grows, by running `fetch-block`, `fetch-proofs` and `chain`; the stateless page's data |
 | `src/binary.fe` | the binary tree (EIP-7864) witness estimated for the same keys. No host capabilities |
 | `src/stateless.fe` | the end-state root computed from the parent's witness and fevm's end state: inserts, changes and deletions in a partial Merkle-Patricia trie. No host capabilities |
 | `src/requests.fe` | the system calls (EIP-4788, EIP-2935, EIP-7002, EIP-7251), deposits from fevm's logs (EIP-6110), and the EIP-7685 requests hash, for the header's `requestsHash`. No host capabilities |

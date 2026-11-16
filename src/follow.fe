@@ -1,0 +1,338 @@
+//! `follow <work-dir> <out.json> <blocks> [rpc-url]`: follows the chain
+//! head and validates blocks statelessly as they come. Each round takes the
+//! block two behind the head, saves it (`fetch-block`), fetches the
+//! parent's and the block's proofs (`fetch-proofs`) and runs `chain`, by
+//! running this same program; when a transaction read an older block's
+//! hash, it fetches the 256 before (`fetch-hashes`) and runs `chain` again.
+//! What `chain` printed is added to `out.json`, the stateless blocks
+//! page's data: the transactions that matched, whether every root in the
+//! header did, the witness and the binary-tree estimate. A block that
+//! cannot be proven in time is recorded as such.
+
+use core::{MemBuffer, MemSpan}
+use core::text::decimal
+use std::env::{Arg, Args}
+use std::fs::Fs
+use std::io::{Display, Stdout}
+use std::process::{Command, Redirect, Spawn}
+use json::parse
+use fevm::WorldState
+use ingot::load::field
+use ingot::fetch
+
+// Where `needle` first occurs in `text` at or after `from`.
+fn find(_ text: MemSpan, _ needle: MemSpan, from: usize) -> Option<usize> {
+    var i = from
+    while i + needle.len() <= text.len() {
+        var k: usize = 0
+        while k < needle.len() && text[i + k] == needle[k] {
+            k += 1
+        }
+        if k == needle.len() {
+            return Option::Some(i)
+        }
+        i += 1
+    }
+    Option::None
+}
+
+fn has(_ text: MemSpan, _ needle: MemSpan) -> bool {
+    find(text, needle, from: 0).is_some()
+}
+
+// The decimal number right after the first `needle` in `text`; 0 if none.
+fn number_after(_ text: MemSpan, _ needle: MemSpan) -> u256 {
+    let Option::Some(at) = find(text, needle, from: 0) else {
+        return 0
+    }
+    var i = at + needle.len()
+    var n: u256 = 0
+    while i < text.len() && text[i] >= 0x30 && text[i] <= 0x39 {
+        n = n * 10 + (text[i] - 0x30) as u256
+        i += 1
+    }
+    n
+}
+
+// The second number after `needle`: past the first and what follows it up
+// to the next digit (for "71/71" or "505 to 557").
+fn second_after(_ text: MemSpan, _ needle: MemSpan) -> u256 {
+    let Option::Some(at) = find(text, needle, from: 0) else {
+        return 0
+    }
+    var i = at + needle.len()
+    while i < text.len() && text[i] >= 0x30 && text[i] <= 0x39 {
+        i += 1
+    }
+    while i < text.len() && (text[i] < 0x30 || text[i] > 0x39) {
+        i += 1
+    }
+    var n: u256 = 0
+    while i < text.len() && text[i] >= 0x30 && text[i] <= 0x39 {
+        n = n * 10 + (text[i] - 0x30) as u256
+        i += 1
+    }
+    n
+}
+
+// What a run of this program did: whether it succeeded, and what it printed.
+struct Ran { ok: bool, text: MemBuffer }
+
+// This program run with `command`, `first` and, unless empty, `second`.
+fn run<C: Display>(_ tool: Arg, _ command: C, _ first: MemSpan, _ second: MemSpan) -> Ran
+uses (proc: mut Spawn)
+{
+    var c = Command::new(tool).arg(command).arg(first)
+    if second.len() > 0 {
+        c = c.arg(second)
+    }
+    c = c.stdout(Redirect::Capture).stderr(Redirect::Capture)
+    match proc.output(c) {
+        Result::Ok(output) => Ran { ok: output.status.success(), text: output.stdout },
+        Result::Err(_) => Ran { ok: false, text: MemBuffer::empty() },
+    }
+}
+
+fn sleep(_ seconds: String<2>) uses (proc: mut Spawn) {
+    let _ = proc.output(Command::new("sleep").arg(seconds))
+}
+
+// The current time, UTC, to the minute.
+fn now() -> MemBuffer uses (proc: mut Spawn) {
+    let c = Command::new("date").arg("-u").arg("+%Y-%m-%d %H:%M UTC").stdout(Redirect::Capture)
+    var out = MemBuffer::empty()
+    if let Result::Ok(output) = proc.output(c) {
+        let text = output.stdout.span()
+        for i in 0 .. text.len() {
+            if text[i] != 0x0a {
+                out.push(text[i])
+            }
+        }
+    }
+    out
+}
+
+// `text` as a JSON string's contents.
+fn escaped(_ text: MemSpan, _ out: mut MemBuffer) {
+    for i in 0 .. text.len() {
+        let c = text[i]
+        if c == 0x22 || c == 0x5c {
+            out.push(0x5c)
+            out.push(c)
+        } else if c >= 0x20 {
+            out.push(c)
+        } else if c == 0x0a {
+            out.push(0x20)
+        }
+    }
+}
+
+// The lines of `text` that report a problem (they start with a capital
+// letter, except the per-block summary), joined.
+fn problems(_ text: MemSpan) -> MemBuffer {
+    var out = MemBuffer::empty()
+    var start: usize = 0
+    while start < text.len() && out.len() < 300 {
+        var end = start
+        while end < text.len() && text[end] != 0x0a {
+            end += 1
+        }
+        let first = text[start]
+        if end > start && first >= 0x41 && first <= 0x5a {
+            if out.len() > 0 {
+                " | ".fmt(mut out)
+            }
+            for i in start .. end {
+                out.push(text[i])
+            }
+        }
+        start = end + 1
+    }
+    out
+}
+
+fn put_bool(_ out: mut MemBuffer, _ name: String<24>, _ value: bool) {
+    ",\"".fmt(mut out)
+    name.fmt(mut out)
+    if value {
+        "\":true".fmt(mut out)
+    } else {
+        "\":false".fmt(mut out)
+    }
+}
+
+fn put_field<V: Display>(_ out: mut MemBuffer, _ name: String<24>, _ value: V) {
+    ",\"".fmt(mut out)
+    name.fmt(mut out)
+    "\":".fmt(mut out)
+    value.fmt(mut out)
+}
+
+/// The command.
+#[cfg(target_family = "unix")]
+pub fn follow_command() -> i32
+uses (args: Args, fs: mut Fs, proc: mut Spawn, out: mut Stdout)
+{
+    if args.count() != 5 && args.count() != 6 {
+        println!(
+            "usage: fevm-replay follow <work-dir> <out.json> <blocks> [rpc-url]",
+        )
+        return 2
+    }
+    let tool = args.get(0)
+    let work = args.get(2)
+    let path = args.get(3)
+    var wanted: u64 = 0
+    let count = args.get(4).span()
+    for i in 0 .. count.len() {
+        wanted = wanted * 10 + (count[i] - 0x30) as u64
+    }
+    var rpc = MemBuffer::empty()
+    if args.count() == 6 {
+        args.get(5).fmt(mut rpc)
+    } else {
+        "https://ethereum-rpc.publicnode.com".fmt(mut rpc)
+    }
+    // The records so far, and the blocks they cover.
+    var records = MemBuffer::empty()
+    var done = WorldState::empty()
+    if let Result::Ok(bytes) = fs.read(path) {
+        if let Result::Ok(doc) = parse(bytes.span()) {
+            for ref record in doc.items() {
+                let _ = done.ensure_account(field(record, "number"))
+                if records.len() > 0 {
+                    ",\n".fmt(mut records)
+                }
+                record.write(mut records)
+            }
+        }
+    }
+    var taken: u64 = 0
+    while taken < wanted {
+        let Option::Some(head) = fetch::block_number(rpc.span()) else {
+            sleep("12")
+            continue
+        }
+        let n = head - 2
+        if done.exists(n) {
+            sleep("12")
+            continue
+        }
+        let _ = done.ensure_account(n)
+        taken += 1
+        let number = fetch::quantity(n)
+        var dir = MemBuffer::empty()
+        work.fmt(mut dir)
+        "/".fmt(mut dir)
+        number.span().fmt(mut dir)
+        var record = MemBuffer::empty()
+        "{\"number\":".fmt(mut record)
+        decimal(n).fmt(mut record)
+        ",\"at\":\"".fmt(mut record)
+        now().span().fmt(mut record)
+        "\"".fmt(mut record)
+        var step = run(tool, "fetch-block", number.span(), dir.span())
+        if step.ok {
+            step = run(tool, "fetch-proofs", dir.span(), rpc.span())
+        }
+        if !step.ok {
+            ",\"result\":\"not proven: ".fmt(mut record)
+            escaped(problems(step.text.span()).span(), mut record)
+            "\"}".fmt(mut record)
+        } else {
+            step = run(tool, "chain", dir.span(), MemBuffer::empty().span())
+            var older = false
+            if !step.ok && has(step.text.span(), "ran BLOCKHASH".span()) {
+                if run(tool, "fetch-hashes", dir.span(), rpc.span()).ok {
+                    step = run(tool, "chain", dir.span(), MemBuffer::empty().span())
+                    older = true
+                }
+            }
+            let t = step.text.span()
+            let every_root = step.ok && has(t, "hashes to the header's stateRoot".span())
+            // `chain <dir>: matched/transactions transactions MATCH`
+            var summary = MemBuffer::empty()
+            "chain ".fmt(mut summary)
+            dir.span().fmt(mut summary)
+            ": ".fmt(mut summary)
+            put_field(
+                mut record,
+                "matched",
+                decimal(number_after(t, summary.span())),
+            )
+            put_field(
+                mut record,
+                "transactions",
+                decimal(second_after(t, summary.span())),
+            )
+            put_field(
+                mut record,
+                "gas_used",
+                decimal(number_after(t, "header: fevm's gas (".span())),
+            )
+            put_bool(mut record, "every_root", every_root)
+            put_field(
+                mut record,
+                "witness_nodes",
+                decimal(number_after(t, "parent's witness (".span())),
+            )
+            put_field(
+                mut record,
+                "witness_kib",
+                decimal(second_after(t, "parent's witness (".span())),
+            )
+            put_field(
+                mut record,
+                "block_proof_nodes",
+                decimal(number_after(t, "  plus ".span())),
+            )
+            put_field(
+                mut record,
+                "block_proof_kib",
+                decimal(number_after(t, "parent's proofs lack (".span())),
+            )
+            put_field(
+                mut record,
+                "assumed_branches",
+                decimal(number_after(t, "taken to be branches: ".span())),
+            )
+            put_field(
+                mut record,
+                "binary_stems",
+                decimal(number_after(t, "for the same keys: ".span())),
+            )
+            put_field(
+                mut record,
+                "binary_kib_low",
+                decimal(number_after(t, " values, ".span())),
+            )
+            put_field(
+                mut record,
+                "binary_kib_high",
+                decimal(second_after(t, " values, ".span())),
+            )
+            put_bool(mut record, "older_hashes", older)
+            if every_root {
+                ",\"result\":\"every root matches\"}".fmt(mut record)
+            } else {
+                ",\"result\":\"DIFF: ".fmt(mut record)
+                escaped(problems(t).span(), mut record)
+                "\"}".fmt(mut record)
+            }
+        }
+        if records.len() > 0 {
+            ",\n".fmt(mut records)
+        }
+        record.span().fmt(mut records)
+        var file = MemBuffer::empty()
+        "[\n".fmt(mut file)
+        records.span().fmt(mut file)
+        "\n]\n".fmt(mut file)
+        let Result::Ok(_) = fs.write(path, file.span()) else {
+            println!("ERROR ", path, ": cannot write")
+            return 1
+        }
+        println!(record.span())
+    }
+    0
+}

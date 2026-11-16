@@ -124,6 +124,10 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     ) {
         return fetch_proofs_command()
     }
+    // "follow"
+    if is_word(args.get(1), [0x66, 0x6f, 0x6c, 0x6c, 0x6f, 0x77]) {
+        return follow::follow_command()
+    }
     // "chain"
     if is_word(args.get(1), [0x63, 0x68, 0x61, 0x69, 0x6e]) {
         return chain_command()

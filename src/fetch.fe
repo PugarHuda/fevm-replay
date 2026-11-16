@@ -108,6 +108,12 @@ uses (proc: mut Spawn)
     Option::Some(doc)
 }
 
+/// The number of the chain's head block, or None.
+pub fn block_number<U: Display>(_ url: U) -> Option<u256> uses (proc: mut Spawn) {
+    let doc = call(url, "eth_blockNumber", "[]")?
+    Option::Some(field(doc, "result"))
+}
+
 /// The accounts and slots a call would touch at the end of block `number`
 /// (`eth_createAccessList`): the response, whose `result.accessList` lists
 /// them, or None.

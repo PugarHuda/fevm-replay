@@ -46,7 +46,7 @@
 <main class="wrap">
   <section class="g-head">
     <h1>Mainnet blocks, validated statelessly by fevm</h1>
-    <p class="intro">Each row is a mainnet block. fevm-replay took the parent's Merkle proofs as a witness, ran the block's system calls and transactions in fevm, wrote fevm's end state into the partial trie and hashed it again. A block counts only if that root is the header's <code>stateRoot</code> and every other root in the header (transactions, receipts, withdrawals, requests, gas, logs bloom) came out of fevm too. The blocks were taken as the chain grew, by <code>follow.py</code>, two behind the head.</p>
+    <p class="intro">Each row is a mainnet block. fevm-replay took the parent's Merkle proofs as a witness, ran the block's system calls and transactions in fevm, wrote fevm's end state into the partial trie and hashed it again. A block counts only if that root is the header's <code>stateRoot</code> and every other root in the header (transactions, receipts, withdrawals, requests, gas, logs bloom) came out of fevm too. The blocks were taken as the chain grew, two behind the head, by <code>fevm_replay follow</code>, which runs the tool's own <code>fetch-block</code>, <code>fetch-proofs</code> and <code>chain</code>.</p>
   </section>
 
   <div class="facts" id="facts"></div>
