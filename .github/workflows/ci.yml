@@ -102,6 +102,7 @@ jobs:
           echo "$out" | grep -q "are the header's gasUsed, blobGasUsed and logsBloom"
           echo "$out" | grep -q "hash to the header's requestsHash"
           echo "$out" | grep -q "hashes to the header's stateRoot"
+          echo "$out" | grep -q "binary tree (EIP-7864), estimated for the same keys: 564 stems, 947 values"
 
       - name: One wei more in a withdrawal fails the stateless state root and the withdrawals root
         run: |

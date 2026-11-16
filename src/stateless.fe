@@ -568,6 +568,24 @@ fn add_side(_ db: mut Nodes, _ side: Value, witness: bool) {
     }
 }
 
+fn empty_db() -> Nodes {
+    var db = Nodes {
+        index: WorldState::empty(),
+        nodes: MemVec::new(),
+        leaf_keys: MemVec::new(),
+        leaf_values: MemVec::new(),
+        extensions: MemVec::new(),
+        witness_nodes: 0,
+        witness_bytes: 0,
+        hinted: 0,
+        hinted_bytes: 0,
+        assumed: 0,
+    }
+    let _ = db.index.ensure_account(1)
+    let _ = db.index.ensure_account(2)
+    db
+}
+
 /// What computing the end-state root found.
 pub struct Computed {
     /// The root fevm's end state hashes to; zero if a node was missing.
@@ -600,20 +618,7 @@ pub fn state_root(
     _ keys: WorldState,
     code_unknown: MemVec<u256>,
 ) -> Computed {
-    var db = Nodes {
-        index: WorldState::empty(),
-        nodes: MemVec::new(),
-        leaf_keys: MemVec::new(),
-        leaf_values: MemVec::new(),
-        extensions: MemVec::new(),
-        witness_nodes: 0,
-        witness_bytes: 0,
-        hinted: 0,
-        hinted_bytes: 0,
-        assumed: 0,
-    }
-    let _ = db.index.ensure_account(1)
-    let _ = db.index.ensure_account(2)
+    var db = empty_db()
     var found = Computed {
         root: 0,
         accounts: 0,
@@ -715,4 +720,160 @@ pub fn state_root(
     found.hinted_bytes = db.hinted_bytes
     found.assumed = db.assumed
     found
+}
+
+// Differential test: a trie changed key by key (inserts, changes and
+// deletions, in a scrambled order) must hash as the same contents built
+// from nothing by `receipts::root_of`. Two key sets: keccak-spread keys,
+// and keys sharing their first 60 nibbles, whose bottom nodes are under
+// 32 bytes (held inline) and whose deletions merge extensions.
+
+// Key `i` of a set: 64 nibbles.
+fn test_key(_ i: u256, shared: bool) -> MemBuffer {
+    var word = keccak256_word(word_span(i).span())
+    if shared {
+        // 60 fixed nibbles, then 4 from `i`: inline nodes and extensions.
+        word = (0xabcdef << 232) | (i & 0xffff)
+    }
+    var out = MemBuffer::empty()
+    var n: u256 = 0
+    while n < 64 {
+        out.push(((word >> (4 * (63 - n))) & 0xf).downcast_truncate())
+        n += 1
+    }
+    out
+}
+
+fn word_span(_ value: u256) -> MemBuffer {
+    var bytes = MemBuffer::with_capacity(32)
+    bytes.write_word(offset: 0, value: value)
+    bytes
+}
+
+// A short value (1 to 3 bytes, RLP-encoded as a slot is), different per
+// `i` and `round`.
+fn test_value(_ i: u256, round: u256) -> MemBuffer {
+    var out = MemBuffer::empty()
+    put_word(
+        mut out,
+        (i * 7919 + round * 104729) % 100000 + 1,
+        width: 0,
+    )
+    out
+}
+
+// Builds the set's trie key by key, deletes and changes some, and checks
+// the root against a build from nothing after each phase.
+fn differential(count: u256, shared: bool) {
+    var db = empty_db()
+    var node = MemBuffer::empty()
+    // Phase 1: insert in a scrambled order (37 is prime to the counts).
+    var k: u256 = 0
+    while k < count {
+        let i = (k * 37) % count
+        node = put(
+            mut db,
+            node.span(),
+            test_key(i, shared).span(),
+            depth: 0,
+            test_value(i, round: 0).span(),
+        )
+            .unwrap()
+        k += 1
+    }
+    assert(
+        hash_root(node.span()) == fresh(count, shared, deleted: 0, changed: 0),
+    )
+    // Phase 2: delete every third key, change every fifth (round 1).
+    k = 0
+    while k < count {
+        let i = (k * 37) % count
+        if i % 3 == 0 {
+            node = put(
+                mut db,
+                node.span(),
+                test_key(i, shared).span(),
+                depth: 0,
+                MemBuffer::empty().span(),
+            )
+                .unwrap()
+        } else if i % 5 == 0 {
+            node = put(
+                mut db,
+                node.span(),
+                test_key(i, shared).span(),
+                depth: 0,
+                test_value(i, round: 1).span(),
+            )
+                .unwrap()
+        }
+        k += 1
+    }
+    assert(
+        hash_root(node.span()) == fresh(count, shared, deleted: 3, changed: 5),
+    )
+    // Phase 3: delete all but one, then that one: the empty trie.
+    k = 0
+    while k < count {
+        if k % 3 != 0 && k != 1 {
+            node = put(
+                mut db,
+                node.span(),
+                test_key(k, shared).span(),
+                depth: 0,
+                MemBuffer::empty().span(),
+            )
+                .unwrap()
+        }
+        k += 1
+    }
+    assert(
+        hash_root(node.span()) == fresh(count, shared, deleted: 1000000, changed: 5),
+    )
+    node = put(
+        mut db,
+        node.span(),
+        test_key(1, shared).span(),
+        depth: 0,
+        MemBuffer::empty().span(),
+    )
+        .unwrap()
+    assert(
+        node.len() == 0 && hash_root(node.span()) == proof::EMPTY_TRIE,
+    )
+}
+
+// The same contents built from nothing: keys whose index is a multiple of
+// `deleted` left out (with 1000000, all but key 1), multiples of `changed`
+// holding their round-1 value.
+fn fresh(_ count: u256, shared: bool, deleted: u256, changed: u256) -> u256 {
+    var keys: MemVec<MemBuffer> = MemVec::new()
+    var values: MemVec<MemBuffer> = MemVec::new()
+    for n in 0 .. count.downcast_unchecked() {
+        let i = n as u256
+        if deleted > 0 && deleted < 1000000 && i % deleted == 0 {
+            continue
+        }
+        if deleted == 1000000 && i != 1 {
+            continue
+        }
+        keys.push(test_key(i, shared))
+        let round = if changed > 0 && i % changed == 0 && i % 3 != 0 {
+            1
+        } else {
+            0
+        }
+        values.push(test_value(i, round))
+    }
+    ingot::receipts::root_of(keys, values)
+}
+
+#[test]
+fn spread_keys_change_like_a_fresh_build() {
+    differential(count: 300, shared: false)
+}
+
+#[test]
+fn shared_prefix_keys_change_like_a_fresh_build() {
+    differential(count: 300, shared: true)
 }

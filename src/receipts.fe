@@ -165,6 +165,19 @@ pub fn trie_root(_ values: MemVec<MemBuffer>) -> u256 {
     keccak256_word(root.span())
 }
 
+/// The root of a trie holding `values[i]` under the nibbles `keys[i]`,
+/// built from nothing; no key may be a prefix of another.
+pub fn root_of(_ keys: MemVec<MemBuffer>, _ values: MemVec<MemBuffer>) -> u256 {
+    if values.len() == 0 {
+        return 0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421
+    }
+    var members: MemVec<usize> = MemVec::new()
+    for i in 0 .. values.len() {
+        members.push(i)
+    }
+    keccak256_word(node(keys, values, members, depth: 0).span())
+}
+
 // The encoded node holding `members` (indices into `keys` and `values`),
 // whose keys agree on their first `depth` nibbles.
 fn node(
