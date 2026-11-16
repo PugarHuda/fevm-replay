@@ -5,14 +5,11 @@ name: Follow
 # (site/data/stateless.json) and its badge. It ran every six hours at
 # first, but from GitHub's runners the free endpoints refuse the calls
 # (block traces from eth.drpc.org, then proofs from publicnode, on
-# 16 November), so it needs an endpoint of your own: pass it as `rpc`.
+# 16 November), so it needs an endpoint of your own: set it as the
+# repository secret RPC_URL (endpoint URLs often hold an API key, and
+# secrets are masked in logs). Without it, publicnode is used.
 on:
   workflow_dispatch:
-    inputs:
-      rpc:
-        description: "JSON-RPC URL serving eth_getProof (and debug traces for fetch-block's default)"
-        required: true
-        default: "https://ethereum-rpc.publicnode.com"
 
 permissions:
   contents: write
@@ -54,7 +51,7 @@ jobs:
 
       - name: Validate three head blocks
         env:
-          RPC: ${{ inputs.rpc }}
+          RPC: ${{ secrets.RPC_URL || 'https://ethereum-rpc.publicnode.com' }}
         run: |
           mkdir -p /tmp/follow
           ./out/fevm_replay follow /tmp/follow site/data/stateless.json 3 "$RPC"
