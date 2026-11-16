@@ -178,11 +178,11 @@ would need for the same keys ([`src/binary.fe`](src/binary.fe)): stems and
 values exact, stems placed by keccak (the EIP's hash is not fixed yet), 28 to 31 levels deep.
 For the block above: 505 to 557 KiB against 1,002 KiB, code left out.
 
-**Who makes the witness big.** Over the 16 blocks on the stateless page,
-XEN Crypto's storage trie is the deepest (8.2 nodes a slot); a USDT or
-USDC slot needs 7.4 nodes, about 2 KiB of witness. In EIP-7864's unified
-tree such deep tries shrink, but a contract with a small trie can grow,
-as each of its slots then sits on its own path from the root.
+**Who makes the witness big.** Storage is 62% of it; XEN Crypto's trie is
+the deepest (8.2 nodes a slot), a USDT or USDC slot needs 7.4 nodes, about
+2 KiB. A binary tree shrinks such tries but can grow a small one, whose
+slots then each sit on their own path from the root. Eight findings, with
+numbers: [docs/stateless-findings.md](docs/stateless-findings.md).
 
 **Following the chain.** `fevm_replay follow <dir> <out.json> <blocks>`
 ([`src/follow.fe`](src/follow.fe)) validates the block two behind the head,
@@ -459,8 +459,8 @@ What a MATCH or a clean certificate rests on:
   for about 100 blocks back, so `fetch-proofs` must follow the chain head.
   A deletion that moves up a node the parent's proofs lack takes it from
   the block's own proofs (checked by its hash); failing that, the node is
-  taken to be a branch and the output counts it (once each in blocks
-  26,424,862 and 26,424,863, whose roots still matched). Proofs saved
+  taken to be a branch and the output counts it (13 times over 22 blocks;
+  every state root still matched). Proofs saved
   before the first system contracts' code was saved fall back to checking
   the end state key by key.
 - **Osaka with mainnet's BPO2 blob schedule only.** Older blocks may follow
