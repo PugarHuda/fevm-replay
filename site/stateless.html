@@ -99,6 +99,9 @@ const NAMES = {
   "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": "USDC",
   "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2": "WETH",
   "0x6b175474e89094c44da98b954eedeac495271d0f": "DAI",
+  "0x06450dee7fd2fb8e39061434babcfc05599a6fb8": "XEN Crypto",
+  "0x000000000004444c5dc75cb358380d2e3de08a90": "Uniswap v4 PoolManager",
+  "0xb55c5cac5014c662fdbf21a2c59cd45403c482fd": "Clovers",
 };
 fetch("data/stateless.json").then((r) => r.json()).then((rows) => {
   rows.sort((a, b) => b.number - a.number);
