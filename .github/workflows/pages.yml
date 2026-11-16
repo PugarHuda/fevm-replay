@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
     paths: [site/**, .github/workflows/pages.yml]
+  # The follower's commits come from GITHUB_TOKEN, which starts no push
+  # workflow: deploy when it finishes.
+  workflow_run:
+    workflows: [Follow]
+    types: [completed]
   workflow_dispatch:
 
 permissions:

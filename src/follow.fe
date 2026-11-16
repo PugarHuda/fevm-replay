@@ -37,6 +37,39 @@ fn find(_ text: MemSpan, _ needle: MemSpan, from: usize) -> Option<usize> {
     Option::None
 }
 
+// How many times `needle` occurs in `text`.
+fn occurrences(_ text: MemSpan, _ needle: MemSpan) -> u256 {
+    var n: u256 = 0
+    var at: usize = 0
+    while let Option::Some(found) = find(text, needle, from: at) {
+        n += 1
+        at = found + needle.len()
+    }
+    n
+}
+
+// A badge in the style of the port certificates' badges.
+fn badge(_ blocks: u256) -> MemBuffer {
+    var label = MemBuffer::empty()
+    decimal(blocks).fmt(mut label)
+    " mainnet blocks, every root".fmt(mut label)
+    // Verdana 11px: about 7 px a character.
+    let width = 72 + label.len() * 7 + 16
+    var svg = MemBuffer::empty()
+    "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"".fmt(mut svg)
+    decimal(width as u256).fmt(mut svg)
+    "\" height=\"20\" role=\"img\" aria-label=\"validated by fevm: ".fmt(mut svg)
+    label.span().fmt(mut svg)
+    "\"><rect width=\"72\" height=\"20\" fill=\"#1f2624\"/><rect x=\"72\" width=\"".fmt(mut svg)
+    decimal((width - 72) as u256).fmt(mut svg)
+    "\" height=\"20\" fill=\"#2e8b6f\"/><g fill=\"#fff\" font-family=\"Verdana,DejaVu Sans,sans-serif\" font-size=\"11\"><text x=\"8\" y=\"14\">fevm</text><text x=\"80\" y=\"14\">"
+        .fmt(mut svg)
+    label.span().fmt(mut svg)
+    "</text></g><title>validated statelessly by fevm-replay follow</title></svg>
+".fmt(mut svg)
+    svg
+}
+
 fn has(_ text: MemSpan, _ needle: MemSpan) -> bool {
     find(text, needle, from: 0).is_some()
 }
@@ -185,9 +218,7 @@ uses (args: Args, fs: mut Fs, proc: mut Spawn, out: mut Stdout)
         "/".fmt(mut dir)
         number.span().fmt(mut dir)
         var record = MemBuffer::empty()
-        "{\"number\":".fmt(mut record)
-        decimal(n).fmt(mut record)
-        ",\"at\":\"".fmt(mut record)
+        "{\"at\":\"".fmt(mut record)
         now().span().fmt(mut record)
         "\"".fmt(mut record)
         var step = run(tool, "fetch-block", number.span(), dir.span())
@@ -195,6 +226,9 @@ uses (args: Args, fs: mut Fs, proc: mut Spawn, out: mut Stdout)
             step = run(tool, "fetch-proofs", dir.span(), rpc.span())
         }
         if !step.ok {
+            // Without a summary from `chain`, the number is the follower's.
+            ",\"number\":".fmt(mut record)
+            decimal(n).fmt(mut record)
             ",\"result\":\"not proven: ".fmt(mut record)
             escaped(problems(step.text.span()).span(), mut record)
             "\"}".fmt(mut record)
@@ -246,6 +280,17 @@ uses (args: Args, fs: mut Fs, proc: mut Spawn, out: mut Stdout)
             return 1
         }
         println!(record.span())
+        // A badge beside the data (`stateless.json` -> `stateless.svg`):
+        // the blocks where every root in the header came out of fevm.
+        let validated = occurrences(records.span(), "\"every_root\":true".span())
+            + occurrences(records.span(), "\"every_root\": true".span())
+        var badge_path = MemBuffer::empty()
+        path.fmt(mut badge_path)
+        if badge_path.len() > 5 {
+            badge_path.truncate(badge_path.len() - 5)
+        }
+        ".svg".fmt(mut badge_path)
+        let _ = fs.write(badge_path.span(), badge(validated).span())
     }
     0
 }

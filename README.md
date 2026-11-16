@@ -1,6 +1,7 @@
 # fevm-replay
 
 [![CI](https://github.com/PugarHuda/fevm-replay/actions/workflows/ci.yml/badge.svg)](https://github.com/PugarHuda/fevm-replay/actions/workflows/ci.yml)
+[![validated by fevm](site/data/stateless.svg)](https://fevm-replay.vercel.app/stateless.html)
 
 **Site and documentation:** https://fevm-replay.vercel.app (mirror: https://pugarhuda.github.io/fevm-replay/)
 

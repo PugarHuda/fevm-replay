@@ -1,0 +1,63 @@
+name: Follow
+
+# Every six hours: validate three new mainnet blocks statelessly with
+# `fevm_replay follow` and commit them to the stateless blocks page's data
+# (site/data/stateless.json) and its badge. Proofs come from the free
+# ethereum-rpc.publicnode.com, which serves them for about 100 blocks; a
+# block it cannot prove in time is recorded as not proven.
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: follow
+  cancel-in-progress: false
+
+env:
+  FE_REVISION: 4608e5fdfa3783ec78347f297ad0fced8928fcc7
+  RUST_VERSION: 1.99.0
+
+jobs:
+  follow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Restore the Fe compiler
+        id: fe-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/fe
+          key: fe-${{ runner.os }}-${{ env.FE_REVISION }}-${{ env.RUST_VERSION }}-cranelift
+
+      - name: Build the Fe compiler
+        if: steps.fe-cache.outputs.cache-hit != 'true'
+        run: |
+          npm install -g tree-sitter-cli@0.24.7
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          cargo "+$RUST_VERSION" install --locked --root ~/fe \
+            --git https://github.com/argotorg/fe --rev "$FE_REVISION" --features cranelift fe
+
+      - run: echo "$HOME/fe/bin" >> "$GITHUB_PATH"
+
+      - name: Build fevm-replay
+        run: fe build --backend native -O 2 --emit executable --out-dir out .
+
+      - name: Validate three head blocks
+        run: ./out/fevm_replay follow /tmp/follow site/data/stateless.json 3
+
+      - name: Commit the data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add site/data/stateless.json site/data/stateless.svg
+          if git diff --cached --quiet; then exit 0; fi
+          n=$(python3 -c "import json; print(sum(1 for r in json.load(open('site/data/stateless.json')) if r.get('every_root')))")
+          git commit -m "Follower: $n mainnet blocks validated statelessly, every root in the header from fevm"
+          git pull --rebase origin main
+          git push origin HEAD:main
