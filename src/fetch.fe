@@ -207,10 +207,16 @@ uses (proc: mut Spawn)
     "\",\"".fmt(mut params)
     quantity(number).fmt(mut params)
     "\"]".fmt(mut params)
-    match call(url, "eth_getStorageAt", params) {
-        Option::Some(doc) => Option::Some(field(doc, "result")),
-        Option::None => Option::None,
+    // A load-balanced endpoint can route the call to a node that keeps
+    // less state and answers with an error: ask again, as for proofs.
+    var tries: u8 = 0
+    while tries < 20 {
+        tries += 1
+        if let Option::Some(doc) = call(url, "eth_getStorageAt", params.span()) {
+            return Option::Some(field(doc, "result"))
+        }
     }
+    Option::None
 }
 
 /// The fixture for transaction `hash` (with its `0x`) as JSON text in `out`,
