@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stateless blocks · fevm-replay</title>
+<meta name="description" content="Mainnet blocks validated statelessly by fevm, the EVM written in Fe: every root in the header computed from the parent's witness, with the witness measured and a binary-tree estimate beside it.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=2">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='3' fill='%23f2f4f3' stroke='%231f2624' stroke-width='2'/%3E%3Ctext x='16' y='22' font-family='sans-serif' font-weight='700' font-size='14' text-anchor='middle' fill='%231f2624'%3EFe%3C/text%3E%3C/svg%3E">
+<style>
+  .g-head { padding-block: 1.5rem 0.5rem; }
+  .g-head h1 { font-size: clamp(2rem, 4.5vw, 3rem); letter-spacing: -0.03em; line-height: 1.05; margin: 0 0 0.75rem; }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 1rem 2rem; margin: 1.5rem 0 2rem; }
+  .facts div { border-left: 3px solid var(--diff); padding-left: 0.9rem; }
+  .facts b { display: block; font-size: 2rem; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+  .facts span { color: var(--steel); font-size: 0.92rem; }
+  .scroll { overflow-x: auto; }
+  table.map { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: 0.94rem; }
+  table.map th, table.map td { text-align: left; padding: 0.55rem 0.75rem 0.55rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; white-space: nowrap; }
+  table.map th { color: var(--steel); font-weight: 600; }
+  table.map td.n, table.map th.n { text-align: right; }
+  table.map .addr { font-family: var(--mono); font-size: 0.85rem; }
+  table.map .kind { font-size: 0.85rem; color: var(--steel); white-space: normal; }
+  .why { max-width: var(--measure); }
+</style>
+</head>
+<body>
+<header class="wrap site-head">
+  <a class="mark" href="./" aria-label="fevm-replay home">
+    <span class="tile" aria-hidden="true"><small>26</small><b>Fe</b></span>
+    <span>fevm-replay</span>
+  </a>
+  <nav aria-label="Main">
+    <a href="./">Overview</a>
+    <a href="docs.html">Docs</a>
+    <a href="explorer.html">Explorer</a>
+    <a href="verified.html">Verified</a>
+    <a href="stateless.html" aria-current="page">Stateless</a>
+    <a href="https://github.com/PugarHuda/fevm-replay">GitHub</a>
+  </nav>
+</header>
+
+<main class="wrap">
+  <section class="g-head">
+    <h1>Mainnet blocks, validated statelessly by fevm</h1>
+    <p class="intro">Each row is a mainnet block. fevm-replay took the parent's Merkle proofs as a witness, ran the block's system calls and transactions in fevm, wrote fevm's end state into the partial trie and hashed it again. A block counts only if that root is the header's <code>stateRoot</code> and every other root in the header (transactions, receipts, withdrawals, requests, gas, logs bloom) came out of fevm too. The blocks were taken as the chain grew, by <code>follow.py</code>, two behind the head.</p>
+  </section>
+
+  <div class="facts" id="facts"></div>
+
+  <div class="scroll">
+    <table class="map">
+      <thead><tr>
+        <th scope="col">Block</th>
+        <th scope="col" class="n">Transactions</th>
+        <th scope="col">Every root</th>
+        <th scope="col" class="n">Witness</th>
+        <th scope="col" class="n">per tx</th>
+        <th scope="col" class="n">per Mgas</th>
+        <th scope="col" class="n">Binary tree, est.</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+  <section class="why">
+    <h2>What the columns are</h2>
+    <p><strong>Witness</strong> is what fevm needed besides code: the parent's distinct proof nodes, account and storage, plus the nodes a deletion moved up that the parent's proofs lack (taken from the block's own proofs by the hash a parent's node names). Contract code comes on top, checked against the proven code hashes.</p>
+    <p><strong>Binary tree, est.</strong> is the witness the unified binary tree of EIP-7864 would need for the same accounts and slots, worked out in Fe: the stems and values are exact, the stems' positions come from a stand-in hash, and the tree is taken to be 28 to 31 levels deep above the stems. It leaves code chunks out, as the Merkle-Patricia column leaves code out.</p>
+    <p class="note">A block marked <em>not proven</em> could not be fetched in time: nodes serve proofs for about 100 blocks, and the free endpoint sometimes errs. Its transactions are not counted.</p>
+  </section>
+</main>
+
+<footer class="wrap site-foot">
+  <span>Built for the Fe Builders Challenge 2026. Apache-2.0.</span>
+  <span><a href="./">Overview</a>, <a href="docs.html">docs</a> and <a href="https://github.com/PugarHuda/fevm-replay">source</a></span>
+</footer>
+
+<script>
+const kib = (n) => n >= 1024 ? (n / 1024).toFixed(1) + " MiB" : n + " KiB";
+fetch("data/stateless.json").then((r) => r.json()).then((rows) => {
+  rows.sort((a, b) => b.number - a.number);
+  const ok = rows.filter((r) => r.every_root);
+  const txs = ok.reduce((a, r) => a + r.transactions, 0);
+  const wit = ok.reduce((a, r) => a + r.witness_kib + (r.block_proof_kib || 0), 0);
+  const gas = ok.reduce((a, r) => a + r.gas_used, 0);
+  const bin = ok.filter((r) => r.binary_kib_low != null);
+  const ratio = bin.length ? bin.reduce((a, r) => a + (r.witness_kib + (r.block_proof_kib || 0)) / ((r.binary_kib_low + r.binary_kib_high) / 2), 0) / bin.length : null;
+  document.getElementById("facts").innerHTML =
+    `<div><b>${ok.length}</b><span>blocks where every root in the header came out of fevm (of ${rows.length} taken)</span></div>` +
+    `<div><b>${txs.toLocaleString("en")}</b><span>transactions in them, all matching</span></div>` +
+    `<div><b>${txs ? (wit / txs).toFixed(1) : "–"} KiB</b><span>of witness per transaction, ${gas ? Math.round(wit / (gas / 1e6)) : "–"} KiB per million gas</span></div>` +
+    (ratio ? `<div><b>${ratio.toFixed(1)}×</b><span>smaller with a binary tree (EIP-7864), estimated, on average</span></div>` : "");
+  const body = document.getElementById("rows");
+  rows.forEach((r) => {
+    const tr = document.createElement("tr");
+    const link = `<a class="addr" href="https://etherscan.io/block/${r.number}">${r.number.toLocaleString("en")}</a>`;
+    if (!("matched" in r)) {
+      tr.innerHTML = `<td>${link}</td><td class="n">–</td><td class="kind" colspan="5">${r.result}</td>`;
+    } else {
+      const w = r.witness_kib + (r.block_proof_kib || 0);
+      tr.innerHTML =
+        `<td>${link}</td>` +
+        `<td class="n">${r.matched}/${r.transactions}</td>` +
+        `<td>${r.every_root ? "match" : "<strong>differs</strong>"}</td>` +
+        `<td class="n">${kib(w)}</td>` +
+        `<td class="n">${(w / Math.max(1, r.transactions)).toFixed(1)} KiB</td>` +
+        `<td class="n">${r.gas_used ? Math.round(w / (r.gas_used / 1e6)) + " KiB" : "–"}</td>` +
+        `<td class="n">${r.binary_kib_low != null ? kib(r.binary_kib_low) + " – " + kib(r.binary_kib_high) : "–"}</td>`;
+    }
+    body.append(tr);
+  });
+}).catch(() => {
+  document.getElementById("facts").textContent = "Could not load the data.";
+});
+</script>
+</body>
+</html>

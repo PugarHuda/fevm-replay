@@ -1,0 +1,12 @@
+{"version": 2, "width": 150, "height": 14, "timestamp": 1794803081, "env": {"SHELL": "/bin/bash", "TERM": "xterm-256color"}}
+[0.003681, "o", "\u001b[1;32m$\u001b[0m ./out/fevm_replay chain 0x193361d 0x193361e 0x193361f | grep -E \"^==|MATCH|stateRoot|chain of\"\r\n"]
+[0.614658, "o", "== 0x193361d\r\n"]
+[1.287944, "o", "chain 0x193361d: 230/230 transactions MATCH (100%)\r\n"]
+[1.782668, "o", "state root: fevm's end state (362 accounts and 1476 slots written) on the parent's witness (9514 nodes, 3278 KiB) hashes to the header's stateRoot\r\n"]
+[1.871689, "o", "== 0x193361e\r\n"]
+[2.760866, "o", "chain 0x193361e: 256/256 transactions MATCH (100%)\r\n"]
+[4.047258, "o", "state root: fevm's end state (364 accounts and 3560 slots written) on the parent's witness (22178 nodes, 7855 KiB) hashes to the header's stateRoot\r\n"]
+[4.245337, "o", "== 0x193361f\r\n"]
+[4.694534, "o", "chain 0x193361f: 186/186 transactions MATCH (100%)\r\n"]
+[5.067388, "o", "state root: fevm's end state (324 accounts and 1253 slots written) on the parent's witness (7506 nodes, 2530 KiB) hashes to the header's stateRoot\r\n"]
+[5.117287, "o", "chain of 3 blocks: 2 of 2 links hold (each block's parent is the block before it, and its pre-state was proven against the state root fevm computed for that block)\r\n"]

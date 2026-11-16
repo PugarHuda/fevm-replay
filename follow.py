@@ -40,6 +40,12 @@ def number(pattern, text, default=0):
 
 def analyze(record, d):
     code, text = run("chain", d)
+    if code != 0 and "ran BLOCKHASH" in text:
+        # A transaction read an older block's hash, which traces cannot
+        # carry: fetch the 256 before the block and run it again.
+        if run("fetch-hashes", d, rpc)[0] == 0:
+            code, text = run("chain", d)
+            record["older_hashes"] = True
     m = re.search(r"(\d+)/(\d+) transactions MATCH", text)
     b = re.search(r"estimated for the same keys: (\d+) stems, (\d+) values, (\d+) to (\d+) KiB", text)
     record.update({

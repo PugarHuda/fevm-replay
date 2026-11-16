@@ -23,6 +23,7 @@
     <a href="docs.html">Docs</a>
     <a href="explorer.html">Explorer</a>
     <a href="verified.html">Verified</a>
+    <a href="stateless.html">Stateless</a>
     <a href="https://github.com/PugarHuda/fevm-replay">GitHub</a>
   </nav>
 </header>
@@ -108,7 +109,7 @@ withdrawals: 16 credited, their recipients checked by the end state's proofs</co
         <tr><td><code>gasUsed</code>, <code>blobGasUsed</code>, <code>logsBloom</code></td><td>fevm's gas, the blobs, fevm's logs</td></tr>
       </tbody>
     </table>
-    <p>Six mainnet blocks match every root, three of them consecutive (26,424,861 to 26,424,863), one with an EIP-7002 withdrawal request. Their witnesses run from 2,969 to 22,178 trie nodes (about 1 to 7.7 MiB). A clean run rests on one 32-byte block hash: change one withdrawal by one wei and the withdrawals root, the end state's proof and the computed state root all fail. The trie code is Fe on std's RLP and core's Keccak, and like the replay it cannot reach the network.</p>
+    <p>Six mainnet blocks match every root, three of them consecutive (26,424,861 to 26,424,863), one with an EIP-7002 withdrawal request. Their witnesses run from 2,969 to 22,178 trie nodes (about 1 to 7.7 MiB). A clean run rests on one 32-byte block hash: change one withdrawal by one wei and the withdrawals root, the end state's proof and the computed state root all fail. The trie code is Fe on std's RLP and core's Keccak, and like the replay it cannot reach the network. <a href="stateless.html">Every block validated so far, with its witness</a>.</p>
   </section>
 
   <section id="shadow" class="wrap">
