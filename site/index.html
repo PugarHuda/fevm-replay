@@ -31,7 +31,7 @@
 <main>
   <div class="wrap hero">
     <h1>Real Ethereum history, replayed through an EVM written in Fe.</h1>
-    <p class="lede">fevm-replay runs mainnet transactions inside <a href="https://github.com/fe-lang/fevm">fevm</a> and checks that each one ends <strong>exactly as it did on chain</strong>: status, gas, logs and every balance, nonce, code byte and storage slot. Then it swaps a Solidity contract for its Fe port and checks the port against real traffic.</p>
+    <p class="lede">fevm-replay runs mainnet transactions inside <a href="https://github.com/fe-lang/fevm">fevm</a> and checks that each one ends <strong>exactly as it did on chain</strong>: status, gas, logs and every balance, nonce, code byte and storage slot. It validates whole blocks statelessly too: from the parent's Merkle proofs, fevm <a href="#proven">computes every root in the header</a>. Then it swaps a Solidity contract for its Fe port and checks the port against real traffic.</p>
 
     <figure class="block-figure">
       <div class="mosaic" role="group" aria-label="Mainnet block 26,393,604: one cell per transaction, sized by gas used. Select a cell to open it on Etherscan."></div>
