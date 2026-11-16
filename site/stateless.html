@@ -80,7 +80,7 @@
   <section class="why">
     <h2>What the columns are</h2>
     <p><strong>Witness</strong> is what fevm needed besides code: the parent's distinct proof nodes, account and storage, plus the nodes a deletion moved up that the parent's proofs lack (taken from the block's own proofs by the hash a parent's node names). Contract code comes on top, checked against the proven code hashes.</p>
-    <p><strong>Binary tree, est.</strong> is the witness the unified binary tree of EIP-7864 would need for the same accounts and slots, worked out in Fe: the stems and values are exact, the stems' positions come from a stand-in hash, and the tree is taken to be 28 to 31 levels deep above the stems. It leaves code chunks out, as the Merkle-Patricia column leaves code out.</p>
+    <p><strong>Binary tree, est.</strong> is the witness the unified binary tree of EIP-7864 would need for the same accounts and slots, worked out in Fe: the stems and values are exact, the stems are placed by keccak (the EIP has not fixed its hash yet; keccak is among the candidates), and the tree is taken to be 28 to 31 levels deep above the stems. It leaves code chunks out, as the Merkle-Patricia column leaves code out.</p>
     <p class="note">A block marked <em>not proven</em> could not be fetched in time: nodes serve proofs for about 100 blocks, and the free endpoint sometimes errs. Its transactions are not counted.</p>
   </section>
 </main>

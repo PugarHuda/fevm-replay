@@ -179,7 +179,7 @@ nothing, with inline nodes and merged extensions.
 
 **Binary tree.** `chain` also estimates the witness EIP-7864's binary tree
 would need for the same keys ([`src/binary.fe`](src/binary.fe)): stems and
-values exact, stem positions from a stand-in hash, 28 to 31 levels deep.
+values exact, stems placed by keccak (the EIP's hash is not fixed yet), 28 to 31 levels deep.
 For the block above: 505 to 557 KiB against 1,002 KiB, code left out.
 
 **Following the chain.** `fevm_replay follow <dir> <out.json> <blocks>`

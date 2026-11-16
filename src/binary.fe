@@ -4,9 +4,11 @@
 //! basic data and code hash and its first 64 storage slots share the
 //! account's header stem; other slots go 256 to a stem by slot number.
 //! Exact here: the stems and values the block touches, and how their paths
-//! share nodes. Assumed: the stems' positions (keccak stands in for the
-//! EIP's hash; any uniform hash gives the same shape on average) and the
-//! tree's depth, given as a range. Code chunks are left out, as code is
+//! share nodes. Assumed: the stems' positions and the tree's depth, given
+//! as a range. EIP-7864 has not fixed its hash yet (its reference code uses
+//! BLAKE3; Keccak and Poseidon2 are among the candidates), so keccak, one
+//! of them, places the stems; any uniform hash gives the same shape on
+//! average. Code chunks are left out, as code is
 //! left out of the Merkle-Patricia witness it is compared with.
 
 use core::{MemBuffer, MemVec}
