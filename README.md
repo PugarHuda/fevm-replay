@@ -134,6 +134,7 @@ header: fevm's gas (9743588), the blob gas and fevm's logs bloom are the header'
 requests: fevm's 0 deposits, 0 withdrawal and 0 consolidation requests hash to the header's requestsHash
 end state: 213 accounts and 521 slots proven against the block's state root, 0 differ
 state root: fevm's end state (149 accounts and 521 slots written) on the parent's witness (2969 nodes, 992 KiB) hashes to the header's stateRoot
+binary tree (EIP-7864), estimated for the same keys: 564 stems, 947 values, 505 to 557 KiB at 28 to 31 levels above the stems (Merkle-Patricia: 1002 KiB)
   plus 26 nodes the parent's proofs lack (9 KiB), siblings a deletion moved up, taken from the block's proofs by the hashes the parent's nodes name
 withdrawals: 16 credited, their recipients checked by the end state's proofs
 ```
@@ -174,11 +175,20 @@ not as the answer.
 | 26,424,862 | 256 | 22,178 | 7,855 KiB | |
 | 26,424,863 | 186 | 7,506 | 2,530 KiB | |
 
-Every block in the table: all transactions MATCH and every row of the
-header table matches. The witness counts the parent's distinct proof
-nodes, account and storage; contract code comes on top, checked against
-the proven code hashes. Earlier blocks proven before the stateless step
-(state roots checked key by key, receipts and requests) are in
+**Binary tree.** `chain` also estimates the witness EIP-7864's binary tree
+would need for the same keys ([`src/binary.fe`](src/binary.fe)): stems and
+values exact, stem positions from a stand-in hash, 28 to 31 levels deep.
+For the block above: 505 to 557 KiB against 1,002 KiB, code left out.
+
+**Following the chain.** [`follow.py`](follow.py) takes the block two
+behind the head, saves and proves it and runs `chain`, again and again;
+the [stateless blocks page](https://fevm-replay.vercel.app/stateless.html)
+lists every block it took, with the witness per transaction and per
+million gas and the binary-tree estimate.
+
+In every block of the table all transactions and every root match. The
+witness size counts the parent's distinct proof nodes; code comes on top,
+checked against the proven code hashes. Earlier proven blocks are in
 [docs/details.md](docs/details.md#proven-against-the-state-root).
 
 **Consecutive blocks as one chain.** Given several block directories,
@@ -197,11 +207,6 @@ in a copy of the fixture: the withdrawals root, the end state's proof and
 the computed state root all fail. A node that lied about any balance, slot,
 log or transaction would need a keccak collision to pass, so a clean run
 rests on one 32-byte block hash that anyone can compare with any source.
-
-Proofs come from a node within about 100 blocks of the head
-(`ethereum-rpc.publicnode.com` serves them for free; `fetch-proofs` asks
-again when a node behind it errs, and asks for an account's slots 200 at a
-time).
 
 ## Fe ports, shadow-replayed
 
@@ -327,6 +332,7 @@ Other Fe pieces doing real work:
 | `src/proof.fe` | Merkle-Patricia proofs (EIP-1186) against a state root, block header hashes, a world checked account by account and slot by slot. No host capabilities |
 | `src/receipts.fe` | receipts encoded as the chain encodes them, and a Merkle-Patricia trie built from them, for the header's `receiptsRoot`. No host capabilities |
 | `src/roots.fe` | transactions re-encoded (EIP-2718) and withdrawals, for the header's `transactionsRoot` and `withdrawalsRoot`. No host capabilities |
+| `src/binary.fe` | the binary tree (EIP-7864) witness estimated for the same keys. No host capabilities |
 | `src/stateless.fe` | the end-state root computed from the parent's witness and fevm's end state: inserts, changes and deletions in a partial Merkle-Patricia trie. No host capabilities |
 | `src/requests.fe` | the system calls (EIP-4788, EIP-2935, EIP-7002, EIP-7251), deposits from fevm's logs (EIP-6110), and the EIP-7685 requests hash, for the header's `requestsHash`. No host capabilities |
 | `src/fuzz.fe` | shadow fuzzing of WETH9 and of a Uniswap V2 pair: random calls against deployed code and its port, compared after each |
@@ -401,23 +407,7 @@ neural voice through `edge-tts`; scenes are HTML pages with real output,
 [`demo/make_tour.py`](demo/make_tour.py)); [`demo/tour.mp4`](demo/tour.mp4),
 the same captioned only; [`demo/explorer-tour.mp4`](demo/explorer-tour.mp4),
 [the explorer](https://fevm-replay.vercel.app/explorer.html) in 25 seconds.
-The same steps by hand:
-
-```sh
-./out/fevm_replay fetch 0x9a0970fbbf5df6a17277bc94bf2d96e117d504bd36e341a7ca5230998f916184 usdt.json
-./out/fevm_replay usdt.json
-./out/fevm_replay fetch-block 0x192bd90 blocks/26394000
-./out/fevm_replay block blocks/26394000
-
-# Shadow replay: the same block with Fe WETH9 in place of mainnet WETH
-(cd ports/weth9 && fe build -O 2 --out-dir ../../out/weth9 .)
-./out/fevm_replay block blocks/26394000 0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2 out/weth9/WETH9.runtime.bin
-
-# Many blocks: fetches what is missing (five calls a block), replays, totals.
-# Run it again to resume; saved blocks are not fetched twice.
-./out/fevm_replay range 26394000 20 blocks
-./out/fevm_replay range 26394000 20 blocks 0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2 out/weth9/WETH9.runtime.bin
-```
+The same steps by hand are in [docs/details.md](docs/details.md#the-demo-by-hand).
 
 ## Security assumptions
 

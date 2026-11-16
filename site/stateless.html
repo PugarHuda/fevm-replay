@@ -80,6 +80,7 @@
 </footer>
 
 <script>
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;"})[c]);
 const kib = (n) => n >= 1024 ? (n / 1024).toFixed(1) + " MiB" : n + " KiB";
 fetch("data/stateless.json").then((r) => r.json()).then((rows) => {
   rows.sort((a, b) => b.number - a.number);
@@ -99,7 +100,7 @@ fetch("data/stateless.json").then((r) => r.json()).then((rows) => {
     const tr = document.createElement("tr");
     const link = `<a class="addr" href="https://etherscan.io/block/${r.number}">${r.number.toLocaleString("en")}</a>`;
     if (!("matched" in r)) {
-      tr.innerHTML = `<td>${link}</td><td class="n">–</td><td class="kind" colspan="5">${r.result}</td>`;
+      tr.innerHTML = `<td>${link}</td><td class="n">–</td><td class="kind" colspan="5">${esc(r.result)}</td>`;
     } else {
       const w = r.witness_kib + (r.block_proof_kib || 0);
       tr.innerHTML =

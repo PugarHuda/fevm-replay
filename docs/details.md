@@ -924,3 +924,21 @@ deployed code, and an ordinary swap. Its data comes from `trace`:
   parent block: a slot reached only because an earlier transaction in the
   same block changed the path is not named. In-flight changes are not
   fetched, since the proxy that makes them is not on chain.
+
+## The demo by hand
+
+```sh
+./out/fevm_replay fetch 0x9a0970fbbf5df6a17277bc94bf2d96e117d504bd36e341a7ca5230998f916184 usdt.json
+./out/fevm_replay usdt.json
+./out/fevm_replay fetch-block 0x192bd90 blocks/26394000
+./out/fevm_replay block blocks/26394000
+
+# Shadow replay: the same block with Fe WETH9 in place of mainnet WETH
+(cd ports/weth9 && fe build -O 2 --out-dir ../../out/weth9 .)
+./out/fevm_replay block blocks/26394000 0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2 out/weth9/WETH9.runtime.bin
+
+# Many blocks: fetches what is missing (five calls a block), replays, totals.
+# Run it again to resume; saved blocks are not fetched twice.
+./out/fevm_replay range 26394000 20 blocks
+./out/fevm_replay range 26394000 20 blocks 0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2 out/weth9/WETH9.runtime.bin
+```
