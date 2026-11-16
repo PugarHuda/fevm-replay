@@ -25,6 +25,18 @@
   table.map .addr { font-family: var(--mono); font-size: 0.85rem; }
   table.map .kind { font-size: 0.85rem; color: var(--steel); white-space: normal; }
   .why { max-width: var(--measure); }
+  :root { --c-mpt: #9c6e00; --c-bin: #0f8a5f; }
+  @media (prefers-color-scheme: dark) { :root { --c-mpt: #b8861a; --c-bin: #35996f; } }
+  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: 1.5rem 2.5rem; margin: 0.5rem 0 2.5rem; }
+  .chart h3 { font-size: 1rem; margin: 0 0 0.25rem; }
+  .chart p { color: var(--steel); font-size: 0.88rem; margin: 0 0 0.5rem; }
+  .chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+  .chart .axis { stroke: var(--rule); stroke-width: 1; }
+  .chart .tick { fill: var(--steel); font-size: 11px; font-family: var(--mono); }
+  .chart .legend { display: flex; gap: 1rem; font-size: 0.85rem; color: var(--steel); margin-top: 0.4rem; }
+  .chart .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 0.35rem; vertical-align: -1px; }
+  .tip { position: fixed; pointer-events: none; background: var(--paper); color: var(--ink); border: 1px solid var(--rule); border-radius: 6px; padding: 0.4rem 0.6rem; font-size: 0.82rem; font-variant-numeric: tabular-nums; box-shadow: 0 2px 8px rgba(0,0,0,.15); display: none; z-index: 10; }
+
   .badge { display: inline-block; font-size: 0.8rem; font-weight: 600; padding: 0.1rem 0.5rem; border-radius: 999px; border: 1px solid var(--rule); white-space: nowrap; }
 </style>
 </head>
@@ -51,6 +63,21 @@
   </section>
 
   <div class="facts" id="facts"></div>
+
+  <div class="charts" aria-label="Charts of the blocks in the table below">
+    <figure class="chart">
+      <h3>Witness against gas used</h3>
+      <p>One dot a block: the Merkle-Patricia witness fevm needed, against the block's gas.</p>
+      <svg id="chart-gas" viewBox="0 0 480 260" role="img" aria-label="Witness size against gas used, one dot per block"></svg>
+    </figure>
+    <figure class="chart">
+      <h3>Merkle-Patricia against a binary tree</h3>
+      <p>Per block, oldest first: the witness fevm used, and EIP-7864's binary tree estimated for the same keys (a range: 28 to 31 levels).</p>
+      <svg id="chart-bin" viewBox="0 0 480 260" role="img" aria-label="Merkle-Patricia witness and the binary-tree estimate per block"></svg>
+      <div class="legend"><span><i style="background:var(--c-mpt)"></i>Merkle-Patricia</span><span><i style="background:var(--c-bin)"></i>Binary tree, est.</span></div>
+    </figure>
+  </div>
+  <div class="tip" id="tip"></div>
 
   <div class="scroll">
     <table class="map">
@@ -143,6 +170,60 @@ fetch("data/stateless.json").then((r) => r.json()).then((rows) => {
     t.blocks += 1; t.storage += h.storage_bytes; t.account += h.account_bytes; t.slots += h.slots;
     t.nodes += h.proof_nodes; t.low += h.binary_low; t.high += h.binary_high;
   }));
+
+  // Charts: plain SVG, a hover tooltip per mark; the table below holds the same numbers.
+  const NS = "http://www.w3.org/2000/svg";
+  const tip = document.getElementById("tip");
+  const el = (name, attrs, parent) => {
+    const e = document.createElementNS(NS, name);
+    Object.entries(attrs).forEach(([k, v]) => e.setAttribute(k, v));
+    parent.append(e);
+    return e;
+  };
+  const hover = (target, html) => {
+    target.addEventListener("mousemove", (e) => { tip.innerHTML = html; tip.style.display = "block"; tip.style.left = (e.clientX + 14) + "px"; tip.style.top = (e.clientY + 14) + "px"; });
+    target.addEventListener("mouseleave", () => { tip.style.display = "none"; });
+  };
+  const mib = (b) => b / 1048576;
+  const W = 480, H = 260, L = 44, R = 12, T = 10, B = 30;
+  const frame = (svg, xmax, ymax, xticks, yticks, xlabel) => {
+    const x = (v) => L + (W - L - R) * v / xmax, y = (v) => H - B - (H - T - B) * v / ymax;
+    yticks.forEach((v) => { el("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), class: "axis", "stroke-dasharray": v ? "2 4" : "" }, svg);
+      el("text", { x: L - 6, y: y(v) + 4, "text-anchor": "end", class: "tick" }, svg).textContent = v; });
+    xticks.forEach((v) => { el("text", { x: x(v), y: H - B + 16, "text-anchor": "middle", class: "tick" }, svg).textContent = v; });
+    el("text", { x: W - R, y: H - 2, "text-anchor": "end", class: "tick" }, svg).textContent = xlabel;
+    el("text", { x: 4, y: T + 2, class: "tick" }, svg).textContent = "MiB";
+    return [x, y];
+  };
+  const nice = (v, step) => Math.max(step, Math.ceil(v / step) * step);
+  const ticks = (max, step) => Array.from({ length: Math.round(max / step) + 1 }, (_, i) => i * step);
+  {
+    const svg = document.getElementById("chart-gas");
+    const xmax = nice(Math.max(...ok.map((r) => r.gas_used / 1e6)), 10);
+    const ymax = nice(Math.max(...ok.map((r) => mib(wit(r)))), 2);
+    const [x, y] = frame(svg, xmax, ymax, ticks(xmax, 10), ticks(ymax, 2), "million gas");
+    ok.forEach((r) => {
+      const cx = x(r.gas_used / 1e6), cy = y(mib(wit(r)));
+      el("circle", { cx, cy, r: 4, fill: "var(--c-mpt)", stroke: "var(--paper)", "stroke-width": 2 }, svg);
+      hover(el("circle", { cx, cy, r: 11, fill: "transparent" }, svg),
+        `<b>Block ${r.number.toLocaleString("en")}</b><br>${r.transactions} transactions<br>${(r.gas_used / 1e6).toFixed(1)} M gas<br>witness ${size(wit(r))}`);
+    });
+  }
+  {
+    const svg = document.getElementById("chart-bin");
+    const rowsUp = ok.slice().sort((a, b) => a.number - b.number);
+    const n = rowsUp.length;
+    const ymax = nice(Math.max(...rowsUp.map((r) => mib(wit(r)))), 2);
+    const [, y] = frame(svg, 1, ymax, [], ticks(ymax, 2), "blocks, oldest first");
+    const step = (W - L - R) / Math.max(1, n);
+    rowsUp.forEach((r, i) => {
+      const cx = L + step * (i + 0.5);
+      el("rect", { x: cx - 2, y: y(mib(r.binary_high)), width: 4, height: Math.max(2, y(mib(r.binary_low)) - y(mib(r.binary_high))), rx: 2, fill: "var(--c-bin)" }, svg);
+      el("circle", { cx, cy: y(mib(wit(r))), r: 4, fill: "var(--c-mpt)", stroke: "var(--paper)", "stroke-width": 2 }, svg);
+      hover(el("rect", { x: cx - step / 2, y: T, width: step, height: H - T - B, fill: "transparent" }, svg),
+        `<b>Block ${r.number.toLocaleString("en")}</b><br>Merkle-Patricia ${size(wit(r))}<br>binary tree ${size(r.binary_low)} – ${size(r.binary_high)}`);
+    });
+  }
   const hb = document.getElementById("heavy");
   Object.entries(heavy).sort((x, y) => y[1].storage - x[1].storage).slice(0, 12).forEach(([a, t]) => {
     const tr = document.createElement("tr");
