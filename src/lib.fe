@@ -1674,6 +1674,70 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                 "}".fmt(mut heavy_json)
             }
             let bin = binary::estimate(keys)
+            // Each transaction's share, as if alone in a block, by kind:
+            // ETH transfer, contract call, contract creation, blob, set code.
+            var kind_count: [u64; 5] = [0; 5]
+            var kind_bytes: [u64; 5] = [0; 5]
+            var kind_max: [u64; 5] = [0; 5]
+            var alone_sum: u64 = 0
+            for t in 0 .. count {
+                let tx = ref txs[t]
+                let kind: usize = if field(tx, "type") == 3 {
+                    3
+                } else if field(tx, "type") == 4 {
+                    4
+                } else if !tx.has("to") || tx["to"].is_null() {
+                    2
+                } else if tx["input"].text().len() <= 2 { 0 } else { 1 }
+                let b = stateless::tx_witness(
+                    proofs["pre"],
+                    prestates["result"][t]["result"],
+                    diffs["result"][t]["result"]["post"],
+                )
+                kind_count[kind] = kind_count[kind] + 1
+                kind_bytes[kind] = kind_bytes[kind] + b
+                if b > kind_max[kind] {
+                    kind_max[kind] = b
+                }
+                alone_sum += b
+            }
+            println!(
+                "witness per transaction alone: ",
+                kind_count[0],
+                " transfers, ",
+                kind_count[1],
+                " calls, ",
+                kind_count[2],
+                " creations, ",
+                kind_count[3],
+                " blob, ",
+                kind_count[4],
+                " set code; alone they would need ",
+                alone_sum / 1024,
+                " KiB, which the block shares in ",
+                computed.witness_bytes / 1024,
+                " KiB",
+            )
+            json_num(
+                mut stateless_summary,
+                "blob_gas_used",
+                field(header, "blobGasUsed").downcast_unchecked(),
+            )
+            json_num(mut stateless_summary, "tx_witness_sum", alone_sum)
+            ",\"by_kind\":[".fmt(mut stateless_summary)
+            for k in 0 .. 5 {
+                if k > 0 {
+                    ",".fmt(mut stateless_summary)
+                }
+                "[".fmt(mut stateless_summary)
+                core::text::decimal(kind_count[k] as u256).fmt(mut stateless_summary)
+                ",".fmt(mut stateless_summary)
+                core::text::decimal(kind_bytes[k] as u256).fmt(mut stateless_summary)
+                ",".fmt(mut stateless_summary)
+                core::text::decimal(kind_max[k] as u256).fmt(mut stateless_summary)
+                "]".fmt(mut stateless_summary)
+            }
+            "]".fmt(mut stateless_summary)
             json_num(
                 mut stateless_summary,
                 "witness_nodes",

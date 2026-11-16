@@ -1,7 +1,7 @@
 import React from 'react';
 import { AbsoluteFill, Audio, Easing, OffthreadVideo, Sequence, interpolate, staticFile, useCurrentFrame } from 'remotion';
 import { scenes, FPS, LEAD, TAIL, TITLE_SECONDS, FRAME, CAPTION, type Scene } from './scenes.ts';
-import { camFor, frameBox, ID, type Cam, type Highlight } from './camera.ts';
+import { camFor, frameBox, mergeCaptions, ID, type Cam, type Highlight } from './camera.ts';
 import timingJson from './timing.json';
 import captureJson from './capture.json';
 
@@ -38,7 +38,7 @@ function camAt(hs: Highlight[], t: number): Cam {
 
 const Captions: React.FC<{ id: string }> = ({ id }) => {
   const t = useCurrentFrame() / FPS - LEAD;
-  const c = timing[id].captions.find((c) => t >= c.start && t < c.end);
+  const c = mergeCaptions(timing[id].captions).find((c) => t >= c.start && t < c.end);
   return (
     <div style={{ position: 'absolute', left: 0, top: CAPTION.y, width: 1920, height: CAPTION.h, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       {c && (

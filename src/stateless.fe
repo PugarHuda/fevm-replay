@@ -948,3 +948,52 @@ pub fn heaviest_storage(_ proofs: Value, count: usize) -> (MemVec<StorageWitness
     }
     (top, total)
 }
+
+/// One transaction's share of the witness: the distinct bytes of the
+/// parent's proof nodes for the accounts and slots it touched (its
+/// prestate and the writes of its diff), as if it ran alone in a block.
+pub fn tx_witness(_ proofs: Value, _ prestate: Value, _ post: Value) -> u64 {
+    var seen = WorldState::empty()
+    let _ = seen.ensure_account(1)
+    accounts_bytes(mut seen, proofs, prestate) + accounts_bytes(mut seen, proofs, post)
+}
+
+// The proof bytes, not yet in `seen`, of the accounts and slots in
+// `accounts` (a tracer's account map).
+fn accounts_bytes(_ seen: mut WorldState, _ proofs: Value, _ accounts: Value) -> u64 {
+    var bytes: u64 = 0
+    for ref member in accounts.members() {
+        let address = core::text::parse_hex_uint(member.key.span()).unwrap_or(default: 0)
+        for ref result in proofs.items() {
+            if field(result, "address") != address {
+                continue
+            }
+            bytes += new_bytes(mut seen, result["accountProof"])
+            if member.value.has("storage") {
+                for ref slot in member.value["storage"].members() {
+                    let key = core::text::parse_hex_uint(slot.key.span()).unwrap_or(default: 0)
+                    for ref entry in result["storageProof"].items() {
+                        if field(entry, "key") == key {
+                            bytes += new_bytes(mut seen, entry["proof"])
+                        }
+                    }
+                }
+            }
+        }
+    }
+    bytes
+}
+
+// The bytes of the nodes in `proof` not yet in `seen`, marking them.
+fn new_bytes(_ seen: mut WorldState, _ proof: Value) -> u64 {
+    var bytes: u64 = 0
+    for ref node in proof.items() {
+        let raw = hex_bytes(node.text())
+        let hash = keccak256_word(raw.span())
+        if seen.storage_load(1, hash) == 0 {
+            let _ = seen.storage_store(1, hash, 1)
+            bytes += raw.len().downcast_unchecked()
+        }
+    }
+    bytes
+}

@@ -53,7 +53,7 @@ body{display:flex;align-items:center;justify-content:center;font-family:'Cascadi
 .win{border-radius:10px;background:#161b22;box-shadow:0 20px 60px rgba(0,0,0,.5);border:1px solid #30363d;overflow:hidden}
 .bar{height:38px;display:flex;align-items:center;gap:8px;padding:0 14px;background:#21262d;color:#8b949e;font:14px system-ui,sans-serif}
 .bar i{width:12px;height:12px;border-radius:50%;display:inline-block}.bar span{margin-left:12px}
-#term{padding:18px 22px 22px;font-size:15px;line-height:1.55;color:#e6edf3;white-space:pre-wrap;word-break:break-all}
+#term{padding:18px 22px 22px;font-size:18px;letter-spacing:-0.04em;line-height:1.5;color:#e6edf3;white-space:pre-wrap;word-break:break-all}
 .ln{min-height:1.55em}.c1{font-weight:700}.c32{color:#3fb950}`;
 
 // asciinema v2 output -> HTML, SGR colors only (the casts use bold green for the prompt)
@@ -205,7 +205,7 @@ async function run(sc: Scene, browser: any) {
     const lines = readFileSync(join('..', 'casts', sc.cast!), 'utf8').split('\n').filter(Boolean);
     const { height: rows, width: cols } = JSON.parse(lines[0]) as { height: number; width: number };
     cast = lines.slice(1).map((l) => JSON.parse(l)).filter((e) => e[1] === 'o');
-    await page.setContent(`<!doctype html><meta charset=utf-8><style>${TERM_CSS}</style><div class=win><div class=bar><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span>${sc.termTitle ?? ''}</span></div><div id=term style="width:calc(${cols}ch + 44px);min-height:${rows * 1.55 * 15 + 40}px"></div></div>`);
+    await page.setContent(`<!doctype html><meta charset=utf-8><style>${TERM_CSS}</style><div class=win><div class=bar><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span>${sc.termTitle ?? ''}</span></div><div id=term style="width:calc(${cols} * (1ch - 0.04em) + 47px);min-height:${rows * 1.5 * 18 + 40}px"></div></div>`);
   } else {
     await page.goto(new URL(sc.url!, BASE).href, { waitUntil: 'networkidle' });
     if (sc.start) {

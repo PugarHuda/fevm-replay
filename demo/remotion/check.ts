@@ -3,13 +3,18 @@
 // usage: node check.ts   (exit 1 on any problem)
 import { readFileSync } from 'node:fs';
 import { scenes, FRAME, CAPTION } from './src/scenes.ts';
-import { camFor, frameBox, type Highlight } from './src/camera.ts';
+import { camFor, frameBox, mergeCaptions, CAPTION_MAX, type Highlight } from './src/camera.ts';
 
 const capture = JSON.parse(readFileSync('src/capture.json', 'utf8'));
+const timing = JSON.parse(readFileSync('src/timing.json', 'utf8'));
 const bad: string[] = [];
 if (FRAME.y + FRAME.h > CAPTION.y) bad.push(`FRAME (bottom ${FRAME.y + FRAME.h}) overlaps the caption band (top ${CAPTION.y})`);
 if (CAPTION.y + CAPTION.h > 1080) bad.push('caption band runs off the bottom');
 for (const s of scenes) {
+  for (const c of mergeCaptions(timing[s.id]?.captions ?? [])) {
+    if (c.text.split(/\s+/).length < 4) bad.push(`${s.id}: short caption "${c.text}"`);
+    if (c.text.length > CAPTION_MAX) bad.push(`${s.id}: caption over two lines "${c.text}"`);
+  }
   if (s.kind === 'card') continue;
   const c = capture[s.id];
   if (!c) { bad.push(`${s.id}: not captured`); continue; }

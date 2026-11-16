@@ -132,12 +132,13 @@ export const scenes: Scene[] = [
     id: 'stateless-page',
     kind: 'page',
     url: 'stateless.html',
+    start: { sel: '.g-head .intro' },
     narration:
       "A follower takes the block two behind the chain head, proves it and validates it. This page lists every block it took, with the witness per transaction and per million gas. It also shows whose storage weighs the most: the deeper a contract's storage trie, the more each slot it touches costs.",
     source: 'site/stateless.html; README "Following the chain" (follow.py)',
     cues: [
       { at: 'every block it took', target: { sel: '#facts' } },
-      { at: 'the witness per', target: { sel: 'table.map thead' } },
+      { at: 'the witness per', target: { sel: '.charts' } },
       { at: 'whose storage', target: { sel: 'h2:has-text("Whose storage weighs the most")' } },
     ],
   },

@@ -12,6 +12,28 @@ const PAD = 9;
 // highlight box in FRAME px, padded
 export const frameBox = (b: Box): Box => ({ x: b.x * K - PAD, y: b.y * K - PAD, w: b.w * K + 2 * PAD, h: b.h * K + 2 * PAD });
 
+export type Caption = { start: number; end: number; text: string };
+export const CAPTION_MAX = 150; // characters: two lines of the 38 px caption font in the band
+
+// merge captions of fewer than 4 words into a neighbor, while the result fits two lines
+export function mergeCaptions(cs: Caption[]): Caption[] {
+  const out = cs.map((c) => ({ ...c }));
+  const words = (c: Caption) => c.text.split(/\s+/).length;
+  for (let i = 0; i < out.length; ) {
+    if (words(out[i]) >= 4 || out.length === 1) { i++; continue; }
+    const next = out[i + 1], prev = out[i - 1];
+    const withNext = next && out[i].text.length + next.text.length + 1 <= CAPTION_MAX;
+    const withPrev = prev && prev.text.length + out[i].text.length + 1 <= CAPTION_MAX;
+    if (withNext && (!withPrev || next.text.length <= prev.text.length)) {
+      out.splice(i, 2, { start: out[i].start, end: next.end, text: out[i].text + ' ' + next.text });
+    } else if (withPrev) {
+      out.splice(i - 1, 2, { start: prev.start, end: out[i].end, text: prev.text + ' ' + out[i].text });
+      i--;
+    } else i++;
+  }
+  return out;
+}
+
 // camera that fits the box: scale toward it, never showing outside the capture
 export function camFor(h: Highlight): Cam {
   const b = frameBox(h.box);
