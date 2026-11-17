@@ -29,7 +29,7 @@ Replaying is fast: those 5,129 transactions take 5.9 seconds once fetched.
 | **Stateless** | With the parent's proofs as a witness, fevm runs a block's system calls and transactions and *computes* its `stateRoot`; `transactionsRoot`, `receiptsRoot`, `withdrawalsRoot`, `requestsHash`, `logsBloom` and `gasUsed` come out of fevm too. every block validated so far matched every root (the badge above counts them; 3 consecutive ones as one chain), and `follow` keeps taking more from the chain head; one is checked in CI on every push. A MATCH rests on the block hash, not the node ([details](#every-root-in-the-header)) |
 | **Fe ports** | 5 ports (USDT, every Uniswap V2 pair, WETH9, DAI, USDC's proxy) certified by mainnet replay, mainnet mutations, fuzzing and mutation testing ([verified page](https://fevm-replay.vercel.app/verified.html)) |
 | **Fe-specific** | Effects prove the verdict and the proof verifier offline; `const fn` + `static_assert` check the blob fee against a real block; std units, `core::fixed`, `msg`/`recv` ([Fe highlight](#fe-highlight)) |
-| **Found** | 3 bugs in the Fe ports, 2 node tracer bugs, the transactions the Osaka fork changed, and where Fe's code costs more than solc's ([argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002)) |
+| **Found** | 3 bugs in the Fe ports, 2 node tracer bugs, the transactions the Osaka fork changed, and where Fe's code cost more than solc's ([argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002), since fixed in Fe's std) |
 | **Upstream** | fe#2002 led to `Call::forward_delegatecall` in Fe's std ([argotorg/fe#2004](https://github.com/argotorg/fe/pull/2004), merged); our request in [fevm#26](https://github.com/fe-lang/fevm/issues/26) became the operand stack in `Tracer::step` ([fevm#32](https://github.com/fe-lang/fevm/pull/32)); dRPC is deploying a fix for the tracer bug we reported |
 | **Beside fevm's chain** | fevm now imports blocks itself ([`fevm_chain`](https://github.com/fe-lang/fevm/tree/main/ingots/chain)), on a full world and its conformance fixtures. fevm-replay is the other half: mainnet blocks, a *partial* world from the parent's proofs, the state root computed from that witness, and Fe ports in place of Solidity. It builds on that fevm and runs each block through `fevm_chain` and `fevm::Block` too: both drivers agree with the header on all 35 blocks ([more](#beside-fevms-chain-layer)) |
 | **Watch** | [3-minute tour](demo/tour-v2.mp4): the site and real terminal runs, driven like a user, with captions, highlights and a neural voice |
@@ -224,11 +224,17 @@ are ported; `certify` writes a one-page certificate for each
 | Uniswap V2 pair (every pair) | solc 0.5.16 | 1,687 | 0 | 0 of 513,600 | 0 of 1.2M | 95% | 61 of 74 | swap −0.9% |
 | WETH9 | solc 0.4.19 | 6,235 | 0 | 0 of 79,000 | 0 of 1.2M | 89% | 12 of 13 | balanceOf −17.0% |
 | DAI | solc 0.5.12 | 10,562 | 0 | 0 of 211,240 | 0 of 120,000 | 95% | 21 of 21 | transfer −1.5% |
-| USDC proxy | solc 0.4.24 | 16,597 | 2 | 0 of 27,800 | 0 of 120,000 | 92% | 9 of 12 | transfer +0.3% |
+| USDC proxy | solc 0.4.24 | 16,597 | 0 | 0 of 27,800 | 0 of 1.2M | 92% | 9 of 12 | transfer −0.7% |
 
-The two USDC proxy differences are callers whose gas allowance is so
-tight that the deployed proxy fits and the port, 40 to 60 gas costlier per
-call, runs out ([argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002)).
+The USDC proxy used to differ twice: through Fe's `MemBuffer` it cost 40
+to 60 gas a call more than solc's inline assembly, and two callers with a
+tight gas allowance ran out on the port. We reported it
+([argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002)); Fe's std
+gained `Call::forward_delegatecall`
+([argotorg/fe#2004](https://github.com/argotorg/fe/pull/2004)). With it the
+port costs 175 to 200 gas a call *less* than the deployed proxy (`transfer`
+−0.7%, `balanceOf` −6.3%), and the same 16,597 mainnet transactions behave
+identically.
 
 The full account is in [docs/details.md](docs/details.md): shadow fuzzing,
 [every Uniswap V2 pair at once](docs/details.md#every-uniswap-v2-pair-at-once),
@@ -416,11 +422,11 @@ WSL). fevm-replay builds on fevm's main branch (its `fevm_chain` layer),
 which needs Fe master past 26.6.0, so this project pins Fe master
 [`913403388`](https://github.com/argotorg/fe/commit/913403388b0219183a26986b13bb4110a9ff4c1f),
 the commit that added `Call::forward_delegatecall` for the proxy port. The
-Fe team confirmed that pinning master is fine for the contest. The Uniswap
-V2 pair and DAI ports build with the Fe they were certified with,
-[`4608e5fdf`](https://github.com/argotorg/fe/commit/4608e5fdfa3783ec78347f297ad0fced8928fcc7):
-later Fe refuses two effects of one type, which is how they hold their
-storage fields, and reworking them would change the certified code.
+Fe team confirmed that pinning master is fine for the contest. The WETH9,
+Uniswap V2 pair, USDT and DAI ports build with the Fe they were certified
+with, [`4608e5fdf`](https://github.com/argotorg/fe/commit/4608e5fdfa3783ec78347f297ad0fced8928fcc7),
+so their bytecode is the certified one (later Fe also refuses the pair's and
+DAI's two effects of one type, which is how they hold their storage fields).
 
 ```sh
 # Fe at the pinned commit (needs rustup, a C compiler and the tree-sitter CLI)

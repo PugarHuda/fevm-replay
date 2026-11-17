@@ -117,20 +117,20 @@
       <div class="links"><a href="certificate-dai.html">Certificate</a><a href="https://github.com/PugarHuda/fevm-replay/tree/main/ports/dai">Source</a></div>
     </article>
 
-    <article class="port warn">
-      <span class="stamp warn">2 out-of-gas differences</span>
+    <article class="port">
+      <img src="badge-usdc-proxy.svg" alt="Fe port: FiatTokenProxy verified" width="230" height="20">
       <h2>USDC proxy</h2>
       <p class="meta">FiatTokenProxy, solc 0.4.24 · <code>ports/usdc-proxy</code></p>
       <dl>
         <dt>Mainnet transactions that ran it</dt><dd>16,597</dd>
-        <dt>…that behaved differently</dt><dd>2</dd>
+        <dt>…that behaved differently</dt><dd class="zero">0</dd>
         <dt>Mutated mainnet runs that differ</dt><dd class="zero">0 of 27,800</dd>
         <dt>Random calls that differ</dt><dd class="zero">0 of 120,000</dd>
         <dt>Port code reached</dt><dd>92%</dd>
         <dt>Mutants caught</dt><dd>9 of 12</dd>
-        <dt>Gas on <code>transfer</code></dt><dd>+0.3%</dd>
+        <dt>Gas on <code>transfer</code></dt><dd>−0.7%</dd>
       </dl>
-      <p class="meta">The two: callers with a gas allowance so tight that the deployed proxy fits and the port, 40 to 60 gas costlier per call, runs out.</p>
+      <p class="meta">It forwards with <code>Call::forward_delegatecall</code>, which Fe's std gained after we reported the cost of forwarding through <code>MemBuffer</code> (<a href="https://github.com/argotorg/fe/issues/2002">fe#2002</a>). Before it, the port cost 40 to 60 gas a call more and two tight-gas callers ran out.</p>
       <div class="links"><a href="certificate-usdc-proxy.html">Certificate</a><a href="opgas.html">Gas</a><a href="https://github.com/PugarHuda/fevm-replay/tree/main/ports/usdc-proxy">Source</a></div>
     </article>
   </div>

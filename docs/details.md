@@ -421,27 +421,34 @@ upgrades only to contracts.
 | Fe proxy in place of USDC's | 200 blocks | 90 blocks across the year |
 | --- | ---: | ---: |
 | Transactions that ran it | 12,850 | 3,747 |
-| Identical logs and state | 12,087 | 3,582 |
-| Differ where code reads the gas left | 761 | 165 |
-| **Behave differently** | **2** | **0** |
+| Identical logs and state | 12,119 | 3,588 |
+| Differ where code reads the gas left | 731 | 159 |
+| **Behave differently** | **0** | **0** |
 
 `fuzz-proxy` puts the admin's functions to work (upgrades to contracts and
 to accounts without code, `upgradeToAndCall` with and without data and
 value, `changeAdmin`, from the admin and from anyone) in front of WETH9's
 code: 1.2 million calls, none different, 92% of the port reached.
 
-The two differences are the port's own cost. Copying calldata and return
-data through Fe's `MemBuffer` costs 40 to 60 gas a call more than solc's
-inline assembly (`transfer` +0.3%, `balanceOf` +2.1%), and two transactions
-call USDC with a gas allowance so tight that the deployed proxy fits and the
-port runs out. A port that costs more is a difference, so they stay counted;
-it is the one place a Fe port is costlier than the code it replaces.
-Reusing one buffer for the calldata and then the return data, as solc
-reuses memory from offset 0, does not help through std's public API: the
-capacity checks and the truncation cost more than the memory saved (tried
-and measured: 53 of 1,390 transactions ran out of gas instead of 0). std
-has no public way to copy calldata or return data to a raw offset, which is
-the question in [argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002).
+The port forwards with `Call::forward_delegatecall`, which Fe's std gained
+([argotorg/fe#2004](https://github.com/argotorg/fe/pull/2004)) after we
+reported the cost of the alternative
+([argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002)). Before it,
+the port copied calldata and return data through `MemBuffer`, 40 to 60 gas
+a call more than solc's inline assembly (`transfer` +0.3%, `balanceOf`
++2.1%), and two transactions in the 200 blocks called USDC with a gas
+allowance so tight that the deployed proxy fit and the port ran out. Sharing
+one buffer through std's public API cost more still (53 of 1,390
+transactions out of gas). With the raw forward the port costs less than the
+deployed proxy on every function mainnet called through it:
+
+| Through the proxy (200 blocks) | Calls | Deployed | Fe port |
+| --- | ---: | ---: | ---: |
+| `transfer` | 12,541 | 25,135 | 24,960 (−0.7%) |
+| `balanceOf` | 7,635 | 2,844 | 2,666 (−6.3%) |
+| `transferFrom` | 3,791 | 23,540 | 23,344 (−0.8%) |
+| `approve` | 1,448 | 24,775 | 24,579 (−0.8%) |
+| `allowance` | 692 | 3,297 | 3,122 (−5.3%) |
 
 ### DAI: MakerDAO's stablecoin
 
@@ -521,8 +528,8 @@ groups them:
 
 Fe moves fewer values around the stack and needs no `EXP` for `2**112`;
 it copies calldata and return data into buffers where solc reads them in
-place, which is all a proxy does, so the Fe proxy is the one port that costs
-more.
+place. A proxy does little else, and with `Call::forward_delegatecall` the
+Fe proxy forwards without those buffers.
 
 The same measurement on all four ports, six functions (blocks 26,400,000 to
 26,400,199):
@@ -534,15 +541,15 @@ The same measurement on all four ports, six functions (blocks 26,400,000 to
 | WETH9 `transfer` | 3,950 txs | −3.8% |
 | Uniswap V2 `swap` | 856 txs | −2.6% |
 | WETH9 `deposit` | 3,950 txs | −0.8% |
-| USDC proxy, `transfer` forwarded | 12,850 txs | +1.9% |
+| USDC proxy, `transfer` forwarded | 12,850 txs | −5.3% |
 
 | Opcode group, all six | Fe minus solc |
 | --- | ---: |
-| Stack shuffling | −44.0% |
-| Arithmetic and logic | −65.7% |
-| Control flow | −28.4% |
+| Stack shuffling | −49.4% |
+| Arithmetic and logic | −69.6% |
+| Control flow | −35.1% |
 | Storage | −0.2% |
-| **Memory** | **+25.3%** |
+| **Memory** | **+16.1%** |
 
 Memory is the one group where Fe spends more, and it does in every one of
 the six functions. That is a concrete target for the compiler: the copies of

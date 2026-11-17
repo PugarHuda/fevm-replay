@@ -12,7 +12,7 @@ permissions:
 
 env:
   FE_REVISION: 913403388b0219183a26986b13bb4110a9ff4c1f
-  # The pair and DAI ports keep the Fe they were certified with (see ci.yml).
+  # The ports but the USDC proxy keep the Fe they were certified with (see ci.yml).
   FE_PORTS_REVISION: 4608e5fdfa3783ec78347f297ad0fced8928fcc7
   RUST_VERSION: 1.99.0
 
@@ -49,17 +49,16 @@ jobs:
         run: |
           npm install -g tree-sitter-cli@0.24.7
           rustup toolchain install "$RUST_VERSION" --profile minimal
-          cargo "+$RUST_VERSION" install --locked --root ~/fe-ports             --git https://github.com/argotorg/fe --rev "$FE_PORTS_REVISION" --features cranelift fe
+          cargo "+$RUST_VERSION" install --locked --root ~/fe-ports \
+            --git https://github.com/argotorg/fe --rev "$FE_PORTS_REVISION" --features cranelift fe
 
       - run: echo "$HOME/fe/bin" >> "$GITHUB_PATH"
 
       - name: Build
         run: |
           fe build --backend native -O 2 --emit executable --out-dir out .
-          for port in weth9 usdt usdc-proxy; do
-            (cd "ports/$port" && fe build -O 2 --out-dir "../../out/$port" .)
-          done
-          for port in uniswap-v2-pair dai; do
+          (cd ports/usdc-proxy && fe build -O 2 --out-dir ../../out/usdc-proxy .)
+          for port in weth9 uniswap-v2-pair usdt dai; do
             (cd "ports/$port" && ~/fe-ports/bin/fe build -O 2 --out-dir "../../out/$port" .)
           done
           ./out/fevm_replay fixtures/mainnet/*.json
@@ -85,7 +84,7 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" "$ARCHIVE" \
             --title "fevm-replay $GITHUB_REF_NAME" \
-            --notes "fevm-replay for x86-64 Linux (built on ubuntu-latest; see LINKED.txt for the libraries it needs), the five ports' runtime bytecode, the fixtures (one block validated statelessly: mkdir proven && tar xzf fixtures/proven/0x19335e5.tar.gz -C proven && ./fevm_replay chain proven/0x19335e5). Built from ${GITHUB_SHA} with Fe ${FE_REVISION} (the pair and DAI ports with Fe ${FE_PORTS_REVISION})."
+            --notes "fevm-replay for x86-64 Linux (built on ubuntu-latest; see LINKED.txt for the libraries it needs), the five ports' runtime bytecode, the fixtures (one block validated statelessly: mkdir proven && tar xzf fixtures/proven/0x19335e5.tar.gz -C proven && ./fevm_replay chain proven/0x19335e5). Built from ${GITHUB_SHA} with Fe ${FE_REVISION} (the WETH9, pair, USDT and DAI ports with Fe ${FE_PORTS_REVISION})."
 
       - uses: actions/upload-artifact@v4
         with:

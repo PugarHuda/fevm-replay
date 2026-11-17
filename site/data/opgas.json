@@ -1399,23 +1399,23 @@
   "selector": "0xa9059cbb",
   "transactions": 12850,
   "solidity": 44579876,
-  "fe": 45424692,
+  "fe": 42233104,
   "groups": {
    "Arithmetic and logic": {
     "solidity": 764370,
-    "fe": 764364
+    "fe": 362070
    },
    "Environment and other": {
     "solidity": 227970,
-    "fe": 201150
+    "fe": 174330
    },
    "Memory": {
     "solidity": 402675,
-    "fe": 1247532
+    "fe": 684285
    },
    "Stack shuffling": {
     "solidity": 2856330,
-    "fe": 2950185
+    "fe": 1636020
    },
    "Storage": {
     "solidity": 38022000,
@@ -1423,15 +1423,10 @@
    },
    "Control flow": {
     "solidity": 2306531,
-    "fe": 2239461
+    "fe": 1354399
    }
   },
   "ops": [
-   {
-    "op": "ADD",
-    "solidity": 0,
-    "fe": 160920
-   },
    {
     "op": "MUL",
     "solidity": 134100,
@@ -1445,12 +1440,7 @@
    {
     "op": "LT",
     "solidity": 40230,
-    "fe": 120690
-   },
-   {
-    "op": "GT",
-    "solidity": 0,
-    "fe": 40230
+    "fe": 80460
    },
    {
     "op": "EQ",
@@ -1460,17 +1450,12 @@
    {
     "op": "ISZERO",
     "solidity": 120690,
-    "fe": 120684
+    "fe": 40230
    },
    {
     "op": "AND",
     "solidity": 120690,
-    "fe": 40230
-   },
-   {
-    "op": "NOT",
-    "solidity": 0,
-    "fe": 40230
+    "fe": 0
    },
    {
     "op": "SHR",
@@ -1495,32 +1480,32 @@
    {
     "op": "CALLDATACOPY",
     "solidity": 161160,
-    "fe": 684150
+    "fe": 362310
    },
    {
     "op": "RETURNDATASIZE",
     "solidity": 53640,
-    "fe": 53640
+    "fe": 26820
    },
    {
     "op": "RETURNDATACOPY",
     "solidity": 80595,
-    "fe": 120852
+    "fe": 80595
    },
    {
     "op": "POP",
     "solidity": 160920,
-    "fe": 53640
+    "fe": 0
    },
    {
     "op": "MLOAD",
     "solidity": 0,
-    "fe": 160920
+    "fe": 80460
    },
    {
     "op": "MSTORE",
     "solidity": 160920,
-    "fe": 281610
+    "fe": 160920
    },
    {
     "op": "SLOAD",
@@ -1530,12 +1515,12 @@
    {
     "op": "JUMP",
     "solidity": 1072800,
-    "fe": 643680
+    "fe": 214560
    },
    {
     "op": "JUMPI",
     "solidity": 1072800,
-    "fe": 1475080
+    "fe": 1072800
    },
    {
     "op": "GAS",
@@ -1545,22 +1530,22 @@
    {
     "op": "JUMPDEST",
     "solidity": 160931,
-    "fe": 120701
+    "fe": 67039
    },
    {
     "op": "PUSH0",
     "solidity": 0,
-    "fe": 160920
+    "fe": 107280
    },
    {
     "op": "PUSH1",
     "solidity": 563220,
-    "fe": 563220
+    "fe": 362070
    },
    {
     "op": "PUSH2",
     "solidity": 804600,
-    "fe": 724134
+    "fe": 321840
    },
    {
     "op": "PUSH4",
@@ -1585,17 +1570,17 @@
    {
     "op": "DUP1",
     "solidity": 522990,
-    "fe": 120690
+    "fe": 40230
    },
    {
     "op": "DUP2",
     "solidity": 40230,
-    "fe": 362070
+    "fe": 281610
    },
    {
     "op": "DUP3",
     "solidity": 0,
-    "fe": 201150
+    "fe": 80460
    },
    {
     "op": "DUP5",
@@ -1605,22 +1590,17 @@
    {
     "op": "SWAP1",
     "solidity": 201150,
-    "fe": 321834
+    "fe": 80460
    },
    {
     "op": "SWAP2",
     "solidity": 80460,
-    "fe": 80457
+    "fe": 40230
    },
    {
     "op": "SWAP4",
     "solidity": 0,
     "fe": 80460
-   },
-   {
-    "op": "SWAP6",
-    "solidity": 0,
-    "fe": 40230
    }
   ]
  }

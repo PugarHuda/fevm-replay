@@ -55,12 +55,12 @@
     <p class="intro">fevm-replay is a command-line tool written in Fe. It needs a Linux x86-64 or macOS AArch64 host (on Windows, use WSL), a C compiler, and <code>curl</code> for fetching.</p>
 
     <h2 id="quickstart">Quickstart</h2>
-    <p>fevm needs <code>std::native::sha256_compress</code>, which reached Fe's <code>master</code> just after the 26.6.0 release, so the project pins Fe at the commit fevm itself pins. Building Fe from source needs Rust 1.99, Node.js and the tree-sitter CLI; <code>cranelift</code> is the native backend.</p>
+    <p>fevm-replay builds on fevm's main branch and its <code>fevm_chain</code> layer, which need Fe's <code>master</code> past the 26.6.0 release, so the project pins Fe master at the commit that added <code>Call::forward_delegatecall</code>. The WETH9, pair, USDT and DAI ports build with Fe <code>4608e5f</code>, the one they were certified with. Building Fe from source needs Rust 1.99, Node.js and the tree-sitter CLI; <code>cranelift</code> is the native backend.</p>
 <pre><code>npm install -g tree-sitter-cli@0.24.7
 rustup toolchain install 1.99.0 --profile minimal
 cargo +1.99.0 install --locked --root ~/fe \
   --git https://github.com/argotorg/fe \
-  --rev 4608e5fdfa3783ec78347f297ad0fced8928fcc7 --features cranelift fe
+  --rev 913403388b0219183a26986b13bb4110a9ff4c1f --features cranelift fe
 export PATH="$HOME/fe/bin:$PATH"
 
 git clone https://github.com/PugarHuda/fevm-replay
