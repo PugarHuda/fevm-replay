@@ -405,8 +405,55 @@ fn transactions_encode_to_their_mainnet_hashes() {
 fn a_lone_account_costs_one_path_in_the_binary_tree() {
     var keys = fevm::WorldState::empty()
     let _ = keys.ensure_account(0x1234)
-    let e = ingot::binary::estimate(keys)
+    let e = ingot::binary::estimate(keys, fevm::WorldState::empty())
     assert!(e.stems == 1 && e.values == 2)
     assert!(e.low_bytes == 31 + 32 * 9 + 32 * 28)
     assert!(e.high_bytes == 31 + 32 * 9 + 32 * 31)
+}
+
+fn at(_ pc: usize, _ op: u8) -> fevm::trace::Step {
+    fevm::trace::Step { pc, op, gas: 1000, stack_len: 0, memory_size: 0, depth: 0 }
+}
+
+// A frame of 0xc0de runs pc 0 (chunk 0), a PUSH32 at pc 20 whose data ends
+// at pc 52 (chunks 0 and 1), and pc 70 (chunk 2); a creation's initcode,
+// nested inside it, counts nothing.
+#[test]
+fn executed_code_counts_by_31_byte_chunks() {
+    var watch = ingot::chunks::CodeWatch::new()
+    let none = core::MemBuffer::empty()
+    let call = fevm::trace::CallStart {
+        kind: 0xf1,
+        depth: 0,
+        from: 1,
+        to: 0xc0de,
+        value: 0,
+        gas: 1000,
+    }
+    fevm::trace::Tracer::enter(mut watch, call, input: none.span())
+    fevm::trace::Tracer::step(mut watch, at(0, 0x00))
+    fevm::trace::Tracer::step(mut watch, at(20, 0x7f))
+    fevm::trace::Tracer::step(mut watch, at(70, 0x01))
+    let create = fevm::trace::CallStart {
+        kind: 0xf0,
+        depth: 1,
+        from: 0xc0de,
+        to: 0xbeef,
+        value: 0,
+        gas: 500,
+    }
+    fevm::trace::Tracer::enter(mut watch, create, input: none.span())
+    fevm::trace::Tracer::step(mut watch, at(400, 0x00))
+    fevm::trace::Tracer::leave(
+        mut watch,
+        fevm::trace::CallEnd { depth: 1, status: 0, gas: 0 },
+        output: none.span(),
+    )
+    assert!(watch.chunks.storage_load(0xc0de, 0) == 1)
+    assert!(watch.chunks.storage_load(0xc0de, 1) == 1)
+    assert!(watch.chunks.storage_load(0xc0de, 2) == 1)
+    assert!(ingot::proof::slots_of(watch.chunks, 0xc0de).len() == 3)
+    assert!(
+        !watch.chunks.exists(0xbeef) && watch.created.exists(0xbeef),
+    )
 }

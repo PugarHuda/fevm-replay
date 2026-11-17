@@ -91,8 +91,9 @@ w("For each block, `chain` takes the parent's Merkle proofs (EIP-1186) of every 
   "block touched as the witness, runs the block's system calls and transactions in fevm, writes fevm's "
   "end state into that partial trie and hashes it again; the result is the header's `stateRoot` in every "
   "block here. The witness is what that took: the parent's distinct proof nodes, account and storage, plus "
-  "the few nodes a deletion moved up that the parent's proofs lack. Contract code is left out (it comes on "
-  "top, checked against the proven code hashes). A transaction's witness \"alone\" is the distinct proof "
+  "the few nodes a deletion moved up that the parent's proofs lack. Contract code is counted apart "
+  "(finding 12): a second run through fevm's own block layer (`fevm::Block`) notes the 31-byte chunks "
+  "each contract's code runs, as EIP-7864 would carry them. A transaction's witness \"alone\" is the distinct proof "
   "bytes of the accounts and slots it touched, as if it were the only transaction in its block. The "
   "binary-tree figures are estimates for EIP-7864's unified tree over the same keys: stems and values "
   "exact, stems placed by keccak (the EIP has not fixed its hash), the tree taken to be 28 to 31 levels "
@@ -150,7 +151,21 @@ w(f"11. **eth_getProof is almost a full witness.** A deletion that leaves a bran
   f"name. Such nodes were {100 * bpn / (wn + bpn):.2f}% of the nodes and {100 * bpb / W:.2f}% of the bytes; "
   "they were taken from the block's own proofs, each checked by the hash its parent names. "
   f"{assumed} times over the {n} blocks such a node was in neither proof and was taken to be a branch; "
-  "every state root still matched.\n")
+  "every state root still matched.")
+cd = [r for r in d if r.get("code_bytes")]
+if cd:
+    cshare = [r["code_bytes"] / (wit(r) + r["code_bytes"]) for r in cd]
+    ckept = [r["code_chunks"] * 31 / r["code_bytes"] for r in cd]
+    cgain = [(wit(r) + r["code_bytes"]) / ((r["binary_code_low"] + r["binary_code_high"]) / 2) for r in cd]
+    w(f"12. **Code is {100 * st.median(cshare):.0f}% of a full witness, and a block runs a quarter of it.** "
+      "`eth_getProof` carries no code, but a stateless client needs every contract it runs. A block ran "
+      f"{round(st.median(r['code_contracts'] for r in cd))} contracts (median) holding "
+      f"{st.median(r['code_bytes'] for r in cd) / MiB:.1f} MiB of code, which a Merkle-Patricia witness "
+      f"carries whole: {100 * min(cshare):.0f}% to {100 * max(cshare):.0f}% of the witness with code added. "
+      f"The 31-byte chunks it ran come to {100 * st.median(ckept):.0f}% of those bytes "
+      f"({100 * min(ckept):.0f}% to {100 * max(ckept):.0f}%), and EIP-7864 carries only those: with code, "
+      f"the binary tree shrinks the witness {min(cgain):.1f} to {max(cgain):.1f} times (median "
+      f"{st.median(cgain):.2f}). Code read by `CODECOPY` and `EXTCODECOPY` is not counted.\n")
 w("## Reproduce\n")
 w("```sh\n./out/fevm_replay follow blocks stateless.json 3     # takes, proves and validates 3 head blocks\n"
   "mkdir proven && tar xzf fixtures/proven/0x19335e5.tar.gz -C proven\n"

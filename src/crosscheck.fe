@@ -18,6 +18,33 @@ use ingot::load::field
 use ingot::proof
 use ingot::roots
 use ingot::stateless
+use ingot::chunks::CodeWatch
+
+/// What the second run gives: whether it agrees with the header, and the
+/// code it ran, as a witness would carry it.
+pub struct Crosschecked {
+    pub agreed: bool,
+    /// The 31-byte chunks executed, by the address that holds the code
+    /// (an EIP-7702 delegate's, for a delegated account); none of code
+    /// created in the block.
+    pub code: WorldState,
+    /// Contracts whose code ran, and their whole code in bytes, as a
+    /// Merkle-Patricia witness carries it.
+    pub contracts: u64,
+    pub code_bytes: u64,
+    /// The chunks executed.
+    pub chunks: u64,
+}
+
+fn failed() -> Crosschecked {
+    Crosschecked {
+        agreed: false,
+        code: WorldState::empty(),
+        contracts: 0,
+        code_bytes: 0,
+        chunks: 0,
+    }
+}
 
 fn root_or_zero(_ trie: own Trie) -> u256 {
     match trie.root() {
@@ -45,7 +72,7 @@ pub fn run(
     _ keys: WorldState,
     code_unknown: MemVec<u256>,
     chain_id: u256,
-) -> bool
+) -> Crosschecked
 uses (out: mut Stdout)
 {
     var world = pre
@@ -67,7 +94,7 @@ uses (out: mut Stdout)
             WorldState::empty(),
         ) {
             println!("fevm_chain: a request contract is not proven")
-            return false
+            return failed()
         }
     }
     if header.has("withdrawals") {
@@ -80,7 +107,7 @@ uses (out: mut Stdout)
                     address,
                 ) else {
                     println!("fevm_chain: a withdrawal recipient is not proven")
-                    return false
+                    return failed()
                 }
                 world.set_balance(address, account.balance)
                 world.set_nonce(address, account.nonce)
@@ -91,11 +118,11 @@ uses (out: mut Stdout)
     let parent_encoded = proof::header_rlp(parent)
     let Result::Ok(blk) = Header::decode(encoded.span()) else {
         println!("fevm_chain: the header does not decode")
-        return false
+        return failed()
     }
     let Result::Ok(before) = Header::decode(parent_encoded.span()) else {
         println!("fevm_chain: the parent's header does not decode")
-        return false
+        return failed()
     }
     // Mainnet since BPO2 (EIP-7892): Osaka's rules with a target of 14 blobs
     // a block and a maximum of 21. `Config::osaka()` holds Osaka's own schedule.
@@ -110,7 +137,7 @@ uses (out: mut Stdout)
     }
     let Option::Some(env) = blk.block_env(chain_id: chain_id, config) else {
         println!("fevm_chain: no block environment from the header")
-        return false
+        return failed()
     }
     var block = Block::begin(
         Evm::new(world, config),
@@ -118,6 +145,7 @@ uses (out: mut Stdout)
         parent_hash: blk.parent_hash,
         parent_beacon_block_root: blk.parent_beacon_block_root,
     )
+    var watch = CodeWatch::new()
     var transactions = Trie::new()
     var receipts = Trie::new()
     var decoded: u64 = 0
@@ -133,8 +161,7 @@ uses (out: mut Stdout)
                 if hash == field(tx, "hash") && request.env.sender == field(tx, "from") {
                     senders += 1
                 }
-                var tracer = ()
-                let receipt = block.transact(request, mut tracer)
+                let receipt = block.transact(request, mut watch)
                 if receipt.invalid != VALID {
                     rejected += 1
                 }
@@ -165,7 +192,7 @@ uses (out: mut Stdout)
     let (evm, finished) = block.finish(withdrawals)
     let Result::Ok(output) = finished else {
         println!("fevm_chain: fevm's Block did not finish the block")
-        return false
+        return failed()
     }
     if undecoded > 0 || rejected > 0 || senders != decoded {
         differs(mut wrong, "transactions")
@@ -192,6 +219,30 @@ uses (out: mut Stdout)
         differs(mut wrong, "requestsHash")
     }
     let end = evm.into_world()
+    // The code that ran, by the account holding it.
+    var code = WorldState::empty()
+    var contracts: u64 = 0
+    var code_bytes: u64 = 0
+    var chunks: u64 = 0
+    for e in 0 .. watch.chunks.storage_slots() {
+        let entry = watch.chunks.storage_at(e)
+        if !entry.occupied || watch.created.exists(entry.address) {
+            continue
+        }
+        let owner = match end.delegate(entry.address) {
+            Option::Some(delegate) => delegate,
+            Option::None => entry.address,
+        }
+        if !code.exists(owner) {
+            let _ = code.ensure_account(owner)
+            contracts += 1
+            code_bytes += end.code_size(owner).downcast_unchecked()
+        }
+        if code.storage_load(owner, entry.slot) == 0 {
+            let _ = code.storage_store(owner, entry.slot, 1)
+            chunks += 1
+        }
+    }
     let computed = stateless::state_root(end, parent_root, proofs, keys, code_unknown)
     if computed.root != blk.state_root {
         differs(mut wrong, "stateRoot")
@@ -202,7 +253,7 @@ uses (out: mut Stdout)
             decoded,
             " transactions decoded from their bytes, each to its hash and the sender its signature recovers; fevm::Block ran the system calls, transactions, withdrawals and request contracts; gasUsed, transactionsRoot, receiptsRoot, logsBloom, withdrawalsRoot, blobGasUsed, requestsHash and, from the witness, stateRoot agree with the header",
         )
-        return true
+        return Crosschecked { agreed: true, code, contracts, code_bytes, chunks }
     }
     println!(
         "  (",
@@ -215,5 +266,5 @@ uses (out: mut Stdout)
         senders,
         " to their hash and sender)",
     )
-    false
+    Crosschecked { agreed: false, code, contracts, code_bytes, chunks }
 }

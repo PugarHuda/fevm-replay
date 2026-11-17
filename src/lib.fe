@@ -1619,8 +1619,15 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                     )
                 }
             }
+            // The code that ran, from the second run through fevm's block
+            // layer: whole for the Merkle-Patricia witness, by the 31-byte
+            // chunks run for EIP-7864's.
+            var code_run = fevm::WorldState::empty()
+            var contracts: u64 = 0
+            var code_bytes: u64 = 0
+            var chunk_count: u64 = 0
             if let Option::Some(pre) = cross_pre {
-                if !ingot::crosscheck::run(
+                let checked = ingot::crosscheck::run(
                     pre,
                     header,
                     proofs["parent"],
@@ -1629,9 +1636,14 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                     keys,
                     code_unknown,
                     chain_id: field(chain, "result"),
-                ) {
+                )
+                if !checked.agreed {
                     unproven += 1
                 }
+                contracts = checked.contracts
+                code_bytes = checked.code_bytes
+                chunk_count = checked.chunks
+                code_run = checked.code
             }
             let (heaviest, storage_bytes) = stateless::heaviest_storage(proofs["pre"], count: 5)
             println!(
@@ -1650,7 +1662,7 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                 for s in 0 .. slots.len() {
                     let _ = alone.storage_store(w.address, slots[s], 1)
                 }
-                let solo = binary::estimate(alone)
+                let solo = binary::estimate(alone, fevm::WorldState::empty())
                 let per_slot = w.nodes * 10 / w.slots
                 println!(
                     "  storage witness 0x",
@@ -1690,7 +1702,8 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                 core::text::decimal(solo.high_bytes as u256).fmt(mut heavy_json)
                 "}".fmt(mut heavy_json)
             }
-            let bin = binary::estimate(keys)
+            let bin = binary::estimate(keys, fevm::WorldState::empty())
+            let bin_code = binary::estimate(keys, code_run)
             // Each transaction's share, as if alone in a block, by kind:
             // ETH transfer, contract call, contract creation, blob, set code.
             var kind_count: [u64; 5] = [0; 5]
@@ -1804,6 +1817,36 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                 " levels above the stems (Merkle-Patricia: ",
                 (computed.witness_bytes + computed.hinted_bytes) / 1024,
                 " KiB)",
+            )
+            if contracts > 0 {
+                println!(
+                    "code: ",
+                    contracts,
+                    " contracts ran, ",
+                    code_bytes / 1024,
+                    " KiB of code, which a Merkle-Patricia witness carries whole; they ran ",
+                    chunk_count,
+                    " chunks of 31 bytes, which EIP-7864 carries alone; with code, Merkle-Patricia ",
+                    (computed.witness_bytes + computed.hinted_bytes + code_bytes) / 1024,
+                    " KiB, binary tree ",
+                    bin_code.low_bytes / 1024,
+                    " to ",
+                    bin_code.high_bytes / 1024,
+                    " KiB",
+                )
+            }
+            json_num(mut stateless_summary, "code_contracts", contracts)
+            json_num(mut stateless_summary, "code_bytes", code_bytes)
+            json_num(mut stateless_summary, "code_chunks", chunk_count)
+            json_num(
+                mut stateless_summary,
+                "binary_code_low",
+                bin_code.low_bytes,
+            )
+            json_num(
+                mut stateless_summary,
+                "binary_code_high",
+                bin_code.high_bytes,
             )
             if computed.hinted > 0 {
                 // eth_getProof names keys, and these are keys no

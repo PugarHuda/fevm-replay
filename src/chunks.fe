@@ -1,0 +1,81 @@
+//! Which 31-byte chunks of each contract's code a block executes. A
+//! Merkle-Patricia witness carries every executed contract's whole code;
+//! EIP-7864 splits code into 31-byte chunks, each a leaf of the tree, so a
+//! witness carries only the chunks it runs. An instruction touches its own
+//! chunk, and a PUSH also the chunk its last data byte falls in.
+//!
+//! Not counted: code read by CODECOPY and EXTCODECOPY (their ranges are on
+//! the stack, which `Tracer::step` does not show at the pinned fevm), and
+//! initcode, which is not in the state.
+use core::MemVec
+use core::ptr::MemSpan
+use fevm::WorldState
+use fevm::trace::{CallEnd, CallStart, Step, Tracer}
+
+const CREATE: u8 = 0xf0
+const CREATE2: u8 = 0xf5
+const PUSH1: u8 = 0x60
+const PUSH32: u8 = 0x7f
+
+/// EIP-7864's code chunk: 31 bytes of code under a leading byte.
+pub const CHUNK: usize = 31
+
+pub struct CodeWatch {
+    /// The executed chunks, as a set: account = the code's address, slot =
+    /// the chunk's index.
+    pub chunks: WorldState,
+    /// Accounts created in the block, whose code no witness carries.
+    pub created: WorldState,
+    // The address whose code each open frame runs, and whether it runs
+    // initcode.
+    frames: MemVec<u256>,
+    initcode: MemVec<u8>,
+}
+
+impl CodeWatch {
+    pub fn new() -> Self {
+        CodeWatch {
+            chunks: WorldState::empty(),
+            created: WorldState::empty(),
+            frames: MemVec::new(),
+            initcode: MemVec::new(),
+        }
+    }
+
+    fn touch(mut self, _ address: u256, _ chunk: usize) {
+        let _ = self.chunks.ensure_account(address)
+        let _ = self.chunks.storage_store(address, chunk as u256, 1)
+    }
+}
+
+impl Tracer for CodeWatch {
+    fn step(mut self, _ step: Step) {
+        let n = self.frames.len()
+        if n == 0 || self.initcode[n - 1] == 1 {
+            return
+        }
+        let address = self.frames[n - 1]
+        let first = step.pc / CHUNK
+        self.touch(address, first)
+        if step.op >= PUSH1 && step.op <= PUSH32 {
+            let last = (step.pc + (step.op - PUSH1 + 1) as usize) / CHUNK
+            if last != first {
+                self.touch(address, last)
+            }
+        }
+    }
+
+    fn enter(mut self, _ call: CallStart, input: MemSpan) {
+        let creating = call.kind == CREATE || call.kind == CREATE2
+        if creating {
+            let _ = self.created.ensure_account(call.to)
+        }
+        self.frames.push(call.to)
+        self.initcode.push(if creating { 1 } else { 0 })
+    }
+
+    fn leave(mut self, _ call: CallEnd, output: MemSpan) {
+        let _ = self.frames.pop()
+        let _ = self.initcode.pop()
+    }
+}

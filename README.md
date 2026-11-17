@@ -180,6 +180,14 @@ would need for the same keys ([`src/binary.fe`](src/binary.fe)): stems and
 values exact, stems placed by keccak (the EIP's hash is not fixed yet), 28 to 31 levels deep.
 For the block above: 505 to 557 KiB against 1,002 KiB, code left out.
 
+**Code.** `eth_getProof` carries no code, but a stateless client needs
+every contract a block runs. While `fevm::Block` runs the block a second
+time, a tracer ([`src/chunks.fe`](src/chunks.fe)) notes the 31-byte chunks
+each contract's code runs, as EIP-7864 would carry them. Code is 40% of a
+full Merkle-Patricia witness (median; 18% to 50%), and a block runs about a
+quarter of the code it touches; with code, the binary tree shrinks the
+witness 2.0 to 3.3 times.
+
 **Who makes the witness big.** Storage is 62% of it; XEN Crypto's trie is
 the deepest (8.2 nodes a slot), a USDT or USDC slot needs 7.4 nodes, about
 2 KiB. A binary tree shrinks such tries but can grow a small one, whose
@@ -341,7 +349,10 @@ Other Fe pieces doing real work:
 | `src/receipts.fe` | receipts encoded as the chain encodes them, and a Merkle-Patricia trie built from them, for the header's `receiptsRoot`. No host capabilities |
 | `src/roots.fe` | transactions re-encoded (EIP-2718) and withdrawals, for the header's `transactionsRoot` and `withdrawalsRoot`. No host capabilities |
 | `src/follow.fe` | `follow`: the chain head validated as it grows, by running `fetch-block`, `fetch-proofs` and `chain`; the stateless page's data |
-| `src/binary.fe` | the binary tree (EIP-7864) witness estimated for the same keys. No host capabilities |
+| `src/binary.fe` | the binary tree (EIP-7864) witness estimated for the same keys and the code chunks run. No host capabilities |
+| `src/chunks.fe` | `CodeWatch`, a tracer that notes the 31-byte code chunks a block runs (EIP-7864) |
+| `src/crosscheck.fe` | the block a second time through `fevm_chain` and `fevm::Block`, against the header |
+| `src/compat.fe` | fevm's `transact` as the replay, fuzz and shadow call sites use it |
 | `src/stateless.fe` | the end-state root computed from the parent's witness and fevm's end state: inserts, changes and deletions in a partial Merkle-Patricia trie. No host capabilities |
 | `src/requests.fe` | the system calls (EIP-4788, EIP-2935, EIP-7002, EIP-7251), deposits from fevm's logs (EIP-6110), and the EIP-7685 requests hash, for the header's `requestsHash`. No host capabilities |
 | `src/fuzz.fe` | shadow fuzzing of WETH9 and of a Uniswap V2 pair: random calls against deployed code and its port, compared after each |

@@ -8,8 +8,9 @@
 //! as a range. EIP-7864 has not fixed its hash yet (its reference code uses
 //! BLAKE3; Keccak and Poseidon2 are among the candidates), so keccak, one
 //! of them, places the stems; any uniform hash gives the same shape on
-//! average. Code chunks are left out, as code is
-//! left out of the Merkle-Patricia witness it is compared with.
+//! average. Code enters as the 31-byte chunks the block runs (`code`, from
+//! `chunks::CodeWatch`): chunk i is value 128 + i of the account's stems,
+//! the first 128 in its header stem.
 
 use core::{MemBuffer, MemVec}
 use core::hash::keccak256_word
@@ -35,6 +36,8 @@ const HIGH_DEPTH: u64 = 31
 // EIP-7864: where storage slots past the header start (256^31), in stems.
 const MAIN_STORAGE_STEMS: u256 = 1 << 240
 const HEADER_STORAGE_OFFSET: u256 = 64
+// EIP-7864: where code chunks start among an account's values.
+const CODE_OFFSET: u256 = 128
 
 // The stem of (`address`, `tree_index`): 248 bits of a hash of both.
 fn stem(_ address: u256, _ tree_index: u256) -> u256 {
@@ -87,8 +90,9 @@ fn siblings(
     count
 }
 
-/// The binary-tree witness for every account and slot in `keys`.
-pub fn estimate(_ keys: WorldState) -> Estimate {
+/// The binary-tree witness for every account and slot in `keys`, and every
+/// code chunk in `code` (account = the code's address, slot = the chunk).
+pub fn estimate(_ keys: WorldState, _ code: WorldState) -> Estimate {
     var sets = WorldState::empty()
     let _ = sets.ensure_account(1)
     // Each value as stem << 8 | suffix.
@@ -113,6 +117,17 @@ pub fn estimate(_ keys: WorldState) -> Estimate {
             }
             if mark(mut sets, set: 1, key: at) {
                 values.push(at)
+            }
+        }
+    }
+    for a in 0 .. code.account_count() {
+        let address = code.account_at(a).address
+        let chunks = proof::slots_of(code, address)
+        for c in 0 .. chunks.len() {
+            let at = CODE_OFFSET + chunks[c]
+            let value = (stem(address, at >> 8) << 8) | (at & 0xff)
+            if mark(mut sets, set: 1, key: value) {
+                values.push(value)
             }
         }
     }
