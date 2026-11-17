@@ -30,6 +30,8 @@ Replaying is fast: those 5,129 transactions take 5.9 seconds once fetched.
 | **Fe ports** | 5 ports (USDT, every Uniswap V2 pair, WETH9, DAI, USDC's proxy) certified by mainnet replay, mainnet mutations, fuzzing and mutation testing ([verified page](https://fevm-replay.vercel.app/verified.html)) |
 | **Fe-specific** | Effects prove the verdict and the proof verifier offline; `const fn` + `static_assert` check the blob fee against a real block; std units, `core::fixed`, `msg`/`recv` ([Fe highlight](#fe-highlight)) |
 | **Found** | 3 bugs in the Fe ports, 2 node tracer bugs, the transactions the Osaka fork changed, and where Fe's code costs more than solc's ([argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002)) |
+| **Upstream** | fe#2002 led to `Call::forward_delegatecall` in Fe's std ([argotorg/fe#2004](https://github.com/argotorg/fe/pull/2004), merged); our request in [fevm#26](https://github.com/fe-lang/fevm/issues/26) became the operand stack in `Tracer::step` ([fevm#32](https://github.com/fe-lang/fevm/pull/32)); dRPC is deploying a fix for the tracer bug we reported |
+| **Beside fevm's chain** | fevm now imports blocks itself ([`fevm_chain`](https://github.com/fe-lang/fevm/tree/main/ingots/chain)), on a full world and its conformance fixtures. fevm-replay is the other half: mainnet blocks, a *partial* world from the parent's proofs, the state root computed from that witness, and Fe ports in place of Solidity ([more](#beside-fevms-chain-layer)) |
 | **Watch** | [3-minute tour](demo/tour-v2.mp4): the site and real terminal runs, driven like a user, with captions, highlights and a neural voice |
 | **Try** | No Fe needed: [three commands](#try-it-without-fe) with the release binary |
 
@@ -349,6 +351,25 @@ Other Fe pieces doing real work:
 | `ports/usdt` | TetherToken (USDT) in Fe |
 | `ports/usdc-proxy` | FiatTokenProxy, USDC's upgradeable proxy, in Fe |
 | `ports/dai` | DAI (MakerDAO) in Fe, with `permit` and `LibNote` |
+
+### Beside fevm's chain layer
+
+During the contest fevm gained block execution (`fevm::Block`) and a chain
+layer (`fevm_chain`: header validation, transaction decoding, Merkle roots,
+an incremental `StateTrie`), tested on the execution-spec-tests fixtures.
+Its `Chain` holds the whole world, so its state root is the hash of
+everything it holds. fevm-replay works where no node keeps the whole state:
+
+| | `fevm_chain` | fevm-replay |
+| --- | --- | --- |
+| Blocks | conformance fixtures | mainnet, from the chain head |
+| World | full | partial: the parent's `eth_getProof` witness |
+| `stateRoot` | hash of the whole world | computed from the witness and fevm's end state (`src/stateless.fe`) |
+| Beyond the header | | Fe ports shadow-replayed, fuzzing, mutants, witness research (EIP-7864) |
+
+The two meet on the same fevm, and the plan is to run the shared parts
+(decoding, receipts, roots) through `fevm_chain` once fevm-replay moves to
+its Fe revision.
 
 ## Try it without Fe
 
