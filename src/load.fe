@@ -71,6 +71,8 @@ pub fn load_block(_ header: Value, chain_id: u256, blobbasefee: u256) -> BlockEn
         chainid: chain_id,
         basefee: field(header, "baseFeePerGas"),
         blobbasefee,
+        // Amsterdam's EIP-7843; Osaka has no slot number.
+        slot_number: 0,
     }
 }
 

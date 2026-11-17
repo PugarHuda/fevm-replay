@@ -1,0 +1,22 @@
+//! fevm's `transact` as fevm-replay calls it: a world in, the receipt and
+//! the world out. fevm now runs transactions through an `Evm` that holds
+//! the world; this keeps every replay, fuzz and shadow call site as it was.
+use fevm::{BlockEnv, Buffers, Config, Evm, Receipt, TxRequest, WorldState}
+use fevm::trace::Tracer
+
+pub struct Applied { pub receipt: Receipt, pub state: WorldState }
+
+// ponytail: `buffers` stays in the signature so call sites are unchanged;
+// `Evm` keeps its own allocations now.
+pub fn transact<T: Tracer>(
+    _ world: own WorldState,
+    _ request: TxRequest,
+    _ block: BlockEnv,
+    _ config: Config,
+    _ buffers: mut Buffers,
+    _ tracer: mut T,
+) -> Applied {
+    var evm = Evm::new(world, config)
+    let receipt = evm.transact(request, block, mut tracer)
+    Applied { receipt, state: evm.into_world() }
+}

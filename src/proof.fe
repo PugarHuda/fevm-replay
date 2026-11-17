@@ -234,7 +234,13 @@ fn number_field(_ value: Value) -> core::abi::Bytes {
 /// keccak256 of the RLP of a post-Prague header (`eth_getBlockByNumber`'s
 /// result): the block hash it must carry.
 pub fn header_hash(_ header: Value) -> u256 {
-    let encoded = rlp::encode_list(
+    let encoded = header_rlp(header)
+    keccak256_word(encoded.span())
+}
+
+/// The RLP of a post-Prague header, as the chain encodes it.
+pub fn header_rlp(_ header: Value) -> core::abi::Bytes {
+    rlp::encode_list(
         [
             hex_field(header["parentHash"]),
             hex_field(header["sha3Uncles"]),
@@ -259,7 +265,6 @@ pub fn header_hash(_ header: Value) -> u256 {
             hex_field(header["requestsHash"]),
         ],
     )
-    keccak256_word(encoded.span())
 }
 
 /// Every account and slot a block touched, as a set: a world whose accounts

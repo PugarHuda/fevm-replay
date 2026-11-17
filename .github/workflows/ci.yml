@@ -8,9 +8,14 @@ permissions:
   contents: read
 
 env:
-  # fevm needs `std::native::sha256_compress`, which landed on Fe master right
-  # after 26.6.0 (argotorg/fe#1977). The contest allows pinning a master commit.
-  FE_REVISION: 4608e5fdfa3783ec78347f297ad0fced8928fcc7
+  # fevm main (its chain layer) needs Fe master past 26.6.0, and
+  # `Call::forward_delegatecall` (argotorg/fe#2004) landed at this commit.
+  # The contest allows pinning a master commit.
+  FE_REVISION: 913403388b0219183a26986b13bb4110a9ff4c1f
+  # The Uniswap V2 pair and DAI ports keep the Fe they were certified with:
+  # later Fe refuses two effects of one type (their storage fields), and
+  # reworking them would change the certified code.
+  FE_PORTS_REVISION: 4608e5fdfa3783ec78347f297ad0fced8928fcc7
   RUST_VERSION: 1.99.0
 
 jobs:
@@ -36,6 +41,20 @@ jobs:
           cargo "+$RUST_VERSION" install --locked --root ~/fe \
             --git https://github.com/argotorg/fe --rev "$FE_REVISION" --features cranelift fe
 
+      - name: Restore the ports' Fe compiler
+        id: fe-ports-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/fe-ports
+          key: fe-${{ runner.os }}-${{ env.FE_PORTS_REVISION }}-${{ env.RUST_VERSION }}-cranelift-ports
+
+      - name: Build the ports' Fe compiler
+        if: steps.fe-ports-cache.outputs.cache-hit != 'true'
+        run: |
+          npm install -g tree-sitter-cli@0.24.7
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          cargo "+$RUST_VERSION" install --locked --root ~/fe-ports             --git https://github.com/argotorg/fe --rev "$FE_PORTS_REVISION" --features cranelift fe
+
       - run: echo "$HOME/fe/bin" >> "$GITHUB_PATH"
       - run: fe --version
       - run: fe fmt --check
@@ -51,9 +70,9 @@ jobs:
       - name: Uniswap V2 pair port
         working-directory: ports/uniswap-v2-pair
         run: |
-          fe fmt --check
-          fe test .
-          fe build -O 2 --out-dir ../../out/pair .
+          ~/fe-ports/bin/fe fmt --check
+          ~/fe-ports/bin/fe test .
+          ~/fe-ports/bin/fe build -O 2 --out-dir ../../out/pair .
 
       - name: USDT (TetherToken) port
         working-directory: ports/usdt
@@ -72,9 +91,9 @@ jobs:
       - name: DAI port
         working-directory: ports/dai
         run: |
-          fe fmt --check
-          fe test .
-          fe build -O 2 --out-dir ../../out/dai .
+          ~/fe-ports/bin/fe fmt --check
+          ~/fe-ports/bin/fe test .
+          ~/fe-ports/bin/fe build -O 2 --out-dir ../../out/dai .
 
       - name: Build fevm-replay
         run: fe build --backend native -O 2 --emit executable --out-dir out .
@@ -168,7 +187,9 @@ jobs:
         run: ./out/fevm_replay fuzz-proxy fixtures/code/usdc-proxy-mainnet.hex out/usdc-proxy/FiatTokenProxy.runtime.bin fixtures/code/weth9-mainnet.hex 500 60 1
 
       - name: Mutants planted in the V2 pair port are caught
+        # `mutants` builds the port with the `fe` on the PATH: the pair's.
         run: |
+          export PATH="$HOME/fe-ports/bin:$PATH"
           out=$(./out/fevm_replay mutants ports/uniswap-v2-pair UniswapV2Pair fixtures/code/uniswap-v2-pair-mainnet.hex fixtures/code/weth9-mainnet.hex 8)
           echo "$out"
           echo "$out" | grep -q "mutants built"

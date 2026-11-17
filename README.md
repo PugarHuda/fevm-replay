@@ -31,7 +31,7 @@ Replaying is fast: those 5,129 transactions take 5.9 seconds once fetched.
 | **Fe-specific** | Effects prove the verdict and the proof verifier offline; `const fn` + `static_assert` check the blob fee against a real block; std units, `core::fixed`, `msg`/`recv` ([Fe highlight](#fe-highlight)) |
 | **Found** | 3 bugs in the Fe ports, 2 node tracer bugs, the transactions the Osaka fork changed, and where Fe's code costs more than solc's ([argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002)) |
 | **Upstream** | fe#2002 led to `Call::forward_delegatecall` in Fe's std ([argotorg/fe#2004](https://github.com/argotorg/fe/pull/2004), merged); our request in [fevm#26](https://github.com/fe-lang/fevm/issues/26) became the operand stack in `Tracer::step` ([fevm#32](https://github.com/fe-lang/fevm/pull/32)); dRPC is deploying a fix for the tracer bug we reported |
-| **Beside fevm's chain** | fevm now imports blocks itself ([`fevm_chain`](https://github.com/fe-lang/fevm/tree/main/ingots/chain)), on a full world and its conformance fixtures. fevm-replay is the other half: mainnet blocks, a *partial* world from the parent's proofs, the state root computed from that witness, and Fe ports in place of Solidity ([more](#beside-fevms-chain-layer)) |
+| **Beside fevm's chain** | fevm now imports blocks itself ([`fevm_chain`](https://github.com/fe-lang/fevm/tree/main/ingots/chain)), on a full world and its conformance fixtures. fevm-replay is the other half: mainnet blocks, a *partial* world from the parent's proofs, the state root computed from that witness, and Fe ports in place of Solidity. It builds on that fevm and runs each block through `fevm_chain` and `fevm::Block` too: both drivers agree with the header on all 35 blocks ([more](#beside-fevms-chain-layer)) |
 | **Watch** | [3-minute tour](demo/tour-v2.mp4): the site and real terminal runs, driven like a user, with captions, highlights and a neural voice |
 | **Try** | No Fe needed: [three commands](#try-it-without-fe) with the release binary |
 
@@ -367,9 +367,27 @@ everything it holds. fevm-replay works where no node keeps the whole state:
 | `stateRoot` | hash of the whole world | computed from the witness and fevm's end state (`src/stateless.fe`) |
 | Beyond the header | | Fe ports shadow-replayed, fuzzing, mutants, witness research (EIP-7864) |
 
-The two meet on the same fevm, and the plan is to run the shared parts
-(decoding, receipts, roots) through `fevm_chain` once fevm-replay moves to
-its Fe revision.
+fevm-replay now builds on that fevm, and `chain` runs every block validated
+statelessly a second time through fevm's own layer (`src/crosscheck.fe`):
+`fevm_chain` decodes the header and validates it against its parent's,
+decodes each transaction from its bytes and recovers its sender from the
+signature, and hashes the transactions, receipts and withdrawals;
+`fevm::Block` runs the system calls, the transactions, the withdrawals and
+the request contracts; the state root of `Block`'s end state is computed
+from the same witness. Two block drivers on one EVM must agree with the
+header, and so with each other:
+
+```
+fevm_chain: the header is valid against its parent; 367 transactions decoded from their bytes,
+each to its hash and the sender its signature recovers; fevm::Block ran the system calls,
+transactions, withdrawals and request contracts; gasUsed, transactionsRoot, receiptsRoot,
+logsBloom, withdrawalsRoot, blobGasUsed, requestsHash and, from the witness, stateRoot agree
+with the header
+```
+
+They agree on all 35 mainnet blocks validated statelessly so far (26,424,722
+to 26,426,020), 26,424,772's EIP-7002 withdrawal request among them. One setting is mainnet's own: `Config::osaka()`
+carries Osaka's blob schedule (6/9), and mainnet runs BPO2's (14/21, EIP-7892).
 
 ## Try it without Fe
 
@@ -394,17 +412,21 @@ B=$(printf '0x%x' $(( $(curl -s -H 'content-type: application/json' --data '{"js
 ## Build and test
 
 Native Fe programs build on x86-64 Linux and AArch64 macOS (on Windows, use
-WSL). fevm needs `std::native::sha256_compress`, which landed on Fe master
-just after 26.6.0, so this project pins Fe master
-[`4608e5fdf`](https://github.com/argotorg/fe/commit/4608e5fdfa3783ec78347f297ad0fced8928fcc7),
-the commit fevm itself pins. The Fe team confirmed that pinning master is
-fine for the contest.
+WSL). fevm-replay builds on fevm's main branch (its `fevm_chain` layer),
+which needs Fe master past 26.6.0, so this project pins Fe master
+[`913403388`](https://github.com/argotorg/fe/commit/913403388b0219183a26986b13bb4110a9ff4c1f),
+the commit that added `Call::forward_delegatecall` for the proxy port. The
+Fe team confirmed that pinning master is fine for the contest. The Uniswap
+V2 pair and DAI ports build with the Fe they were certified with,
+[`4608e5fdf`](https://github.com/argotorg/fe/commit/4608e5fdfa3783ec78347f297ad0fced8928fcc7):
+later Fe refuses two effects of one type, which is how they hold their
+storage fields, and reworking them would change the certified code.
 
 ```sh
-# Fe at the pinned commit (needs rustup and a C compiler)
+# Fe at the pinned commit (needs rustup, a C compiler and the tree-sitter CLI)
 rustup toolchain install 1.99.0 --profile minimal
 cargo +1.99.0 install --locked --root ~/fe \
-  --git https://github.com/argotorg/fe --rev 4608e5fdfa3783ec78347f297ad0fced8928fcc7 --features cranelift fe
+  --git https://github.com/argotorg/fe --rev 913403388b0219183a26986b13bb4110a9ff4c1f --features cranelift fe
 export PATH="$HOME/fe/bin:$PATH"
 
 fe --version

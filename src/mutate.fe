@@ -17,7 +17,8 @@
 
 use core::{MemBuffer, MemSpan, MemVec}
 use json::Value
-use fevm::{BlockEnv, Buffers, Config, WorldState, transact}
+use fevm::{BlockEnv, Buffers, Config, WorldState}
+use ingot::compat::transact
 use fevm::trace::{CallEnd, CallStart, Tracer}
 use fevm::status::{ERR_OUT_OF_GAS, OK}
 use ingot::fuzz::{same_bytes, same_logs, same_reason, same_state_except, same_status}

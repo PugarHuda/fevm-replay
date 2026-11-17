@@ -1,0 +1,219 @@
+//! The same mainnet block through fevm's own block layer, beside
+//! fevm-replay's: `fevm_chain` decodes the header and validates it against
+//! its parent, decodes each transaction from its bytes (recovering its
+//! sender from the signature), and hashes the transactions, receipts and
+//! withdrawals; `fevm::Block` runs the system calls, the transactions, the
+//! withdrawals and the request contracts. Everything the header commits to
+//! is compared; the state root of `Block`'s end state is computed from the
+//! parent's witness, as for fevm-replay's own run. Two block drivers on one
+//! EVM, one mainnet block: they must agree with the header and so with
+//! each other.
+use core::MemVec
+use std::io::{Display, Stdout}
+use json::Value
+use fevm::{BlobSchedule, Block, Config, Evm, Withdrawal, WorldState}
+use fevm::status::VALID
+use fevm_chain::{Header, Trie, decode_transaction, encode_receipt}
+use ingot::load::field
+use ingot::proof
+use ingot::roots
+use ingot::stateless
+
+fn root_or_zero(_ trie: own Trie) -> u256 {
+    match trie.root() {
+        Option::Some(root) => root,
+        Option::None => 0,
+    }
+}
+
+fn differs<T: Display>(_ wrong: mut u64, _ name: T) uses (out: mut Stdout) {
+    println!("FEVM_CHAIN ", name, " differs from the header")
+    wrong += 1
+}
+
+/// Runs the block on `pre`, the world the parent left as its proofs prove
+/// it, and prints what agrees. True when the header is valid against its
+/// parent, every transaction decodes to its hash and sender, and every
+/// commitment in the header, the state root included, comes out of
+/// `fevm_chain` and `fevm::Block`.
+pub fn run(
+    _ pre: own WorldState,
+    _ header: Value,
+    _ parent: Value,
+    _ proofs: Value,
+    parent_root: u256,
+    _ keys: WorldState,
+    code_unknown: MemVec<u256>,
+    chain_id: u256,
+) -> bool
+uses (out: mut Stdout)
+{
+    var world = pre
+    // The request contracts and the withdrawal recipients no transaction
+    // touched enter the world as the parent's proofs prove them, as for
+    // fevm-replay's run.
+    for c in 0 .. 2 {
+        let target = if c == 0 {
+            proof::WITHDRAWAL_REQUESTS
+        } else {
+            proof::CONSOLIDATION_REQUESTS
+        }
+        // Before any transaction, every slot is the parent's: none is skipped.
+        if !proof::load_request_contract(
+            mut world,
+            proofs,
+            state_root: parent_root,
+            address: target,
+            WorldState::empty(),
+        ) {
+            println!("fevm_chain: a request contract is not proven")
+            return false
+        }
+    }
+    if header.has("withdrawals") {
+        for ref w in header["withdrawals"].items() {
+            let address = field(w, "address")
+            if !world.exists(address) {
+                let Option::Some(account) = proof::find_account(
+                    proofs["pre"],
+                    state_root: parent_root,
+                    address,
+                ) else {
+                    println!("fevm_chain: a withdrawal recipient is not proven")
+                    return false
+                }
+                world.set_balance(address, account.balance)
+                world.set_nonce(address, account.nonce)
+            }
+        }
+    }
+    let encoded = proof::header_rlp(header)
+    let parent_encoded = proof::header_rlp(parent)
+    let Result::Ok(blk) = Header::decode(encoded.span()) else {
+        println!("fevm_chain: the header does not decode")
+        return false
+    }
+    let Result::Ok(before) = Header::decode(parent_encoded.span()) else {
+        println!("fevm_chain: the parent's header does not decode")
+        return false
+    }
+    // Mainnet since BPO2 (EIP-7892): Osaka's rules with a target of 14 blobs
+    // a block and a maximum of 21. `Config::osaka()` holds Osaka's own schedule.
+    var config = Config::osaka()
+    config.blob_schedule = BlobSchedule { target: 14, max: 21, update_fraction: 11_684_671 }
+    var wrong: u64 = 0
+    if blk.hash != field(header, "hash") {
+        differs(mut wrong, "block hash")
+    }
+    if let Result::Err(_) = blk.validate(before, config) {
+        differs(mut wrong, "header against its parent")
+    }
+    let Option::Some(env) = blk.block_env(chain_id: chain_id, config) else {
+        println!("fevm_chain: no block environment from the header")
+        return false
+    }
+    var block = Block::begin(
+        Evm::new(world, config),
+        env,
+        parent_hash: blk.parent_hash,
+        parent_beacon_block_root: blk.parent_beacon_block_root,
+    )
+    var transactions = Trie::new()
+    var receipts = Trie::new()
+    var decoded: u64 = 0
+    var undecoded: u64 = 0
+    var rejected: u64 = 0
+    var senders: u64 = 0
+    for ref tx in header["transactions"].items() {
+        let bytes = roots::encode_tx(tx)
+        transactions.item().raw(bytes.span())
+        match decode_transaction(bytes.span()) {
+            Result::Ok((request, hash)) => {
+                decoded += 1
+                if hash == field(tx, "hash") && request.env.sender == field(tx, "from") {
+                    senders += 1
+                }
+                var tracer = ()
+                let receipt = block.transact(request, mut tracer)
+                if receipt.invalid != VALID {
+                    rejected += 1
+                }
+                encode_receipt(mut receipts.item(), receipt, kind: request.env.kind)
+            },
+            Result::Err(_) => {
+                undecoded += 1
+            },
+        }
+    }
+    var withdrawals: MemVec<Withdrawal> = MemVec::new()
+    var withdrawals_trie = Trie::new()
+    let w_encoded = roots::withdrawals(header)
+    for i in 0 .. w_encoded.len() {
+        withdrawals_trie.item().raw(w_encoded[i].span())
+    }
+    if header.has("withdrawals") {
+        for ref w in header["withdrawals"].items() {
+            withdrawals
+                .push(
+                    Withdrawal {
+                        address: field(w, "address"),
+                        amount: field(w, "amount").downcast_truncate(),
+                    },
+                )
+        }
+    }
+    let (evm, finished) = block.finish(withdrawals)
+    let Result::Ok(output) = finished else {
+        println!("fevm_chain: fevm's Block did not finish the block")
+        return false
+    }
+    if undecoded > 0 || rejected > 0 || senders != decoded {
+        differs(mut wrong, "transactions")
+    }
+    if output.gas_used != blk.gas_used {
+        differs(mut wrong, "gasUsed")
+    }
+    if root_or_zero(transactions) != blk.transactions_root {
+        differs(mut wrong, "transactionsRoot")
+    }
+    if root_or_zero(receipts) != blk.receipt_root {
+        differs(mut wrong, "receiptsRoot")
+    }
+    if output.logs_bloom.words != blk.bloom.words {
+        differs(mut wrong, "logsBloom")
+    }
+    if root_or_zero(withdrawals_trie) != blk.withdrawals_root {
+        differs(mut wrong, "withdrawalsRoot")
+    }
+    if output.blob_gas_used != blk.blob_gas_used {
+        differs(mut wrong, "blobGasUsed")
+    }
+    if output.requests_hash != blk.requests_hash {
+        differs(mut wrong, "requestsHash")
+    }
+    let end = evm.into_world()
+    let computed = stateless::state_root(end, parent_root, proofs, keys, code_unknown)
+    if computed.root != blk.state_root {
+        differs(mut wrong, "stateRoot")
+    }
+    if wrong == 0 {
+        println!(
+            "fevm_chain: the header is valid against its parent; ",
+            decoded,
+            " transactions decoded from their bytes, each to its hash and the sender its signature recovers; fevm::Block ran the system calls, transactions, withdrawals and request contracts; gasUsed, transactionsRoot, receiptsRoot, logsBloom, withdrawalsRoot, blobGasUsed, requestsHash and, from the witness, stateRoot agree with the header",
+        )
+        return true
+    }
+    println!(
+        "  (",
+        decoded,
+        " decoded, ",
+        undecoded,
+        " not, ",
+        rejected,
+        " rejected, ",
+        senders,
+        " to their hash and sender)",
+    )
+    false
+}

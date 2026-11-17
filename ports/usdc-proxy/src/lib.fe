@@ -159,24 +159,9 @@ fn fallback() -> ! uses (ctx: Ctx, evm: mut Evm, call: mut Call) {
     if ctx.caller().word() == admin() {
         fail(ADMIN_FALLBACK)
     }
-    // CALLDATACOPY, as the deployed proxy copies its calldata.
-    let size = evm.calldatasize()
-    var args = MemBuffer::with_capacity(size.downcast_unchecked())
-    evm.calldatacopy(dest: mut args, dest_offset: 0, src_offset: 0, len: size)
-    var ret = MemBuffer::empty()
-    let ok = call
-        .raw_delegatecall(
-            addr: Address::new(implementation()),
-            gas: ctx.gas(),
-            args: args.span(),
-            ret: mut ret,
-        )
-        .success()
-    let data = copy_returndata()
-    if ok {
-        evm.return_data(data: data.span())
-    }
-    evm.revert(data: data.span())
+    // CALLDATACOPY, DELEGATECALL, RETURNDATACOPY, then RETURN or REVERT, as
+    // the deployed proxy's assembly does (argotorg/fe#2002, #2004).
+    call.forward_delegatecall(addr: Address::new(implementation()), gas: ctx.gas())
 }
 
 // `_upgradeTo`: the new implementation must hold code.

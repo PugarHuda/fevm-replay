@@ -1137,6 +1137,8 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     // What `summary.json` adds for a block validated statelessly.
     var stateless_summary = MemBuffer::empty()
     var stateless_ok = false
+    // The pre-state for fevm's own block layer (`crosscheck`).
+    var cross_pre: Option<fevm::WorldState> = Option::None
     if proving {
         let Option::Some(doc) = load_json(dir, "proofs.json") else {
             return 1
@@ -1208,6 +1210,7 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         print_checked("pre-state", "the parent's", pre)
         unproven += pre.differ + pre.broken + pre.unproven
         if first_calls {
+            cross_pre = world.try_clone()
             var ran: u64 = 0
             for c in 0 .. 2 {
                 let (target, input) = if c == 0 {
@@ -1267,7 +1270,7 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         apply_diff(mut expected, diffs["result"][index]["result"])
         var buffers = fevm::Buffers::new()
         var tracer = watch::GasWatch::new(shadows: core::MemVec::new())
-        let applied = fevm::transact(
+        let applied = ingot::compat::transact(
             world,
             load_tx(txs[index]),
             env,
@@ -1327,7 +1330,7 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                     core::MemVec::new(),
                     MemBuffer::empty().span(),
                 )
-                fevm::transact(
+                ingot::compat::transact(
                     mut_world,
                     load_tx(txs[index]),
                     env,
@@ -1614,6 +1617,20 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                         computed.stage,
                         ")",
                     )
+                }
+            }
+            if let Option::Some(pre) = cross_pre {
+                if !ingot::crosscheck::run(
+                    pre,
+                    header,
+                    proofs["parent"],
+                    proofs,
+                    parent_root,
+                    keys,
+                    code_unknown,
+                    chain_id: field(chain, "result"),
+                ) {
+                    unproven += 1
                 }
             }
             let (heaviest, storage_bytes) = stateless::heaviest_storage(proofs["pre"], count: 5)
@@ -2835,7 +2852,7 @@ fn opgas_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
                     },
                     port.span(),
                 )
-                fevm::transact(
+                ingot::compat::transact(
                     world,
                     load_tx(txs[index]),
                     env,

@@ -13,18 +13,8 @@
 use core::{MemBuffer, MemSpan, MemVec}
 use keccak::Keccak256
 use ingot::watch::{GasWatch, merge_coverage}
-use fevm::{
-    BlockEnv,
-    Buffers,
-    Config,
-    InputData,
-    LogBuffer,
-    OK,
-    TxEnv,
-    TxRequest,
-    WorldState,
-    transact,
-}
+use fevm::{BlockEnv, Buffers, Config, InputData, LogBuffer, OK, TxEnv, TxRequest, WorldState}
+use ingot::compat::transact
 use fevm::status::exceptional
 
 /// Where the contract under test lives in the fuzzed world.
@@ -1702,6 +1692,8 @@ fn block(_ step: u64) -> BlockEnv {
         chainid: 1,
         basefee: 0,
         blobbasefee: 1,
+        // Amsterdam's EIP-7843; Osaka has no slot number.
+        slot_number: 0,
     }
 }
 

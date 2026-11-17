@@ -11,7 +11,8 @@ use core::MemBuffer
 use std::io::Display
 use fevm::status::status_name
 use json::Value
-use fevm::{BlockEnv, Buffers, Config, WorldState, transact}
+use fevm::{BlockEnv, Buffers, Config, WorldState}
+use ingot::compat::transact
 use ingot::compare::{Mismatches, apply_diff, compare}
 use ingot::load::{add_extras, field, load_block, load_tx, load_world}
 use core::MemVec

@@ -47,7 +47,7 @@ runs:
       uses: actions/cache@v4
       with:
         path: ~/fe
-        key: fe-${{ runner.os }}-4608e5fdfa3783ec78347f297ad0fced8928fcc7-1.99.0-cranelift
+        key: fe-${{ runner.os }}-913403388b0219183a26986b13bb4110a9ff4c1f-1.99.0-cranelift
 
     - name: Build the Fe compiler
       if: steps.fe-cache.outputs.cache-hit != 'true'
@@ -56,7 +56,7 @@ runs:
         npm install -g tree-sitter-cli@0.24.7
         rustup toolchain install 1.99.0 --profile minimal
         cargo +1.99.0 install --locked --root ~/fe \
-          --git https://github.com/argotorg/fe --rev 4608e5fdfa3783ec78347f297ad0fced8928fcc7 --features cranelift fe
+          --git https://github.com/argotorg/fe --rev 913403388b0219183a26986b13bb4110a9ff4c1f --features cranelift fe
 
     - name: Build fevm-replay
       shell: bash
