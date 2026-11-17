@@ -42,9 +42,22 @@ impl CodeWatch {
         }
     }
 
-    fn touch(mut self, _ address: u256, _ chunk: usize) {
+    fn touch(mut self, _ address: u256, _ chunk: u256) {
         let _ = self.chunks.ensure_account(address)
-        let _ = self.chunks.storage_store(address, chunk as u256, 1)
+        let _ = self.chunks.storage_store(address, chunk, 1)
+    }
+
+    /// Adds what `other` saw, as a block's watch takes each transaction's.
+    pub fn absorb(mut self, _ other: CodeWatch) {
+        for e in 0 .. other.chunks.storage_slots() {
+            let entry = other.chunks.storage_at(e)
+            if entry.occupied {
+                self.touch(entry.address, entry.slot)
+            }
+        }
+        for a in 0 .. other.created.account_count() {
+            let _ = self.created.ensure_account(other.created.account_at(a).address)
+        }
     }
 }
 
@@ -56,11 +69,11 @@ impl Tracer for CodeWatch {
         }
         let address = self.frames[n - 1]
         let first = step.pc / CHUNK
-        self.touch(address, first)
+        self.touch(address, first as u256)
         if step.op >= PUSH1 && step.op <= PUSH32 {
             let last = (step.pc + (step.op - PUSH1 + 1) as usize) / CHUNK
             if last != first {
-                self.touch(address, last)
+                self.touch(address, last as u256)
             }
         }
     }

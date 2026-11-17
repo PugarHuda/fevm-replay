@@ -1626,6 +1626,8 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
             var contracts: u64 = 0
             var code_bytes: u64 = 0
             var chunk_count: u64 = 0
+            var tx_gas: core::MemVec<u64> = core::MemVec::new()
+            var charges: core::MemVec<ingot::gas4762::Charged> = core::MemVec::new()
             if let Option::Some(pre) = cross_pre {
                 let checked = ingot::crosscheck::run(
                     pre,
@@ -1636,6 +1638,8 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                     keys,
                     code_unknown,
                     chain_id: field(chain, "result"),
+                    prestates["result"],
+                    diffs["result"],
                 )
                 if !checked.agreed {
                     unproven += 1
@@ -1644,6 +1648,8 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                 code_bytes = checked.code_bytes
                 chunk_count = checked.chunks
                 code_run = checked.code
+                tx_gas = checked.tx_gas
+                charges = checked.charges
             }
             let (heaviest, storage_bytes) = stateless::heaviest_storage(proofs["pre"], count: 5)
             println!(
@@ -1710,6 +1716,14 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
             var kind_bytes: [u64; 5] = [0; 5]
             var kind_max: [u64; 5] = [0; 5]
             var alone_sum: u64 = 0
+            // EIP-4762's witness charges, EIP-2929's cold charges for the
+            // same accesses and the gas used, by kind.
+            let charged = tx_gas.len() == count && charges.len() == count
+            var kind_witness: [u64; 5] = [0; 5]
+            var kind_today: [u64; 5] = [0; 5]
+            var kind_gas: [u64; 5] = [0; 5]
+            var code_charges: u64 = 0
+            var write_charges: u64 = 0
             for t in 0 .. count {
                 let tx = ref txs[t]
                 let kind: usize = if field(tx, "type") == 3 {
@@ -1730,6 +1744,49 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                     kind_max[kind] = b
                 }
                 alone_sum += b
+                if charged {
+                    kind_witness[kind] = kind_witness[kind] + charges[t].witness
+                    kind_today[kind] = kind_today[kind] + charges[t].today
+                    kind_gas[kind] = kind_gas[kind] + tx_gas[t]
+                    code_charges += charges[t].code
+                    write_charges += charges[t].writes
+                }
+            }
+            if charged {
+                var w_sum: u64 = 0
+                var c_sum: u64 = 0
+                for k in 0 .. 5 {
+                    w_sum += kind_witness[k]
+                    c_sum += kind_today[k]
+                }
+                println!(
+                    "EIP-4762: witness charges for the block's accesses come to ",
+                    w_sum,
+                    " gas (",
+                    code_charges,
+                    " for code chunks, ",
+                    write_charges,
+                    " for writes), where today's charges for the same accesses and writes come to ",
+                    c_sum,
+                    "; the block used ",
+                    field(header, "gasUsed"),
+                )
+                json_num(mut stateless_summary, "gas4762_code", code_charges)
+                json_num(mut stateless_summary, "gas4762_writes", write_charges)
+                ",\"gas4762\":[".fmt(mut stateless_summary)
+                for k in 0 .. 5 {
+                    if k > 0 {
+                        ",".fmt(mut stateless_summary)
+                    }
+                    "[".fmt(mut stateless_summary)
+                    core::text::decimal(kind_witness[k] as u256).fmt(mut stateless_summary)
+                    ",".fmt(mut stateless_summary)
+                    core::text::decimal(kind_today[k] as u256).fmt(mut stateless_summary)
+                    ",".fmt(mut stateless_summary)
+                    core::text::decimal(kind_gas[k] as u256).fmt(mut stateless_summary)
+                    "]".fmt(mut stateless_summary)
+                }
+                "]".fmt(mut stateless_summary)
             }
             println!(
                 "witness per transaction alone: ",

@@ -1,0 +1,290 @@
+//! What a transaction's state accesses would cost under EIP-4762 (Draft),
+//! which charges for the witness a stateless client needs: per
+//! transaction, 1,900 gas for each new stem accessed and 200 for each new
+//! leaf, 3,000 for each stem written, 500 for each leaf written and 6,200
+//! more for each leaf filled from nothing. The transaction's own sender and
+//! target headers are free, and so is writing the sender's, and the
+//! target's when value moves. Code costs a leaf per 31-byte chunk run.
+//!
+//! The accesses come from the node's traces: each account a transaction
+//! touched (its basic data) and each slot, the chunks `chunks::CodeWatch`
+//! saw it run, and the writes its diff holds. Approximations: every touched
+//! account counts one basic-data access (BALANCE, a CALL and EXTCODESIZE all
+//! read it; EXTCODEHASH reads the code hash instead); precompiles are left
+//! out; a slot or account the parent holds as zero counts as filled, as the
+//! trace cannot tell zero from never written.
+//!
+//! For comparison, `today` is what the same accesses cost now in the charges
+//! EIP-4762 replaces or removes: EIP-2929's cold access, 2,600 an account
+//! (not the sender, target or coinbase, which start warm) and 2,100 a slot;
+//! EIP-2200's SSTORE, 20,000 to fill a slot and 2,900 to change or clear one
+//! (refunds left out); and 200 a byte of code deposited. Not counted on
+//! either side: CALL's 9,000 for sending value and CREATE's 32,000, which
+//! EIP-4762 also removes or cuts, and anything that does not touch state.
+use core::text::parse_hex_uint
+use fevm::WorldState
+use json::Value
+use core::ptr::MemSpan
+use ingot::load::hex_word
+
+const WITNESS_BRANCH_COST: u64 = 1900
+const WITNESS_CHUNK_COST: u64 = 200
+const SUBTREE_EDIT_COST: u64 = 3000
+const CHUNK_EDIT_COST: u64 = 500
+const CHUNK_FILL_COST: u64 = 6200
+const COLD_ACCOUNT_ACCESS: u64 = 2600
+const COLD_SLOAD: u64 = 2100
+const SSTORE_SET: u64 = 20000
+const SSTORE_RESET: u64 = 2900
+const CODE_DEPOSIT_BYTE: u64 = 200
+
+// EIP-7864's layout, as EIP-4762 charges it: an account's header stem holds
+// its basic data (leaf 0), code hash (leaf 1), slots below 64 and the first
+// 128 code chunks.
+const HEADER_STORAGE_OFFSET: u256 = 64
+const CODE_OFFSET: u256 = 128
+const MAIN_STORAGE_STEMS: u256 = 1 << 240
+const BASIC_DATA: u256 = 0
+const CODE_HASH: u256 = 1
+
+// Kinds of leaves, each its own set: header leaves, slots, code chunks.
+const HEADER: u8 = 0
+const SLOT: u8 = 1
+const CHUNK: u8 = 2
+
+pub struct Charged {
+    /// EIP-4762's witness charges.
+    pub witness: u64,
+    /// Today's charges for the same accesses and writes (see above).
+    pub today: u64,
+    /// Of `witness`, what reading code chunks costs, and what writing.
+    pub code: u64,
+    pub writes: u64,
+}
+
+impl Copy for Charged {}
+
+struct Events {
+    stems: WorldState,
+    edited: WorldState,
+    read: [WorldState; 3],
+    written: [WorldState; 3],
+    gas: u64,
+    code: u64,
+    writes: u64,
+}
+
+// Marks (`address`, `key`) in `set`; true if it was new.
+fn mark(_ set: mut WorldState, _ address: u256, _ key: u256) -> bool {
+    let _ = set.ensure_account(address)
+    if set.storage_load(address, key) != 0 {
+        return false
+    }
+    let _ = set.storage_store(address, key, 1)
+    true
+}
+
+fn slot_stem(_ slot: u256) -> u256 {
+    if slot < CODE_OFFSET - HEADER_STORAGE_OFFSET {
+        0
+    } else {
+        MAIN_STORAGE_STEMS + (slot >> 8)
+    }
+}
+
+fn chunk_stem(_ chunk: u256) -> u256 {
+    (CODE_OFFSET + chunk) >> 8
+}
+
+impl Events {
+    fn new() -> Self {
+        Events {
+            stems: WorldState::empty(),
+            edited: WorldState::empty(),
+            read: [WorldState::empty(), WorldState::empty(), WorldState::empty()],
+            written: [WorldState::empty(), WorldState::empty(), WorldState::empty()],
+            gas: 0,
+            code: 0,
+            writes: 0,
+        }
+    }
+
+    fn access(mut self, _ address: u256, stem: u256, kind: u8, key: u256) {
+        let before = self.gas
+        if mark(mut self.stems, address, stem) {
+            self.gas += WITNESS_BRANCH_COST
+        }
+        if mark(mut self.read[kind as usize], address, key) {
+            self.gas += WITNESS_CHUNK_COST
+        }
+        if kind == CHUNK {
+            self.code += self.gas - before
+        }
+    }
+
+    // A write is also an access.
+    fn write(mut self, _ address: u256, stem: u256, kind: u8, key: u256, fill: bool) {
+        self.access(address, stem: stem, kind: kind, key: key)
+        let before = self.gas
+        if mark(mut self.edited, address, stem) {
+            self.gas += SUBTREE_EDIT_COST
+        }
+        if mark(mut self.written[kind as usize], address, key) {
+            self.gas += CHUNK_EDIT_COST
+            if fill {
+                self.gas += CHUNK_FILL_COST
+            }
+        }
+        self.writes += self.gas - before
+    }
+}
+
+// Slot `slot` of account `account` in a tracer's accounts, if listed.
+fn slot_in(_ accounts: Value, _ account: MemSpan, _ slot: MemSpan) -> Option<u256> {
+    let found = ref accounts.get(account)?.get("storage")?.get(slot)?
+    Option::Some(hex_word(found))
+}
+
+// Whether `account` lists slot `slot`.
+fn lists(_ accounts: Value, _ account: MemSpan, _ slot: MemSpan) -> bool {
+    match slot_in(accounts, account, slot) {
+        Option::Some(_) => true,
+        Option::None => false,
+    }
+}
+
+fn is_precompile(_ address: u256) -> bool {
+    address >= 1 && address <= 0x11
+}
+
+fn hex_len(_ text: Value) -> u256 {
+    let n = text.text().len()
+    if n <= 2 { 0 } else { ((n - 2) / 2) as u256 }
+}
+
+/// The charges for one transaction: `prestate` is what it read (the
+/// prestate tracer's result), `pre` and `post` its diff, `chunks` the code
+/// chunks it ran (account = the code's address, slot = the chunk).
+pub fn charge(
+    _ prestate: Value,
+    _ pre: Value,
+    _ post: Value,
+    _ chunks: WorldState,
+    origin: u256,
+    target: u256,
+    value: u256,
+    coinbase: u256,
+) -> Charged {
+    var events = Events::new()
+    var today: u64 = 0
+    for ref member in prestate.members() {
+        let address = parse_hex_uint(member.key.span()).unwrap_or(default: 0)
+        if is_precompile(address) {
+            continue
+        }
+        if address != origin && address != target {
+            events.access(address, stem: 0, kind: HEADER, key: BASIC_DATA)
+            if address != coinbase {
+                today += COLD_ACCOUNT_ACCESS
+            }
+        }
+        if member.value.has("storage") {
+            for ref slot in member.value["storage"].members() {
+                let key = parse_hex_uint(slot.key.span()).unwrap_or(default: 0)
+                events.access(address, stem: slot_stem(key), kind: SLOT, key: key)
+                today += COLD_SLOAD
+            }
+        }
+    }
+    for e in 0 .. chunks.storage_slots() {
+        let entry = chunks.storage_at(e)
+        if entry.occupied {
+            events.access(
+                    entry.address,
+                    stem: chunk_stem(entry.slot),
+                    kind: CHUNK,
+                    key: entry.slot,
+                )
+        }
+    }
+    for ref member in post.members() {
+        let address = parse_hex_uint(member.key.span()).unwrap_or(default: 0)
+        let account = ref member.value
+        let existed = match pre.get(member.key.span()) {
+            Option::Some(_) => true,
+            Option::None => false,
+        }
+        let free = address == origin || (address == target && value != 0)
+        if !free && (account.has("balance") || account.has("nonce") || account.has("code")) {
+            events.write(
+                    address,
+                    stem: 0,
+                    kind: HEADER,
+                    key: BASIC_DATA,
+                    fill: !existed,
+                )
+        }
+        if account.has("code") {
+            events.write(
+                    address,
+                    stem: 0,
+                    kind: HEADER,
+                    key: CODE_HASH,
+                    fill: !existed,
+                )
+            today += CODE_DEPOSIT_BYTE * hex_len(account["code"]).downcast_unchecked()
+            let n = (hex_len(account["code"]) + 30) / 31
+            var c: u256 = 0
+            while c < n {
+                events.write(
+                        address,
+                        stem: chunk_stem(c),
+                        kind: CHUNK,
+                        key: c,
+                        fill: true,
+                    )
+                c += 1
+            }
+        }
+        if account.has("storage") {
+            for ref slot in account["storage"].members() {
+                let key = parse_hex_uint(slot.key.span()).unwrap_or(default: 0)
+                let before = slot_in(pre, member.key.span(), slot.key.span()).unwrap_or(default: 0)
+                today += if before == 0 && hex_word(slot.value) != 0 {
+                    SSTORE_SET
+                } else {
+                    SSTORE_RESET
+                }
+                events.write(
+                        address,
+                        stem: slot_stem(key),
+                        kind: SLOT,
+                        key: key,
+                        fill: before == 0,
+                    )
+            }
+        }
+    }
+    // A slot the diff clears is in `pre` and not in `post`.
+    for ref member in pre.members() {
+        if !member.value.has("storage") {
+            continue
+        }
+        let address = parse_hex_uint(member.key.span()).unwrap_or(default: 0)
+        for ref slot in member.value["storage"].members() {
+            if lists(post, member.key.span(), slot.key.span()) {
+                continue
+            }
+            let key = parse_hex_uint(slot.key.span()).unwrap_or(default: 0)
+            today += SSTORE_RESET
+            events.write(
+                    address,
+                    stem: slot_stem(key),
+                    kind: SLOT,
+                    key: key,
+                    fill: false,
+                )
+        }
+    }
+    Charged { witness: events.gas, today, code: events.code, writes: events.writes }
+}

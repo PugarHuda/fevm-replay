@@ -165,7 +165,38 @@ if cd:
       f"The 31-byte chunks it ran come to {100 * st.median(ckept):.0f}% of those bytes "
       f"({100 * min(ckept):.0f}% to {100 * max(ckept):.0f}%), and EIP-7864 carries only those: with code, "
       f"the binary tree shrinks the witness {min(cgain):.1f} to {max(cgain):.1f} times (median "
-      f"{st.median(cgain):.2f}). Code read by `CODECOPY` and `EXTCODECOPY` is not counted.\n")
+      f"{st.median(cgain):.2f}). Code read by `CODECOPY` and `EXTCODECOPY` is not counted.")
+gd = [r for r in d if r.get("gas4762")]
+if gd:
+    gw = sum(sum(k[0] for k in r["gas4762"]) for r in gd)
+    gt = sum(sum(k[1] for k in r["gas4762"]) for r in gd)
+    gg = sum(r["gas_used"] for r in gd)
+    gnet = [(sum(k[0] for k in r["gas4762"]) - sum(k[1] for k in r["gas4762"])) / r["gas_used"] for r in gd]
+    gcode = sum(r["gas4762_code"] for r in gd)
+    gwr = sum(r["gas4762_writes"] for r in gd)
+    def gkind(i):
+        c = sum(r["by_kind"][i][0] for r in gd)
+        w_ = sum(r["gas4762"][i][0] for r in gd)
+        t_ = sum(r["gas4762"][i][1] for r in gd)
+        g_ = sum(r["gas4762"][i][2] for r in gd)
+        return c, w_, t_, g_
+    parts = []
+    for i, name in enumerate(["ETH transfers", "contract calls", "contract creations", "blob transactions", "set-code transactions"]):
+        c, w_, t_, g_ = gkind(i)
+        if c:
+            parts.append(f"{name} {100 * (w_ - t_) / g_:+.0f}%")
+    tc, tw, tt, tg = gkind(0)
+    w(f"13. **Under EIP-4762 the same blocks would cost {100 * (gw - gt) / gg:.0f}% more gas.** EIP-4762 (Draft) "
+      "charges for the witness: per transaction 1,900 a new stem read, 200 a leaf, 3,000 a stem written, 500 a "
+      "leaf written, 6,200 a leaf filled; it drops EIP-2929's cold charges, EIP-2200's SSTORE costs and the 200 a "
+      "byte of code deposited. Counted from each transaction's traces and the chunks fevm ran, its charges come "
+      f"to {gw / gt:.2f} times today's for the same accesses and writes: {100 * (gw - gt) / gg:.1f}% of the blocks' "
+      f"gas (median per block {100 * st.median(gnet):.0f}%, from {100 * min(gnet):.0f}% to {100 * max(gnet):.0f}%). "
+      f"Code chunks, free today, are {100 * gcode / gw:.0f}% of the charges and writes {100 * gwr / gw:.0f}%. By kind, "
+      + ", ".join(parts) + " of their gas. "
+      f"An ETH transfer pays {round(tw / tc):,} gas of witness, nearly all for the coinbase it pays its priority "
+      "fee to (a read and a write of its basic data, 5,600), which the draft does not exempt. Estimates: every "
+      "touched account counts one basic-data read, and a slot the parent holds as zero counts as filled.\n")
 w("## Reproduce\n")
 w("```sh\n./out/fevm_replay follow blocks stateless.json 3     # takes, proves and validates 3 head blocks\n"
   "mkdir proven && tar xzf fixtures/proven/0x19335e5.tar.gz -C proven\n"

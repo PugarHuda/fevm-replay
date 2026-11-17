@@ -188,6 +188,15 @@ full Merkle-Patricia witness (median; 18% to 50%), and a block runs about a
 quarter of the code it touches; with code, the binary tree shrinks the
 witness 2.0 to 3.3 times.
 
+**Gas.** EIP-4762 (Draft) would charge for that witness
+([`src/gas4762.fe`](src/gas4762.fe)): per transaction, for each stem and
+leaf read and written, code chunk by chunk, in place of EIP-2929's cold
+charges and EIP-2200's SSTORE costs. From each transaction's traces and the
+chunks fevm ran, the same blocks would cost 19% more gas (per block 1% to
+45%); code, free today, is 46% of the new charges. An ETH transfer would pay
+about 5,700 gas more, nearly all for writing the coinbase's balance, which
+the draft does not exempt.
+
 **Who makes the witness big.** Storage is 62% of it; XEN Crypto's trie is
 the deepest (8.2 nodes a slot), a USDT or USDC slot needs 7.4 nodes, about
 2 KiB. A binary tree shrinks such tries but can grow a small one, whose
@@ -351,6 +360,7 @@ Other Fe pieces doing real work:
 | `src/follow.fe` | `follow`: the chain head validated as it grows, by running `fetch-block`, `fetch-proofs` and `chain`; the stateless page's data |
 | `src/binary.fe` | the binary tree (EIP-7864) witness estimated for the same keys and the code chunks run. No host capabilities |
 | `src/chunks.fe` | `CodeWatch`, a tracer that notes the 31-byte code chunks a block runs (EIP-7864) |
+| `src/gas4762.fe` | what EIP-4762 would charge for a transaction's witness, against today's charges for the same accesses |
 | `src/crosscheck.fe` | the block a second time through `fevm_chain` and `fevm::Block`, against the header |
 | `src/compat.fe` | fevm's `transact` as the replay, fuzz and shadow call sites use it |
 | `src/stateless.fe` | the end-state root computed from the parent's witness and fevm's end state: inserts, changes and deletions in a partial Merkle-Patricia trie. No host capabilities |

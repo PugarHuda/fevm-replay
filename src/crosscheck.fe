@@ -19,6 +19,7 @@ use ingot::proof
 use ingot::roots
 use ingot::stateless
 use ingot::chunks::CodeWatch
+use ingot::gas4762
 
 /// What the second run gives: whether it agrees with the header, and the
 /// code it ran, as a witness would carry it.
@@ -34,6 +35,10 @@ pub struct Crosschecked {
     pub code_bytes: u64,
     /// The chunks executed.
     pub chunks: u64,
+    /// Each transaction's gas used, and what EIP-4762 would charge for its
+    /// witness against today's charges for the same accesses and writes.
+    pub tx_gas: MemVec<u64>,
+    pub charges: MemVec<gas4762::Charged>,
 }
 
 fn failed() -> Crosschecked {
@@ -43,6 +48,8 @@ fn failed() -> Crosschecked {
         contracts: 0,
         code_bytes: 0,
         chunks: 0,
+        tx_gas: MemVec::new(),
+        charges: MemVec::new(),
     }
 }
 
@@ -72,6 +79,8 @@ pub fn run(
     _ keys: WorldState,
     code_unknown: MemVec<u256>,
     chain_id: u256,
+    _ prestates: Value,
+    _ diffs: Value,
 ) -> Crosschecked
 uses (out: mut Stdout)
 {
@@ -152,6 +161,9 @@ uses (out: mut Stdout)
     var undecoded: u64 = 0
     var rejected: u64 = 0
     var senders: u64 = 0
+    var tx_gas: MemVec<u64> = MemVec::new()
+    var charges: MemVec<gas4762::Charged> = MemVec::new()
+    var t: usize = 0
     for ref tx in header["transactions"].items() {
         let bytes = roots::encode_tx(tx)
         transactions.item().raw(bytes.span())
@@ -161,16 +173,37 @@ uses (out: mut Stdout)
                 if hash == field(tx, "hash") && request.env.sender == field(tx, "from") {
                     senders += 1
                 }
-                let receipt = block.transact(request, mut watch)
+                // Each transaction's own chunks: EIP-4762 charges per
+                // transaction.
+                var ran = CodeWatch::new()
+                let receipt = block.transact(request, mut ran)
                 if receipt.invalid != VALID {
                     rejected += 1
                 }
+                let target = match receipt.created {
+                    Option::Some(created) => created,
+                    Option::None => field(tx, "to"),
+                }
+                let charged = gas4762::charge(
+                    prestates[t]["result"],
+                    diffs[t]["result"]["pre"],
+                    diffs[t]["result"]["post"],
+                    ran.chunks,
+                    origin: field(tx, "from"),
+                    target,
+                    value: field(tx, "value"),
+                    coinbase: field(header, "miner"),
+                )
+                tx_gas.push(receipt.gas_used)
+                charges.push(charged)
+                watch.absorb(ran)
                 encode_receipt(mut receipts.item(), receipt, kind: request.env.kind)
             },
             Result::Err(_) => {
                 undecoded += 1
             },
         }
+        t += 1
     }
     var withdrawals: MemVec<Withdrawal> = MemVec::new()
     var withdrawals_trie = Trie::new()
@@ -253,7 +286,7 @@ uses (out: mut Stdout)
             decoded,
             " transactions decoded from their bytes, each to its hash and the sender its signature recovers; fevm::Block ran the system calls, transactions, withdrawals and request contracts; gasUsed, transactionsRoot, receiptsRoot, logsBloom, withdrawalsRoot, blobGasUsed, requestsHash and, from the witness, stateRoot agree with the header",
         )
-        return Crosschecked { agreed: true, code, contracts, code_bytes, chunks }
+        return Crosschecked { agreed: true, code, contracts, code_bytes, chunks, tx_gas, charges }
     }
     println!(
         "  (",
@@ -266,5 +299,5 @@ uses (out: mut Stdout)
         senders,
         " to their hash and sender)",
     )
-    Crosschecked { agreed: false, code, contracts, code_bytes, chunks }
+    Crosschecked { agreed: false, code, contracts, code_bytes, chunks, tx_gas, charges }
 }

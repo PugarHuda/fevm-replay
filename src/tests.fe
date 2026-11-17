@@ -457,3 +457,43 @@ fn executed_code_counts_by_31_byte_chunks() {
         !watch.chunks.exists(0xbeef) && watch.created.exists(0xbeef),
     )
 }
+
+// Sender 0xaa calls 0xbb, whose code (chunk 0) runs and sets slot 0 of 0xcc
+// from zero. EIP-4762: 0xcc's basic data (a stem, 1,900, and a leaf, 200),
+// its slot 0 in the same stem (200), 0xbb's chunk 0 (a stem and a leaf,
+// 2,100; the target's header is free, its code is not), then the write
+// (a stem edit 3,000, a leaf edit 500, a fill 6,200): 14,100. Today: 0xcc
+// cold (2,600), its slot cold (2,100) and filled (20,000): 24,700.
+#[test]
+fn eip_4762_charges_the_witness_a_call_needs() {
+    let prestate = parse(
+        "{\"0xaa\":{\"balance\":\"0x1\"},\"0xbb\":{\"balance\":\"0x0\"},\"0xcc\":{\"balance\":\"0x0\",\"storage\":{\"0x00\":\"0x0\"}}}"
+            .span(),
+    )
+        .unwrap()
+    let pre = parse(
+        "{\"0xaa\":{\"balance\":\"0x1\"},\"0xcc\":{\"balance\":\"0x0\"}}".span(),
+    )
+        .unwrap()
+    let post = parse(
+        "{\"0xaa\":{\"balance\":\"0x0\"},\"0xcc\":{\"storage\":{\"0x00\":\"0x1\"}}}".span(),
+    )
+        .unwrap()
+    var chunks = fevm::WorldState::empty()
+    let _ = chunks.ensure_account(0xbb)
+    let _ = chunks.storage_store(0xbb, 0, 1)
+    let c = ingot::gas4762::charge(
+        prestate,
+        pre,
+        post,
+        chunks,
+        origin: 0xaa,
+        target: 0xbb,
+        value: 0,
+        coinbase: 0xfee,
+    )
+    assert!(c.witness == 14100)
+    assert!(c.today == 24700)
+    assert!(c.code == 2100)
+    assert!(c.writes == 9700)
+}
