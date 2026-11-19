@@ -22,9 +22,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Restore only: this job runs fevm's unpinned main, so it never saves
+      # the compiler cache CI shares.
       - name: Restore the Fe compiler
         id: fe-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ~/fe
           key: fe-${{ runner.os }}-${{ env.FE_REVISION }}-${{ env.RUST_VERSION }}-cranelift
