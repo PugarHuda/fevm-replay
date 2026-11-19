@@ -95,6 +95,9 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         )
         println!("       fevm-replay fetch-code <address> <file> [rpc-url]")
         println!(
+            "       fevm-replay system <dir> <BeaconRoots.runtime.bin> <HistoryStorage.runtime.bin>",
+        )
+        println!(
             "       fevm-replay fuzz <deployed.hex> <port.bin> [runs] [steps] [seed]",
         )
         return 2
@@ -131,6 +134,10 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     // "chain"
     if is_word(args.get(1), [0x63, 0x68, 0x61, 0x69, 0x6e]) {
         return chain_command()
+    }
+    // "system"
+    if is_word(args.get(1), [0x73, 0x79, 0x73, 0x74, 0x65, 0x6d]) {
+        return system_command()
     }
     // "certify"
     if is_word(args.get(1), [0x63, 0x65, 0x72, 0x74, 0x69, 0x66, 0x79]) {
@@ -1724,6 +1731,12 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
             var kind_gas: [u64; 5] = [0; 5]
             var code_charges: u64 = 0
             var write_charges: u64 = 0
+            var coinbase_charges: u64 = 0
+            // Transactions whose gas limit, as sent, would not cover the
+            // gas they used plus the witness charges less today's: with the
+            // coinbase charged, and with it exempt.
+            var short_of_gas: u64 = 0
+            var short_exempt: u64 = 0
             for t in 0 .. count {
                 let tx = ref txs[t]
                 let kind: usize = if field(tx, "type") == 3 {
@@ -1750,6 +1763,15 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                     kind_gas[kind] = kind_gas[kind] + tx_gas[t]
                     code_charges += charges[t].code
                     write_charges += charges[t].writes
+                    coinbase_charges += charges[t].coinbase
+                    let limit = field(tx, "gas")
+                    let used = tx_gas[t] as u256 + charges[t].witness as u256
+                    if used > limit + charges[t].today as u256 {
+                        short_of_gas += 1
+                    }
+                    if used - charges[t].coinbase as u256 > limit + charges[t].today as u256 {
+                        short_exempt += 1
+                    }
                 }
             }
             if charged {
@@ -1773,6 +1795,22 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                 )
                 json_num(mut stateless_summary, "gas4762_code", code_charges)
                 json_num(mut stateless_summary, "gas4762_writes", write_charges)
+                json_num(
+                    mut stateless_summary,
+                    "gas4762_coinbase",
+                    coinbase_charges,
+                )
+                json_num(mut stateless_summary, "gas4762_short", short_of_gas)
+                json_num(
+                    mut stateless_summary,
+                    "gas4762_short_exempt",
+                    short_exempt,
+                )
+                json_num(
+                    mut stateless_summary,
+                    "gas_limit",
+                    field(header, "gasLimit").downcast_unchecked(),
+                )
                 ",\"gas4762\":[".fmt(mut stateless_summary)
                 for k in 0 .. 5 {
                     if k > 0 {
@@ -3992,4 +4030,188 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         "/delegates.json",
     )
     0
+}
+
+/// `system <dir> <BeaconRoots.runtime.bin> <HistoryStorage.runtime.bin>`:
+/// runs the Fe ports of the first system contracts (ports/system) beside the
+/// deployed ones on a saved block's proven state. Both get the block's
+/// system call (EIP-4788's parent beacon root, EIP-2935's parent hash),
+/// and each must write what the header implies; then both answer the same
+/// reads from another caller (a stored and a missing timestamp or number,
+/// zero, the window's edges, calldata of the wrong length), and each answer
+/// must be the deployed one's: status and output. Gas is reported.
+#[cfg(target_family = "unix")]
+fn system_command() -> i32
+uses (args: Args, fs: mut std::fs::Fs, out: mut Stdout)
+{
+    if args.count() != 5 {
+        println!(
+            "usage: fevm-replay system <dir> <BeaconRoots.runtime.bin> <HistoryStorage.runtime.bin>",
+        )
+        return 2
+    }
+    let dir = args.get(2)
+    let Option::Some(chain) = load_response(dir, "chain.json") else {
+        return 1
+    }
+    let Option::Some(block) = load_response(dir, "block.json") else {
+        return 1
+    }
+    let Option::Some(proofs) = load_json(dir, "proofs.json") else {
+        return 1
+    }
+    let header = ref block["result"]
+    let env = load_block(
+        header,
+        chain_id: field(chain, "result"),
+        blobbasefee: fetch::header_blob_fee(header).as_wei(),
+    )
+    let parent_root = field(proofs["parent"], "stateRoot")
+    var keys = fevm::WorldState::empty()
+    proof::add_system_keys(mut keys, header)
+    var world = fevm::WorldState::empty()
+    for c in 0 .. 2 {
+        let target = if c == 0 {
+            proof::BEACON_ROOTS
+        } else {
+            proof::HISTORY
+        }
+        if !proof::load_system_contract(
+            mut world,
+            proofs,
+            state_root: parent_root,
+            address: target,
+            keys,
+        ) {
+            println!(
+                "ERROR ",
+                dir,
+                ": no proven code and slots for the system contracts",
+            )
+            return 1
+        }
+    }
+    let writes = proof::system_writes(header)
+    let timestamp = field(header, "timestamp")
+    let number = field(header, "number")
+    var differ: u64 = 0
+    var reads: u64 = 0
+    for c in 0 .. 2 {
+        let (target, input, name) = if c == 0 {
+            (proof::BEACON_ROOTS, field(header, "parentBeaconBlockRoot"), "EIP-4788 beacon roots")
+        } else {
+            (proof::HISTORY, field(header, "parentHash"), "EIP-2935 history")
+        }
+        let Option::Some(port_code) = read_shadow(args.get(3 + c)) else {
+            return 1
+        }
+        let port = port_code.span()
+        let deployed = proof::code_of(proofs, target)
+        var word = MemBuffer::with_capacity(32)
+        word.write_word(offset: 0, value: input)
+        let Option::Some(start) = world.try_clone() else {
+            return 1
+        }
+        let (d_world, d) = requests::system_call(start, target, input: word.span(), env)
+        let Option::Some(port_start) = world.try_clone() else {
+            return 1
+        }
+        var p_start = port_start
+        p_start.set_code(address: target, code: port)
+        let (p_world, p) = requests::system_call(p_start, target, input: word.span(), env)
+        var wrote = d.status == fevm::OK && p.status == fevm::OK
+        for w in 0 .. writes.len() {
+            if writes[w].address != target {
+                continue
+            }
+            if d_world.storage_load(target, writes[w].slot) != writes[w].value
+                || p_world.storage_load(target, writes[w].slot) != writes[w].value {
+                wrote = false
+            }
+        }
+        if !wrote { differ += 1 }
+        println!(
+            name,
+            ": the system call writes what the header implies, deployed ",
+            if d.status == fevm::OK { "yes" } else { "NO" },
+            " and Fe port ",
+            if wrote { "yes" } else { "NO" },
+            "; gas ",
+            requests::SYSTEM_GAS - d.gas_remaining,
+            " deployed, ",
+            requests::SYSTEM_GAS - p.gas_remaining,
+            " Fe (",
+            deployed.len(),
+            " and ",
+            port.len(),
+            " bytes of code)",
+        )
+        // Reads from another caller, on the state the call left.
+        let asked: [u256; 8] = if c == 0 {
+            [timestamp, timestamp - 12, 0, timestamp + 1, timestamp + 8191 * 12, 1, 0xff, timestamp]
+        } else {
+            [
+                number - 1,
+                number,
+                number - 8191,
+                number - 8192,
+                0,
+                number + 1,
+                number - 2,
+                number - 1,
+            ]
+        }
+        // Calldata lengths: 32, but the last read is cut to 31 and the one
+        // before it padded to 33.
+        var same: u64 = 0
+        var d_gas: u64 = 0
+        var p_gas: u64 = 0
+        for r in 0 .. 8 {
+            let length: usize = if r == 7 { 31 } else if r == 6 { 33 } else { 32 }
+            var data = MemBuffer::with_capacity(64)
+            data.write_word(offset: 0, value: asked[r])
+            data.write_word(offset: 32, value: 0)
+            data.truncate(length)
+            let Option::Some(a) = d_world.try_clone() else {
+                return 1
+            }
+            let Option::Some(b) = d_world.try_clone() else {
+                return 1
+            }
+            var b_port = b
+            b_port.set_code(address: target, code: port)
+            let (_, dr) = requests::call_as(a, caller: 0x1234, target, input: data.span(), env)
+            let (_, pr) = requests::call_as(b_port, caller: 0x1234, target, input: data.span(), env)
+            d_gas += requests::SYSTEM_GAS - dr.gas_remaining
+            p_gas += requests::SYSTEM_GAS - pr.gas_remaining
+            reads += 1
+            if dr.status == pr.status && fuzz::same_bytes(dr.output.span(), pr.output.span()) {
+                same += 1
+            } else {
+                differ += 1
+                println!("DIFF ", name, ": read ", r, " answered differently")
+            }
+        }
+        println!(
+            name,
+            ": ",
+            same,
+            "/8 reads answered as deployed; gas ",
+            d_gas,
+            " deployed, ",
+            p_gas,
+            " Fe",
+        )
+    }
+    if differ == 0 {
+        println!(
+            "system contracts: the Fe ports did what the deployed ones did (",
+            reads,
+            " reads)",
+        )
+        0
+    } else {
+        println!("system contracts: ", differ, " differences")
+        1
+    }
 }

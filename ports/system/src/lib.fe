@@ -1,0 +1,83 @@
+//! Two of Ethereum's system contracts in Fe, as the protocol calls them at
+//! the start of every block and as anyone may read them:
+//!
+//! - `BeaconRoots`, EIP-4788 (mainnet 0x000F3df6D732807Ef1319fB7B8bB8522d0Beac02):
+//!   the system address stores the block's timestamp and its parent beacon
+//!   root in a ring buffer of 8,191; anyone reads a root by its timestamp.
+//! - `HistoryStorage`, EIP-2935 (mainnet 0x0000F90827F1C53a10cb7A02335B175320002935):
+//!   the system address stores the parent's hash; anyone reads the hash of
+//!   any of the last 8,191 blocks by its number.
+//!
+//! Both take raw calldata, no selector, as the deployed contracts do, and
+//! fail with an empty revert where those do.
+
+use std::evm::revert_empty
+
+/// The address the protocol calls system contracts from (EIP-4788).
+pub const SYSTEM_ADDRESS: u256 = 0xfffffffffffffffffffffffffffffffffffffffe
+/// Both ring buffers' length (EIP-4788's HISTORY_BUFFER_LENGTH, EIP-2935's
+/// HISTORY_SERVE_WINDOW).
+pub const BUFFER_LENGTH: u256 = 8191
+
+pub contract BeaconRoots uses (ctx: Ctx, evm: mut Evm) {
+    recv {
+        _ uses (ctx, mut evm) {
+            if ctx.caller().word() == SYSTEM_ADDRESS {
+                // set(): the timestamp and the root at its index.
+                let timestamp = ctx.timestamp().as_seconds()
+                let index = timestamp % BUFFER_LENGTH
+                unsafe {
+                    evm.sstore(slot: index, value: timestamp)
+                    evm.sstore(slot: index + BUFFER_LENGTH, value: evm.calldataload(0))
+                }
+            } else {
+                // get(): the root stored for exactly this timestamp.
+                if evm.calldatasize() != 32 {
+                    revert_empty()
+                }
+                let timestamp = evm.calldataload(0)
+                if timestamp == 0 {
+                    revert_empty()
+                }
+                let index = timestamp % BUFFER_LENGTH
+                if unsafe { evm.sload(index) } != timestamp {
+                    revert_empty()
+                }
+                return_word(unsafe { evm.sload(index + BUFFER_LENGTH) })
+            }
+        }
+    }
+}
+
+pub contract HistoryStorage uses (ctx: Ctx, evm: mut Evm) {
+    recv {
+        _ uses (ctx, mut evm) {
+            let number = ctx.block_number()
+            if ctx.caller().word() == SYSTEM_ADDRESS {
+                // set(): the parent's hash at the parent's index.
+                unsafe {
+                    evm.sstore(
+                        slot: (number - 1) % BUFFER_LENGTH,
+                        value: evm.calldataload(0),
+                    )
+                }
+            } else {
+                // get(): only the last 8,191 blocks, not this one.
+                if evm.calldatasize() != 32 {
+                    revert_empty()
+                }
+                let wanted = evm.calldataload(0)
+                if wanted >= number || wanted + BUFFER_LENGTH < number {
+                    revert_empty()
+                }
+                return_word(unsafe { evm.sload(wanted % BUFFER_LENGTH) })
+            }
+        }
+    }
+}
+
+fn return_word(_ value: u256) -> ! uses (evm: Evm) {
+    var out = MemBuffer::with_capacity(32)
+    out.write_word(offset: 0, value: value)
+    evm.return_data(data: out.span())
+}

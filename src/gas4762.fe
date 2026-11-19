@@ -60,6 +60,9 @@ pub struct Charged {
     /// Of `witness`, what reading code chunks costs, and what writing.
     pub code: u64,
     pub writes: u64,
+    /// Of `witness`, what the block's coinbase account costs (EIP-4762
+    /// does not exempt it, as it does the sender and target).
+    pub coinbase: u64,
 }
 
 impl Copy for Charged {}
@@ -72,6 +75,8 @@ struct Events {
     gas: u64,
     code: u64,
     writes: u64,
+    coinbase: u256,
+    on_coinbase: u64,
 }
 
 // Marks (`address`, `key`) in `set`; true if it was new.
@@ -97,7 +102,7 @@ fn chunk_stem(_ chunk: u256) -> u256 {
 }
 
 impl Events {
-    fn new() -> Self {
+    fn new(coinbase: u256) -> Self {
         Events {
             stems: WorldState::empty(),
             edited: WorldState::empty(),
@@ -106,6 +111,8 @@ impl Events {
             gas: 0,
             code: 0,
             writes: 0,
+            coinbase,
+            on_coinbase: 0,
         }
     }
 
@@ -119,6 +126,9 @@ impl Events {
         }
         if kind == CHUNK {
             self.code += self.gas - before
+        }
+        if address == self.coinbase {
+            self.on_coinbase += self.gas - before
         }
     }
 
@@ -136,6 +146,9 @@ impl Events {
             }
         }
         self.writes += self.gas - before
+        if address == self.coinbase {
+            self.on_coinbase += self.gas - before
+        }
     }
 }
 
@@ -175,7 +188,7 @@ pub fn charge(
     value: u256,
     coinbase: u256,
 ) -> Charged {
-    var events = Events::new()
+    var events = Events::new(coinbase)
     var today: u64 = 0
     for ref member in prestate.members() {
         let address = parse_hex_uint(member.key.span()).unwrap_or(default: 0)
@@ -286,5 +299,11 @@ pub fn charge(
                 )
         }
     }
-    Charged { witness: events.gas, today, code: events.code, writes: events.writes }
+    Charged {
+        witness: events.gas,
+        today,
+        code: events.code,
+        writes: events.writes,
+        coinbase: events.on_coinbase,
+    }
 }

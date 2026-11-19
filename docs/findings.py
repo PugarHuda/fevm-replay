@@ -197,6 +197,30 @@ if gd:
       f"An ETH transfer pays {round(tw / tc):,} gas of witness, nearly all for the coinbase it pays its priority "
       "fee to (a read and a write of its basic data, 5,600), which the draft does not exempt. Estimates: every "
       "touched account counts one basic-data read, and a slot the parent holds as zero counts as filled.\n")
+kd = [r for r in gd if "gas4762_short" in r]
+if kd:
+    net = lambda r: sum(k[0] for k in r["gas4762"]) - sum(k[1] for k in r["gas4762"])
+    kw = sum(sum(k[0] for k in r["gas4762"]) for r in kd)
+    kt = sum(sum(k[1] for k in r["gas4762"]) for r in kd)
+    kg = sum(r["gas_used"] for r in kd)
+    kcb = sum(r["gas4762_coinbase"] for r in kd)
+    ktx = sum(r["transactions"] for r in kd)
+    short = sum(r["gas4762_short"] for r in kd)
+    short_x = sum(r["gas4762_short_exempt"] for r in kd)
+    fill_now = [r["gas_used"] / r["gas_limit"] for r in kd]
+    fill_new = [(r["gas_used"] + net(r)) / r["gas_limit"] for r in kd]
+    over = sum(1 for r in kd if r["gas_used"] + net(r) > r["gas_limit"])
+    w(f"14. **What the draft's choices cost, and who would run out of gas.** Over {len(kd)} blocks, "
+      f"the coinbase alone is {100 * kcb / kw:.0f}% of EIP-4762's witness charges; exempting it, as the draft "
+      f"exempts the sender and target, takes the increase from {100 * (kw - kt) / kg:.1f}% to "
+      f"{100 * (kw - kcb - kt) / kg:.1f}% of the blocks' gas. Sent with the same gas limit, "
+      f"{num(short)} of {num(ktx)} transactions ({100 * short / ktx:.1f}%) would not cover their gas plus "
+      f"the witness charges less today's, and would run out of gas; with the coinbase exempt, {num(short_x)} "
+      f"({100 * short_x / ktx:.1f}%). Wallets that estimate gas before sending would add the margin; "
+      f"contracts and bots that hard-code a gas limit would not. Blocks fill their gas limit "
+      f"{100 * st.median(fill_now):.0f}% today (median) and would fill it {100 * st.median(fill_new):.0f}%; "
+      f"{over} of {len(kd)} would not fit their limit as built. Estimates: gas used is after refunds, "
+      "which a transaction's limit must cover before them, so the shortfall count is a lower bound.\n")
 w("## Reproduce\n")
 w("```sh\n./out/fevm_replay follow blocks stateless.json 3     # takes, proves and validates 3 head blocks\n"
   "mkdir proven && tar xzf fixtures/proven/0x19335e5.tar.gz -C proven\n"

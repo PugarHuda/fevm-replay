@@ -89,6 +89,13 @@ jobs:
           fe test .
           fe build -O 2 --out-dir ../../out/usdc-proxy .
 
+      - name: System contracts port (EIP-4788, EIP-2935)
+        working-directory: ports/system
+        run: |
+          fe fmt --check
+          fe test .
+          fe build -O 2 --out-dir ../../out/system .
+
       - name: DAI port
         working-directory: ports/dai
         run: |
@@ -130,6 +137,14 @@ jobs:
           assert s["every_root"] and s["binary_stems"] == 564, s
           assert s["heaviest"][0]["address"] == "0xdac17f958d2ee523a2206206994597c13d831ec7", s["heaviest"][0]
           PY
+
+      - name: The Fe system contracts do on a mainnet block what the deployed ones do
+        run: |
+          out=$(./out/fevm_replay system proven/0x19335e5 out/system/BeaconRoots.runtime.bin out/system/HistoryStorage.runtime.bin)
+          echo "$out"
+          echo "$out" | grep -q "EIP-4788 beacon roots: the system call writes what the header implies, deployed yes and Fe port yes"
+          echo "$out" | grep -q "EIP-2935 history: the system call writes what the header implies, deployed yes and Fe port yes"
+          echo "$out" | grep -q "the Fe ports did what the deployed ones did (16 reads)"
 
       - name: Two consecutive mainnet blocks validated as one chain, and refused in the wrong order
         run: |

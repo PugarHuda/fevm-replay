@@ -496,4 +496,19 @@ fn eip_4762_charges_the_witness_a_call_needs() {
     assert!(c.today == 24700)
     assert!(c.code == 2100)
     assert!(c.writes == 9700)
+    assert!(c.coinbase == 0)
+    // With 0xcc as the coinbase, everything but the code is the coinbase's:
+    // its header (1,900 + 200), its slot (200) and the slot's fill (9,700).
+    let k = ingot::gas4762::charge(
+        prestate,
+        pre,
+        post,
+        chunks,
+        origin: 0xaa,
+        target: 0xbb,
+        value: 0,
+        coinbase: 0xcc,
+    )
+    assert!(k.witness == 14100)
+    assert!(k.coinbase == 12000)
 }

@@ -24,7 +24,7 @@ pub const SYSTEM: u256 = 0xfffffffffffffffffffffffffffffffffffffffe
 pub const DEPOSIT_CONTRACT: u256 = 0x00000000219ab540356cbb839cbe05303d7705fa
 /// keccak256("DepositEvent(bytes,bytes,bytes,bytes,bytes)")
 pub const DEPOSIT_EVENT: u256 = 0x649bbc62d0e31342afea4e5cd82d4049e7e1ee912fc0889aa790803be39038c5
-const SYSTEM_GAS: u64 = 30_000_000
+pub const SYSTEM_GAS: u64 = 30_000_000
 
 /// Appends the request data of each deposit `logs` holds: pubkey,
 /// withdrawal credentials, amount, signature and index, cut from the
@@ -67,9 +67,22 @@ pub fn system_call(_ world: own WorldState, target: u256, input: MemSpan, _ bloc
     WorldState,
     ExecutionResult,
 ) {
+    call_as(world, caller: SYSTEM, target, input, block)
+}
+
+/// A call to `target` from `caller`, as `system_call` runs it: 30M gas, no
+/// value, no fee and no nonce. With another caller it reads what a system
+/// contract stored, as a contract reading it would.
+pub fn call_as(
+    _ world: own WorldState,
+    caller: u256,
+    target: u256,
+    input: MemSpan,
+    _ block: BlockEnv,
+) -> (WorldState, ExecutionResult) {
     var tx = Transaction::new(
         world,
-        sender: SYSTEM,
+        sender: caller,
         destination: target,
         coinbase: block.coinbase,
         config: Config::osaka(),
@@ -77,8 +90,8 @@ pub fn system_call(_ world: own WorldState, target: u256, input: MemSpan, _ bloc
     )
     let call = CallEnv {
         address: target,
-        caller: SYSTEM,
-        origin: SYSTEM,
+        caller,
+        origin: caller,
         callvalue: 0,
         gasprice: 0,
         gas_limit: SYSTEM_GAS,

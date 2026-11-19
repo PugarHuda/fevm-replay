@@ -1,0 +1,88 @@
+// Run with `fe test .` in ports/system. Only the system address writes, so
+// these cover the reads anyone makes; the writes are checked on mainnet
+// blocks by `fevm_replay system` (see the repository README).
+
+use ingot::{BeaconRoots, HistoryStorage}
+
+// Calls `target` with `len` bytes of calldata, the word `value` first;
+// whether it succeeded, and the word it returned.
+fn read(_ target: Address, _ value: u256, len: usize) -> (bool, u256)
+uses (evm: mut Evm)
+{
+    var args = MemBuffer::with_capacity(64)
+    args.write_word(offset: 0, value: value)
+    args.write_word(offset: 32, value: 0)
+    args.truncate(len)
+    var ret = MemBuffer::empty()
+    let ok = evm
+        .raw_call(
+            addr: target,
+            gas: 100000,
+            value: Wei::zero(),
+            args: args.span(),
+            ret: mut ret,
+        )
+        .success()
+    let word = if ret.len() == 32 {
+        ret.read_word(offset: 0)
+    } else {
+        0
+    }
+    (ok, word)
+}
+
+fn beacon() -> Address uses (evm: mut Evm) {
+    evm.create2<BeaconRoots>(value: Wei::zero(), args: (), salt: 0)
+}
+
+fn history() -> Address uses (evm: mut Evm) {
+    evm.create2<HistoryStorage>(value: Wei::zero(), args: (), salt: 0)
+}
+
+#[test]
+fn a_root_never_stored_is_refused() uses (evm: mut Evm) {
+    let at = beacon()
+    let (ok, _) = read(at, 1_700_000_000, len: 32)
+    assert!(!ok)
+}
+
+#[test]
+fn timestamp_zero_is_refused() uses (evm: mut Evm) {
+    let at = beacon()
+    // Slot 0 holds 0, which would match a zero timestamp.
+    let (ok, _) = read(at, 0, len: 32)
+    assert!(!ok)
+}
+
+#[test]
+fn beacon_roots_wants_exactly_32_bytes() uses (evm: mut Evm) {
+    let at = beacon()
+    let (short, _) = read(at, 1, len: 31)
+    let (long, _) = read(at, 1, len: 33)
+    assert!(!short && !long)
+}
+
+#[test]
+fn history_serves_the_last_8191_blocks() uses (evm: mut Evm) {
+    let at = history()
+    let number = evm.block_number()
+    if number > 0 {
+        // Nothing was stored yet, so a block in the window reads as zero.
+        let (ok, word) = read(at, number - 1, len: 32)
+        assert!(ok && word == 0)
+    }
+    let (this, _) = read(at, number, len: 32)
+    let (future, _) = read(at, number + 1, len: 32)
+    assert!(!this && !future)
+    if number > 8191 {
+        let (old, _) = read(at, number - 8192, len: 32)
+        assert!(!old)
+    }
+}
+
+#[test]
+fn history_wants_exactly_32_bytes() uses (evm: mut Evm) {
+    let at = history()
+    let (short, _) = read(at, 0, len: 31)
+    assert!(!short)
+}
