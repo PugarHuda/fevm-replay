@@ -105,6 +105,12 @@
     </div>
   </section>
 
+  <section id="eip4762">
+    <h2>What EIP-4762 would charge for these blocks</h2>
+    <p class="intro">EIP-4762 (Draft) prices the witness a stateless client needs: per transaction, each stem and leaf read and written, code chunk by chunk, in place of today's cold-access and <code>SSTORE</code> charges. fevm-replay counts it for every transaction from its traces and the 31-byte code chunks fevm ran (<a href="https://github.com/PugarHuda/fevm-replay/blob/main/src/gas4762.fe"><code>src/gas4762.fe</code></a>). The draft makes the sender and target free but not the block's coinbase, which every transaction pays its fee to.</p>
+    <div class="facts" id="facts4762"></div>
+  </section>
+
   <p class="note">What the blocks say, in findings computed from this data: <a href="https://github.com/PugarHuda/fevm-replay/blob/main/docs/stateless-findings.md">what mainnet blocks say about stateless Ethereum</a>.</p>
 
   <section class="why">
@@ -225,6 +231,21 @@ fetch("data/stateless.json").then((r) => r.json()).then((rows) => {
       hover(el("rect", { x: cx - step / 2, y: T, width: step, height: H - T - B, fill: "transparent" }, svg),
         `<b>Block ${r.number.toLocaleString("en")}</b><br>Merkle-Patricia ${size(wit(r))}<br>binary tree ${size(r.binary_low)} – ${size(r.binary_high)}`);
     });
+  }
+  {
+    const g = ok.filter((r) => r.gas4762 && r.gas4762_short != null && r.gas_limit);
+    const sum = (f) => g.reduce((a, r) => a + f(r), 0);
+    const charged = (r) => r.gas4762.reduce((a, k) => a + k[0], 0);
+    const today = (r) => r.gas4762.reduce((a, k) => a + k[1], 0);
+    const gw = sum(charged), gt = sum(today), gg = sum((r) => r.gas_used), cb = sum((r) => r.gas4762_coinbase);
+    const tx = sum((r) => r.transactions), short = sum((r) => r.gas4762_short), shortX = sum((r) => r.gas4762_short_exempt);
+    const over = g.filter((r) => r.gas_used + charged(r) - today(r) > r.gas_limit).length;
+    const pct = (v) => (100 * v).toFixed(0) + "%";
+    if (g.length) document.getElementById("facts4762").innerHTML =
+      `<div><b>+${pct((gw - gt) / gg)}</b><span>gas for the same ${g.length} blocks; +${pct((gw - cb - gt) / gg)} with the coinbase exempt</span></div>` +
+      `<div><b>${pct(sum((r) => r.gas4762_code) / gw)}</b><span>of the new charges are for code chunks, free today</span></div>` +
+      `<div><b>${pct(short / tx)}</b><span>of ${tx.toLocaleString("en")} transactions would run out of gas with the gas limit they were sent with; ${pct(shortX / tx)} with the coinbase exempt</span></div>` +
+      `<div><b>${over} of ${g.length}</b><span>blocks would not fit their gas limit as built</span></div>`;
   }
   const hb = document.getElementById("heavy");
   Object.entries(heavy).sort((x, y) => y[1].storage - x[1].storage).slice(0, 12).forEach(([a, t]) => {

@@ -299,26 +299,36 @@
   }
  },
  "end": {
-  "audio": 12.936,
+  "audio": 17.856,
   "captions": [
    {
-    "start": 0.136541,
-    "end": 3.886541,
-    "text": "fevm-replay validates whole mainnet blocks statelessly."
+    "start": 0.115541,
+    "end": 3.686958,
+    "text": "fevm-replay validates whole mainnet blocks statelessly,"
    },
    {
-    "start": 3.886541,
-    "end": 7.321416,
+    "start": 3.686958,
+    "end": 6.018916,
+    "text": "measures what stateless Ethereum would cost,"
+   },
+   {
+    "start": 6.018916,
+    "end": 8.855041,
+    "text": "and runs Ethereum's own system contracts in Fe."
+   },
+   {
+    "start": 8.855041,
+    "end": 12.373958,
     "text": "It found three bugs in the Fe ports, two node tracer bugs,"
    },
    {
-    "start": 7.321416,
-    "end": 9.201666,
+    "start": 12.373958,
+    "end": 14.254208,
     "text": "and what the Osaka fork changed."
    },
    {
-    "start": 9.201666,
-    "end": 12.905041,
+    "start": 14.254208,
+    "end": 17.842041000000002,
     "text": "Code on GitHub, results at fevm-replay.vercel.app."
    }
   ],
@@ -413,6 +423,76 @@
    "every block it took": 4.9895,
    "the witness per": 6.176458,
    "whose storage": 9.495791
+  }
+ },
+ "eip4762": {
+  "audio": 16.536,
+  "captions": [
+   {
+    "start": 0.084041,
+    "end": 2.079833,
+    "text": "And what would stateless Ethereum cost?"
+   },
+   {
+    "start": 2.079833,
+    "end": 8.7185,
+    "text": "Priced by the EIP-4762 draft, these same blocks would need 23% more gas."
+   },
+   {
+    "start": 8.7185,
+    "end": 13.634458,
+    "text": "35% of the transactions, sent with the gas limit they had, would run out of gas."
+   },
+   {
+    "start": 13.634458,
+    "end": 16.5184569,
+    "text": "Exempt the block's coinbase, and it is 13%."
+   }
+  ],
+  "cues": {
+   "23% more gas": 6.470583,
+   "35%": 8.7185,
+   "Exempt the": 13.634458
+  }
+ },
+ "system": {
+  "audio": 17.712,
+  "captions": [
+   {
+    "start": 0.115541,
+    "end": 2.626041,
+    "text": "Fe can stand in for Ethereum's own code too."
+   },
+   {
+    "start": 2.626041,
+    "end": 6.649166,
+    "text": "Every block starts with two system calls, to contracts written in assembly."
+   },
+   {
+    "start": 6.649166,
+    "end": 8.991583,
+    "text": "Their Fe ports store what the header implies,"
+   },
+   {
+    "start": 8.991583,
+    "end": 11.964291,
+    "text": "and answer all 16 reads as the deployed ones do:"
+   },
+   {
+    "start": 11.964291,
+    "end": 13.686958,
+    "text": "on 51 mainnet blocks."
+   },
+   {
+    "start": 13.686958,
+    "end": 17.705499,
+    "text": "Mainnet transactions that read beacon roots run identically on the port."
+   }
+  ],
+  "cues": {
+   "store what the header": 7.394958,
+   "answer all 16": 9.170166,
+   "Mainnet transactions that read": 13.686958
   }
  }
 }

@@ -58,6 +58,7 @@ jobs:
         run: |
           fe build --backend native -O 2 --emit executable --out-dir out .
           (cd ports/usdc-proxy && fe build -O 2 --out-dir ../../out/usdc-proxy .)
+          (cd ports/system && fe build -O 2 --out-dir ../../out/system .)
           for port in weth9 uniswap-v2-pair usdt dai; do
             (cd "ports/$port" && ~/fe-ports/bin/fe build -O 2 --out-dir "../../out/$port" .)
           done
@@ -69,7 +70,7 @@ jobs:
           mkdir -p "$name/ports"
           cp out/fevm_replay README.md LICENSE "$name/"
           cp -r fixtures docs "$name/"
-          for port in weth9 uniswap-v2-pair usdt usdc-proxy dai; do
+          for port in weth9 uniswap-v2-pair usdt usdc-proxy dai system; do
             mkdir -p "$name/ports/$port"
             cp out/$port/*.runtime.bin "$name/ports/$port/"
           done
@@ -84,7 +85,7 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" "$ARCHIVE" \
             --title "fevm-replay $GITHUB_REF_NAME" \
-            --notes "fevm-replay for x86-64 Linux (built on ubuntu-latest; see LINKED.txt for the libraries it needs), the five ports' runtime bytecode, the fixtures (one block validated statelessly: mkdir proven && tar xzf fixtures/proven/0x19335e5.tar.gz -C proven && ./fevm_replay chain proven/0x19335e5). Built from ${GITHUB_SHA} with Fe ${FE_REVISION} (the WETH9, pair, USDT and DAI ports with Fe ${FE_PORTS_REVISION})."
+            --notes "fevm-replay for x86-64 Linux (built on ubuntu-latest; see LINKED.txt for the libraries it needs), the five ports' and the system contracts' runtime bytecode, the fixtures (one block validated statelessly: mkdir proven && tar xzf fixtures/proven/0x19335e5.tar.gz -C proven && ./fevm_replay chain proven/0x19335e5). Built from ${GITHUB_SHA} with Fe ${FE_REVISION} (the WETH9, pair, USDT and DAI ports with Fe ${FE_PORTS_REVISION})."
 
       - uses: actions/upload-artifact@v4
         with:

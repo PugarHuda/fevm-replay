@@ -33,7 +33,7 @@ Replaying is fast: those 5,129 transactions take 5.9 seconds once fetched.
 | **Found** | 3 bugs in the Fe ports, 2 node tracer bugs, the transactions the Osaka fork changed, and where Fe's code cost more than solc's ([argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002), since fixed in Fe's std) |
 | **Upstream** | fe#2002 led to `Call::forward_delegatecall` in Fe's std ([argotorg/fe#2004](https://github.com/argotorg/fe/pull/2004), merged); our request in [fevm#26](https://github.com/fe-lang/fevm/issues/26) became the operand stack in `Tracer::step` ([fevm#32](https://github.com/fe-lang/fevm/pull/32)); dRPC is deploying a fix for the tracer bug we reported |
 | **Beside fevm's chain** | fevm now imports blocks itself ([`fevm_chain`](https://github.com/fe-lang/fevm/tree/main/ingots/chain)), on a full world and its conformance fixtures. fevm-replay is the other half: mainnet blocks, a *partial* world from the parent's proofs, the state root computed from that witness, and Fe ports in place of Solidity. It builds on that fevm and runs each block through `fevm_chain` and `fevm::Block` too: both drivers agree with the header on all 47 blocks ([more](#beside-fevms-chain-layer)) |
-| **Watch** | [3-minute tour](demo/tour-v2.mp4): the site and real terminal runs, driven like a user, with captions, highlights and a neural voice |
+| **Watch** | [3-minute tour](demo/tour-v3.mp4): the site and real terminal runs, driven like a user, with captions, highlights and a neural voice |
 | **Try** | No Fe needed: [three commands](#try-it-without-fe) with the release binary |
 
 The rest of this README is the full account: [problem](#the-problem),
@@ -449,11 +449,13 @@ Each release carries the executable for x86-64 Linux (or WSL), the ports'
 bytecode and the fixtures:
 
 ```sh
-curl -sL https://github.com/PugarHuda/fevm-replay/releases/latest/download/fevm-replay-v0.4.0-x86_64-linux.tar.gz | tar xz
-cd fevm-replay-v0.4.0-x86_64-linux
+curl -sL https://github.com/PugarHuda/fevm-replay/releases/latest/download/fevm-replay-v0.5.0-x86_64-linux.tar.gz | tar xz
+cd fevm-replay-v0.5.0-x86_64-linux
 ./fevm_replay fixtures/mainnet/*.json            # 7 real transactions, all MATCH
 mkdir proven && tar xzf fixtures/proven/0x19335e5.tar.gz -C proven
 ./fevm_replay chain proven/0x19335e5             # a mainnet block, every root in its header
+./fevm_replay system proven/0x19335e5 ports/system/BeaconRoots.runtime.bin ports/system/HistoryStorage.runtime.bin
+                                                 # Ethereum's system contracts in Fe, beside the deployed ones
 ```
 
 Then fetch a live block, prove it and replay it as a chain (needs `curl`):
@@ -499,7 +501,7 @@ the free `https://eth.drpc.org`; pass another URL as the last argument.
 ![fevm-replay fetching and replaying a mainnet transaction, a negative fixture, a whole block and a shadow replay of Fe WETH9](demo/demo.svg)
 
 The recording is [`demo/demo.sh`](demo/demo.sh) (asciinema, svg-term).
-Videos: [`demo/tour-v2.mp4`](demo/tour-v2.mp4), the current tour (2:59): Playwright drives the
+Videos: [`demo/tour-v3.mp4`](demo/tour-v3.mp4), the current tour (3:13; [`demo/tour-v2.mp4`](demo/tour-v2.mp4) is the one before the system contracts and EIP-4762): Playwright drives the
 site like a user, real asciinema recordings of the tool ([`demo/casts`](demo/casts)) play
 as terminals, and Remotion adds highlights, zooms, captions and an `edge-tts` voice
 ([`demo/remotion`](demo/remotion)); [`demo/tour-narrated.mp4`](demo/tour-narrated.mp4) and

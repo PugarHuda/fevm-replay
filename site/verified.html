@@ -133,6 +133,19 @@
       <p class="meta">It forwards with <code>Call::forward_delegatecall</code>, which Fe's std gained after we reported the cost of forwarding through <code>MemBuffer</code> (<a href="https://github.com/argotorg/fe/issues/2002">fe#2002</a>). Before it, the port cost 40 to 60 gas a call more and two tight-gas callers ran out.</p>
       <div class="links"><a href="certificate-usdc-proxy.html">Certificate</a><a href="opgas.html">Gas</a><a href="https://github.com/PugarHuda/fevm-replay/tree/main/ports/usdc-proxy">Source</a></div>
     </article>
+    <article class="port">
+      <h2>System contracts</h2>
+      <p class="meta">EIP-4788 beacon roots and EIP-2935 history, hand-written assembly · <code>ports/system</code></p>
+      <dl>
+        <dt>Mainnet blocks: the block's system call stores what the header implies</dt><dd>51 of 51</dd>
+        <dt>Reads answered as deployed (16 a block)</dt><dd>816 of 816</dd>
+        <dt>Mainnet transactions that read beacon roots</dt><dd>15</dd>
+        <dt>…that behaved differently</dt><dd class="zero">0</dd>
+        <dt>Gas a call</dt><dd>+24 to +55</dd>
+      </dl>
+      <p class="meta">The protocol calls both at the start of every block, so every validated block exercises them. <code>fevm_replay system</code> runs each port beside the deployed contract on the block's proven state; CI runs it on a proven block.</p>
+      <div class="links"><a href="https://github.com/PugarHuda/fevm-replay#ethereums-own-system-contracts-in-fe">How</a><a href="https://github.com/PugarHuda/fevm-replay/tree/main/ports/system">Source</a></div>
+    </article>
   </div>
 
   <section class="how">

@@ -143,15 +143,17 @@ export const scenes: Scene[] = [
     ],
   },
   {
-    id: 'one-wei',
+    id: 'eip4762',
     kind: 'page',
-    url: 'index.html',
-    start: { sel: '#proven table' },
+    url: 'stateless.html',
+    start: { sel: '#eip4762' },
     narration:
-      "Change one withdrawal by one wei, and the withdrawals root, the end-state proof and the computed state root all fail. A clean run rests on one 32-byte block hash.",
-    source: 'index.html #proven last paragraph; README "Every root in the header" (One wei breaks it)',
+      "And what would stateless Ethereum cost? Priced by the EIP-4762 draft, these same blocks would need 23% more gas. 35% of the transactions, sent with the gas limit they had, would run out of gas. Exempt the block's coinbase, and it is 13%.",
+    source: 'site/stateless.html #eip4762 (computed live from data/stateless.json); docs/stateless-findings.md 13 and 14',
     cues: [
-      { at: 'Change one withdrawal', target: { sel: '#proven table + p' } },
+      { at: '23% more gas', target: { sel: '#facts4762 > div >> nth=0' } },
+      { at: '35%', target: { sel: '#facts4762 > div >> nth=2' } },
+      { at: 'Exempt the', target: { sel: '#facts4762 > div >> nth=2' } },
     ],
   },
   {
@@ -196,28 +198,17 @@ export const scenes: Scene[] = [
     ],
   },
   {
-    id: 'explorer',
-    kind: 'page',
-    url: 'explorer.html',
+    id: 'system',
+    kind: 'cast',
+    cast: 'system-contracts.cast',
+    termTitle: 'WSL: fevm-replay, recorded run (asciinema)',
     narration:
-      "The explorer shows where two runs part: before its fix, the Fe port reverted on a bot's packed address. After the fix, they no longer part.",
-    source: 'explorer.html, case "A bug the port had"',
-    actions: [{ at: 'After the fix', do: 'click', target: { sel: 'button[data-file="dirty-address-fixed"]' } }],
+      "Fe can stand in for Ethereum's own code too. Every block starts with two system calls, to contracts written in assembly. Their Fe ports store what the header implies, and answer all 16 reads as the deployed ones do: on 51 mainnet blocks. Mainnet transactions that read beacon roots run identically on the port.",
+    source: 'demo/casts/system-contracts.cast (real run); README section on the system contracts (51 blocks, 15 of 15 transactions)',
     cues: [
-      { at: 'before its fix', target: { sel: 'section:has(h2:has-text("Fe port"))' } },
-      { at: 'no longer part', target: { sel: 'section:has(h2:has-text("Fe port"))' } },
-    ],
-  },
-  {
-    id: 'opgas',
-    kind: 'page',
-    url: 'opgas.html',
-    narration:
-      "Opcode by opcode, Fe spends 44% less gas than solc on stack shuffling, but 25% more on memory.",
-    source: 'opgas.html "What it shows"',
-    actions: [{ at: '^', do: 'hover', target: { sel: '.chart .bar >> nth=0' } }],
-    cues: [
-      { at: '44% less', target: { sel: '.why p >> nth=0' } },
+      { at: 'store what the header', target: { sel: '#term', line: 1 } },
+      { at: 'answer all 16', target: { sel: '#term', line: 5 } },
+      { at: 'Mainnet transactions that read', target: { sel: '#term', line: 7 } },
     ],
   },
   {
@@ -239,12 +230,13 @@ export const scenes: Scene[] = [
       bullets: [
         '115,213 mainnet transactions replayed in fevm, no fevm bug',
         'Whole mainnet blocks validated statelessly: every root in the header from fevm',
-        '5 Fe ports certified against mainnet',
+        "5 Fe ports certified against mainnet, and Ethereum's EIP-4788 and EIP-2935 system contracts in Fe",
+        'EIP-4762 measured on mainnet: +23% gas, 35% of transactions short of gas',
         'Found: 3 bugs in the Fe ports, 2 node tracer bugs, what Osaka changed',
       ],
     },
     narration:
-      'fevm-replay validates whole mainnet blocks statelessly. It found three bugs in the Fe ports, two node tracer bugs, and what the Osaka fork changed. Code on GitHub, results at {fevm-replay.vercel.app|fevm-replay dot vercel dot app}.',
+      "fevm-replay validates whole mainnet blocks statelessly, measures what stateless Ethereum would cost, and runs Ethereum's own system contracts in Fe. It found three bugs in the Fe ports, two node tracer bugs, and what the Osaka fork changed. Code on GitHub, results at {fevm-replay.vercel.app|fevm-replay dot vercel dot app}.",
     source: 'README "For judges: one screen" (Found, Trust, Fe ports); README "Every root in the header"',
   },
 ];
