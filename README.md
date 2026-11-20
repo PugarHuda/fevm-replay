@@ -27,7 +27,7 @@ Replaying is fast: those 5,129 transactions take 5.9 seconds once fetched.
 | **What** | fevm-replay replays real mainnet history in fevm, validates whole blocks statelessly against every root in their headers, and checks Fe ports of Solidity contracts against real traffic. All Fe, from the HTTP call to the verdict. |
 | **fevm on mainnet** | 115,213 transactions replayed, 290 blocks as chains, no fevm bug |
 | **Stateless** | With the parent's proofs as a witness, fevm runs a block's system calls and transactions and *computes* its `stateRoot`; `transactionsRoot`, `receiptsRoot`, `withdrawalsRoot`, `requestsHash`, `logsBloom` and `gasUsed` come out of fevm too. every block validated so far matched every root (the badge above counts them; 3 consecutive ones as one chain), and `follow` keeps taking more from the chain head; one is checked in CI on every push. A MATCH rests on the block hash, not the node ([details](#every-root-in-the-header)) |
-| **For EIP authors** | Measured on 47 mainnet blocks over 3 days ([findings](docs/stateless-findings.md)): code is 43% of a stateless witness; EIP-4762 (Draft) would cost 23% more gas, and 35% of transactions, sent with the same gas limit, would run out of gas. Exempting the coinbase, as the draft exempts the sender and target, brings that to 13% |
+| **For EIP authors** | Measured on 47 mainnet blocks over 3 days ([findings](docs/stateless-findings.md)): code is 43% of a stateless witness; EIP-4762 (Draft) would cost 23% more gas, and 35% of transactions, sent with the same gas limit, would run out of gas. Exempting the coinbase, as the draft exempts the sender and target, brings that to 13%: it saves ETH transfers (48% short, 1.3% exempt) but not contract calls (26%, still 22%: code and storage) |
 | **Fe ports** | 5 ports (USDT, every Uniswap V2 pair, WETH9, DAI, USDC's proxy) certified by mainnet replay, mainnet mutations, fuzzing and mutation testing ([verified page](https://fevm-replay.vercel.app/verified.html)). Also all four of Ethereum's system contracts (EIP-4788, EIP-2935, EIP-7002, EIP-7251), ported from assembly: on 51 mainnet blocks they store and return what the deployed ones do, dequeued consolidation requests included, and the mainnet transactions that call them run identically ([more](#ethereums-own-system-contracts-in-fe)) |
 | **Fe-specific** | Effects prove the verdict and the proof verifier offline; `const fn` + `static_assert` check the blob fee against a real block; std units, `core::fixed`, `msg`/`recv` ([Fe highlight](#fe-highlight)) |
 | **Found** | 3 bugs in the Fe ports, 2 node tracer bugs, the transactions the Osaka fork changed, and where Fe's code cost more than solc's ([argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002), since fixed in Fe's std) |
@@ -199,8 +199,11 @@ about 5,700 gas more, nearly all for writing the coinbase's balance, which
 the draft does not exempt. Exempting it, as the draft exempts the sender and
 target, takes the increase to 19%. Sent with the gas limit they had, 35% of
 the transactions would run out of gas under the draft, and 13% with the
-coinbase exempt: any contract or bot that hard-codes a gas limit breaks. Five
-of 47 blocks would not fit their gas limit as built.
+coinbase exempt: any contract or bot that hard-codes a gas limit breaks. The
+exemption saves ETH transfers (48% short, 1.3% exempt), most sent with a
+gas limit of exactly 21,000; contract calls stay short (26%, 22% exempt),
+from code chunks and storage, though only 94 of 6,069 were sent with no
+margin. Five of 47 blocks would not fit their gas limit as built.
 
 **Who makes the witness big.** Storage is 59% of it; XEN Crypto's trie is
 the deepest (8.2 nodes a slot), a USDT or USDC slot needs 7.4 nodes, about

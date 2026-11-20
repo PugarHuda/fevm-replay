@@ -221,6 +221,22 @@ if kd:
       f"{100 * st.median(fill_now):.0f}% today (median) and would fill it {100 * st.median(fill_new):.0f}%; "
       f"{over} of {len(kd)} would not fit their limit as built. Estimates: gas used is after refunds, "
       "which a transaction's limit must cover before them, so the shortfall count is a lower bound.\n")
+bk = [r for r in kd if "gas4762_short_by_kind" in r]
+if bk:
+    def kinds(i):
+        n = sum(r["by_kind"][i][0] for r in bk)
+        s, x, e = (sum(r["gas4762_short_by_kind"][i][j] for r in bk) for j in range(3))
+        return n, s, x, e
+    tn, ts, tx_, te = kinds(0)
+    cn, cs, cx, ce = kinds(1)
+    bn, bs, bx, be = kinds(3)
+    w(f"15. **The coinbase exemption would save transfers, not contract calls.** Of {num(tn)} ETH transfers, "
+      f"{num(ts)} ({100 * ts / tn:.0f}%) would run out of gas under the draft ({num(te)} transfers were sent with a gas limit of "
+      f"exactly the gas they used); exempt the coinbase and {num(tx_)} ({100 * tx_ / tn:.1f}%) still would. Of "
+      f"{num(cn)} contract calls, {num(cs)} ({100 * cs / cn:.0f}%) would, and with the coinbase exempt still {num(cx)} "
+      f"({100 * cx / cn:.0f}%): their shortfall is code chunks and storage, and only {num(ce)} were sent with no margin, so "
+      f"the margin wallets add when they estimate gas today would not cover it. Blob transactions: {num(bs)} of {num(bn)}, "
+      f"{num(bx)} with the coinbase exempt. Over {len(bk)} blocks.\n")
 w("## Reproduce\n")
 w("```sh\n./out/fevm_replay follow blocks stateless.json 3     # takes, proves and validates 3 head blocks\n"
   "mkdir proven && tar xzf fixtures/proven/0x19335e5.tar.gz -C proven\n"

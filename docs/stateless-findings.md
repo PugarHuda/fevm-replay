@@ -29,6 +29,8 @@ For each block, `chain` takes the parent's Merkle proofs (EIP-1186) of every acc
 
 14. **What the draft's choices cost, and who would run out of gas.** Over 47 blocks, the coinbase alone is 7% of EIP-4762's witness charges; exempting it, as the draft exempts the sender and target, takes the increase from 23.0% to 18.7% of the blocks' gas. Sent with the same gas limit, 3,665 of 10,549 transactions (34.7%) would not cover their gas plus the witness charges less today's, and would run out of gas; with the coinbase exempt, 1,400 (13.3%). Wallets that estimate gas before sending would add the margin; contracts and bots that hard-code a gas limit would not. Blocks fill their gas limit 43% today (median) and would fill it 57%; 5 of 47 would not fit their limit as built. Estimates: gas used is after refunds, which a transaction's limit must cover before them, so the shortfall count is a lower bound.
 
+15. **The coinbase exemption would save transfers, not contract calls.** Of 4,171 ETH transfers, 1,995 (48%) would run out of gas under the draft (1,678 transfers were sent with a gas limit of exactly the gas they used); exempt the coinbase and 55 (1.3%) still would. Of 6,069 contract calls, 1,586 (26%) would, and with the coinbase exempt still 1,321 (22%): their shortfall is code chunks and storage, and only 94 were sent with no margin, so the margin wallets add when they estimate gas today would not cover it. Blob transactions: 59 of 100, 0 with the coinbase exempt. Over 47 blocks.
+
 ## Reproduce
 
 ```sh

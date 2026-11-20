@@ -1737,6 +1737,11 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
             // coinbase charged, and with it exempt.
             var short_of_gas: u64 = 0
             var short_exempt: u64 = 0
+            // The same by kind, and the transactions sent with a gas limit
+            // of exactly the gas they used (no margin at all).
+            var short_kind: [u64; 5] = [0; 5]
+            var short_exempt_kind: [u64; 5] = [0; 5]
+            var exact_kind: [u64; 5] = [0; 5]
             for t in 0 .. count {
                 let tx = ref txs[t]
                 let kind: usize = if field(tx, "type") == 3 {
@@ -1768,9 +1773,14 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                     let used = tx_gas[t] as u256 + charges[t].witness as u256
                     if used > limit + charges[t].today as u256 {
                         short_of_gas += 1
+                        short_kind[kind] = short_kind[kind] + 1
                     }
                     if used - charges[t].coinbase as u256 > limit + charges[t].today as u256 {
                         short_exempt += 1
+                        short_exempt_kind[kind] = short_exempt_kind[kind] + 1
+                    }
+                    if limit == tx_gas[t] as u256 {
+                        exact_kind[kind] = exact_kind[kind] + 1
                     }
                 }
             }
@@ -1811,6 +1821,22 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                     "gas_limit",
                     field(header, "gasLimit").downcast_unchecked(),
                 )
+                // Per kind: short of gas, short with the coinbase exempt,
+                // sent with no margin.
+                ",\"gas4762_short_by_kind\":[".fmt(mut stateless_summary)
+                for k in 0 .. 5 {
+                    if k > 0 {
+                        ",".fmt(mut stateless_summary)
+                    }
+                    "[".fmt(mut stateless_summary)
+                    core::text::decimal(short_kind[k] as u256).fmt(mut stateless_summary)
+                    ",".fmt(mut stateless_summary)
+                    core::text::decimal(short_exempt_kind[k] as u256).fmt(mut stateless_summary)
+                    ",".fmt(mut stateless_summary)
+                    core::text::decimal(exact_kind[k] as u256).fmt(mut stateless_summary)
+                    "]".fmt(mut stateless_summary)
+                }
+                "]".fmt(mut stateless_summary)
                 ",\"gas4762\":[".fmt(mut stateless_summary)
                 for k in 0 .. 5 {
                     if k > 0 {

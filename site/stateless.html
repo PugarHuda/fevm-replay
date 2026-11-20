@@ -245,7 +245,15 @@ fetch("data/stateless.json").then((r) => r.json()).then((rows) => {
       `<div><b>+${pct((gw - gt) / gg)}</b><span>gas for the same ${g.length} blocks; +${pct((gw - cb - gt) / gg)} with the coinbase exempt</span></div>` +
       `<div><b>${pct(sum((r) => r.gas4762_code) / gw)}</b><span>of the new charges are for code chunks, free today</span></div>` +
       `<div><b>${pct(short / tx)}</b><span>of ${tx.toLocaleString("en")} transactions would run out of gas with the gas limit they were sent with; ${pct(shortX / tx)} with the coinbase exempt</span></div>` +
-      `<div><b>${over} of ${g.length}</b><span>blocks would not fit their gas limit as built</span></div>`;
+      `<div><b>${over} of ${g.length}</b><span>blocks would not fit their gas limit as built</span></div>` + byKind();
+    function byKind() {
+      const k = g.filter((r) => r.gas4762_short_by_kind);
+      if (!k.length) return "";
+      const part = (i, j) => k.reduce((a, r) => a + r.gas4762_short_by_kind[i][j], 0);
+      const n = (i) => k.reduce((a, r) => a + r.by_kind[i][0], 0);
+      return `<div><b>${pct(part(0, 0) / n(0))} → ${(100 * part(0, 1) / n(0)).toFixed(1)}%</b><span>of ETH transfers short of gas, charged and with the coinbase exempt</span></div>` +
+        `<div><b>${pct(part(1, 0) / n(1))} → ${pct(part(1, 1) / n(1))}</b><span>of contract calls: the exemption barely helps; their shortfall is code and storage</span></div>`;
+    }
   }
   const hb = document.getElementById("heavy");
   Object.entries(heavy).sort((x, y) => y[1].storage - x[1].storage).slice(0, 12).forEach(([a, t]) => {
