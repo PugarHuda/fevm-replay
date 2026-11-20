@@ -97,7 +97,7 @@ jobs:
   # ports' bytecode and fixtures, which do not depend on the platform.
   macos:
     needs: release
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
 
