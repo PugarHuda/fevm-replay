@@ -99,6 +99,9 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         )
         println!("       fevm-replay mutants-system <port-dir> <dir>...")
         println!(
+            "       fevm-replay certify-system <out-dir> <certificate.html> <dir>...",
+        )
+        println!(
             "       fevm-replay fuzz <deployed.hex> <port.bin> [runs] [steps] [seed]",
         )
         return 2
@@ -135,6 +138,13 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     // "chain"
     if is_word(args.get(1), [0x63, 0x68, 0x61, 0x69, 0x6e]) {
         return chain_command()
+    }
+    // "certify-system"
+    if is_word(
+        args.get(1),
+        [0x63, 0x65, 0x72, 0x74, 0x69, 0x66, 0x79, 0x2d, 0x73, 0x79, 0x73, 0x74, 0x65, 0x6d],
+    ) {
+        return certify_system_command()
     }
     // "mutants-system"
     if is_word(
@@ -4803,4 +4813,180 @@ uses (fs: std::fs::Fs, out: mut Stdout)
         return Option::None
     }
     Option::Some(hex_bytes(hex.span()))
+}
+
+/// `certify-system <out-dir> <certificate.html> <dir>...`: the system
+/// contracts' certificate. For each saved block it runs this program's
+/// `system` (each Fe port beside the deployed contract) and `chain <dir>
+/// --system` (the whole block on the Fe ports, every root), counts the
+/// blocks each passes, and writes a one-page certificate with each port's
+/// code hash, and its badge beside it (`.svg` in place of `.html`).
+#[cfg(target_family = "unix")]
+fn certify_system_command() -> i32
+uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut Stdout)
+{
+    if args.count() < 5 {
+        println!(
+            "usage: fevm-replay certify-system <out-dir> <certificate.html> <dir>...",
+        )
+        return 2
+    }
+    let bins = args.get(2)
+    var system_ok: u64 = 0
+    var chain_ok: u64 = 0
+    var blocks: u64 = 0
+    for d in 4 .. args.count() {
+        blocks += 1
+        var paths: [MemBuffer; 4] = [
+            MemBuffer::empty(),
+            MemBuffer::empty(),
+            MemBuffer::empty(),
+            MemBuffer::empty(),
+        ]
+        let names = ["BeaconRoots", "HistoryStorage", "WithdrawalRequests", "ConsolidationRequests"]
+        for k in 0 .. 4 {
+            bins.fmt(mut paths[k])
+            "/".fmt(mut paths[k])
+            names[k].fmt(mut paths[k])
+            ".runtime.bin".fmt(mut paths[k])
+        }
+        let system = std::process::Command::new(args.get(0))
+            .arg("system")
+            .arg(args.get(d))
+            .arg(paths[0].span())
+            .arg(paths[1].span())
+            .arg(paths[2].span())
+            .arg(paths[3].span())
+            .stdout(std::process::Redirect::Capture)
+            .stderr(std::process::Redirect::Capture)
+        if match proc.output(system) {
+            Result::Ok(output) => output.status.success(),
+            Result::Err(_) => false,
+        } {
+            system_ok += 1
+        }
+        let chain = std::process::Command::new(args.get(0))
+            .arg("chain")
+            .arg(args.get(d))
+            .arg("--system")
+            .arg(bins)
+            .stdout(std::process::Redirect::Capture)
+            .stderr(std::process::Redirect::Capture)
+        match proc.output(chain) {
+            Result::Ok(output) => {
+                let text = output.stdout.span()
+                if output.status.success()
+                    && contains(text, "both as the Fe ports".span())
+                    && contains(text, "both request lists from the Fe ports".span())
+                    && contains(text, "hashes to the header's stateRoot".span()) {
+                    chain_ok += 1
+                }
+            },
+            Result::Err(_) => {},
+        }
+    }
+    let Option::Some(ports) = read_system_ports(bins) else {
+        return 1
+    }
+    let passed = system_ok == blocks && chain_ok == blocks
+    var html = MemBuffer::empty()
+    "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>System contracts certificate</title>\n<style>\n:root{--paper:#f2f4f3;--ink:#1f2624;--steel:#5b6b73;--rule:#c9d1ce;--match:#2e8b6f;--diff:#c9961a}\n@media (prefers-color-scheme:dark){:root{--paper:#161b1a;--ink:#e4e9e7;--steel:#93a3aa;--rule:#34403d;--match:#4fb894;--diff:#e0b03a}}\n*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.55 system-ui,sans-serif}\nmain{width:min(880px,100% - 2rem);margin:2rem auto 4rem}h1{font-size:clamp(1.8rem,5vw,2.6rem);line-height:1.1;letter-spacing:-.02em;margin:.25rem 0 1rem}\nh2{margin-top:2.5rem;padding-top:1rem;border-top:1px solid var(--rule);font-size:1.2rem}.kicker{color:var(--steel);font-weight:600;letter-spacing:.06em;text-transform:uppercase;font-size:.8rem}\ncode{font-family:ui-monospace,monospace;font-size:.85em;overflow-wrap:anywhere}table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}\nth,td{text-align:left;padding:.45rem .6rem .45rem 0;border-bottom:1px solid var(--rule);vertical-align:top}th{color:var(--steel);font-weight:600}td.n{text-align:right}\n.verdict{border-left:4px solid var(--match);padding:.6rem 1rem;background:color-mix(in srgb,var(--match) 12%,transparent);font-size:1.1rem}.verdict.bad{border-color:var(--diff);background:color-mix(in srgb,var(--diff) 15%,transparent)}\n.note{color:var(--steel);font-size:.92rem}\n</style>\n</head>\n<body>\n<main>\n<div class=\"kicker\">Fe port certificate</div>\n<h1>Ethereum's system contracts</h1>\n<p>Port source <code>ports/system</code>: EIP-4788, EIP-2935, EIP-7002 and EIP-7251, in place of the deployed assembly. Runtime code hashes:</p>\n<table>\n"
+        .fmt(mut html)
+    port_row(mut html, "BeaconRoots", "4788", ports.beacon.span())
+    port_row(mut html, "HistoryStorage", "2935", ports.history.span())
+    port_row(
+        mut html,
+        "WithdrawalRequests",
+        "7002",
+        ports.withdrawals.span(),
+    )
+    port_row(
+        mut html,
+        "ConsolidationRequests",
+        "7251",
+        ports.consolidations.span(),
+    )
+    "</table>\n<p class=\"verdict".fmt(mut html)
+    if passed {
+        "\">On every block, the Fe ports did what the deployed contracts did, and the block validated on them, every root in its header.</p>\n"
+            .fmt(mut html)
+    } else {
+        " bad\">Some blocks differ; see below.</p>\n".fmt(mut html)
+    }
+    "<h2>Each port beside the deployed contract</h2>\n<p><code>fevm_replay system</code> on the block's proven state: the system call each makes (the block's beacon root and parent hash; the end-of-block dequeue of the parent's queue), 8 reads of each of the first two, 5 calls to each request contract (a fee read; requests paying the fee, nothing, three times it; a wrong length) and a queue no block had, one request more than a block takes and two end-of-block calls. Every status, output, log and storage slot must be the deployed contract's.</p>\n<table>\n<tr><th>Blocks</th><td class=\"n\">"
+        .fmt(mut html)
+    blocks.fmt(mut html)
+    "</td></tr>\n<tr><th>Blocks where all four did as deployed</th><td class=\"n\">".fmt(mut html)
+    system_ok.fmt(mut html)
+    "</td></tr>\n</table>\n<h2>Whole blocks on the Fe ports</h2>\n<p><code>fevm_replay chain &lt;dir&gt; --system</code>: the block validated statelessly with its four system calls run by the Fe ports, the deployed code put back before the roots are hashed. The state root and the requests hash must be the header's.</p>\n<table>\n<tr><th>Blocks where every root matched</th><td class=\"n\">"
+        .fmt(mut html)
+    chain_ok.fmt(mut html)
+    "</td></tr>\n</table>\n<p class=\"note\">Written by <code>fevm_replay certify-system</code>. Mutation testing of these checks: <code>fevm_replay mutants-system ports/system &lt;dir&gt;...</code>.</p>\n</main>\n</body>\n</html>\n"
+        .fmt(mut html)
+    let Result::Ok(_) = fs.write(args.get(3), html.span()) else {
+        println!("ERROR ", args.get(3), ": cannot write")
+        return 1
+    }
+    // The badge, beside the page.
+    var svg = MemBuffer::empty()
+    if passed {
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"254\" height=\"20\" role=\"img\" aria-label=\"Fe port: verified on mainnet\"><rect width=\"64\" height=\"20\" fill=\"#1f2624\"/><rect x=\"64\" width=\"190\" height=\"20\" fill=\"#2e8b6f\"/><g fill=\"#fff\" font-family=\"Verdana,DejaVu Sans,sans-serif\" font-size=\"11\"><text x=\"8\" y=\"14\">Fe port</text><text x=\"72\" y=\"14\">system contracts verified</text></g><title>fevm-replay certify-system</title></svg>\n"
+            .fmt(mut svg)
+    } else {
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"254\" height=\"20\" role=\"img\" aria-label=\"Fe port: differs\"><rect width=\"64\" height=\"20\" fill=\"#1f2624\"/><rect x=\"64\" width=\"190\" height=\"20\" fill=\"#c9961a\"/><g fill=\"#fff\" font-family=\"Verdana,DejaVu Sans,sans-serif\" font-size=\"11\"><text x=\"8\" y=\"14\">Fe port</text><text x=\"72\" y=\"14\">system contracts differ</text></g><title>fevm-replay certify-system</title></svg>\n"
+            .fmt(mut svg)
+    }
+    var svg_path = MemBuffer::empty()
+    let page = args.get(3).span()
+    for i in 0 .. page.len() - 5 {
+        svg_path.push(page[i])
+    }
+    ".svg".fmt(mut svg_path)
+    let Result::Ok(_) = fs.write(svg_path, svg.span()) else {
+        println!("ERROR ", svg_path, ": cannot write")
+        return 1
+    }
+    println!(
+        "system contracts: ",
+        system_ok,
+        "/",
+        blocks,
+        " blocks as deployed, ",
+        chain_ok,
+        "/",
+        blocks,
+        " blocks validated on the Fe ports; wrote ",
+        args.get(3),
+        " and ",
+        svg_path,
+    )
+    if passed { 0 } else { 1 }
+}
+
+fn port_row(_ html: mut MemBuffer, _ name: String<24>, _ eip: String<4>, _ code: core::MemSpan) {
+    "<tr><th>".fmt(mut html)
+    name.fmt(mut html)
+    " (EIP-".fmt(mut html)
+    eip.fmt(mut html)
+    ")".fmt(mut html)
+    "</th><td><code>0x".fmt(mut html)
+    core::text::hex(fuzz::keccak(MemBuffer::from_span(code)), 32).fmt(mut html)
+    "</code> (".fmt(mut html)
+    code.len().fmt(mut html)
+    " bytes)</td></tr>\n".fmt(mut html)
+}
+
+fn contains(_ text: core::MemSpan, _ needle: core::MemSpan) -> bool {
+    var i: usize = 0
+    while i + needle.len() <= text.len() {
+        var k: usize = 0
+        while k < needle.len() && text[i + k] == needle[k] {
+            k += 1
+        }
+        if k == needle.len() {
+            return true
+        }
+        i += 1
+    }
+    false
 }
