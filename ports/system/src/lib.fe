@@ -117,7 +117,7 @@ pub contract ConsolidationRequests uses (ctx: Ctx, evm: mut Evm, log: mut Log) {
 
 // Both request contracts: `input` bytes of calldata a request, stored as
 // the caller's address and then the calldata's words, `words` slots in all.
-fn requests(input: u256, words: u256, most: u256, target: u256) -> !
+fn requests(input: u256, words: u256, most: u256, target: u256)
 uses (ctx: Ctx, evm: mut Evm, log: mut Log)
 {
     if ctx.caller().word() == SYSTEM_ADDRESS {
@@ -147,17 +147,9 @@ uses (ctx: Ctx, evm: mut Evm, log: mut Log)
     let length: usize = (20 + input).downcast_unchecked()
     var data = MemBuffer::with_capacity(length + 32)
     data.write_word(offset: 0, value: caller << 96)
-    var w: u256 = 0
-    while w * 32 < input {
-        data.write_word(
-            offset: 20 + (w * 32).downcast_unchecked(),
-            value: evm.calldataload(w * 32),
-        )
-        w += 1
-    }
+    evm.calldatacopy(dest: mut data, dest_offset: 20, src_offset: 0, len: input)
     data.truncate(length)
     log.log0(data: data.span())
-    evm.return_data(data: MemBuffer::empty().span())
 }
 
 // The system call: up to `most` requests off the queue, each returned as

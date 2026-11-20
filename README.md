@@ -27,12 +27,12 @@ Replaying is fast: those 5,129 transactions take 5.9 seconds once fetched.
 | **What** | fevm-replay replays real mainnet history in fevm, validates whole blocks statelessly against every root in their headers, and checks Fe ports of Solidity contracts against real traffic. All Fe, from the HTTP call to the verdict. |
 | **fevm on mainnet** | 115,213 transactions replayed, 290 blocks as chains, no fevm bug |
 | **Stateless** | With the parent's proofs as a witness, fevm runs a block's system calls and transactions and *computes* its `stateRoot`; `transactionsRoot`, `receiptsRoot`, `withdrawalsRoot`, `requestsHash`, `logsBloom` and `gasUsed` come out of fevm too. every block validated so far matched every root (the badge above counts them; 3 consecutive ones as one chain), and `follow` keeps taking more from the chain head; one is checked in CI on every push. A MATCH rests on the block hash, not the node ([details](#every-root-in-the-header)) |
-| **For EIP authors** | Measured on 47 mainnet blocks over 3 days ([findings](docs/stateless-findings.md)): code is 43% of a stateless witness; EIP-4762 (Draft) would cost 23% more gas, and 35% of transactions, sent with the same gas limit, would run out of gas. Exempting the coinbase, as the draft exempts the sender and target, brings that to 13%: it saves ETH transfers (48% short, 1.3% exempt) but not contract calls (26%, still 22%: code and storage) |
-| **Fe ports** | 5 ports (USDT, every Uniswap V2 pair, WETH9, DAI, USDC's proxy) certified by mainnet replay, mainnet mutations, fuzzing and mutation testing ([verified page](https://fevm-replay.vercel.app/verified.html)). Also all four of Ethereum's system contracts (EIP-4788, EIP-2935, EIP-7002, EIP-7251), ported from assembly: on 51 mainnet blocks they store and return what the deployed ones do, and with all four system calls run by the Fe ports every root in the header still matches; the mainnet transactions that call them run identically ([more](#ethereums-own-system-contracts-in-fe)) |
+| **For EIP authors** | Measured on 51 mainnet blocks over 4 days ([findings](docs/stateless-findings.md)): code is 43% of a stateless witness; EIP-4762 (Draft) would cost 23% more gas, and 35% of transactions, sent with the same gas limit, would run out of gas. Exempting the coinbase, as the draft exempts the sender and target, brings that to 13%: it saves ETH transfers (51% short, 1.3% exempt) but not contract calls (26%, still 21%: code and storage) |
+| **Fe ports** | 5 ports (USDT, every Uniswap V2 pair, WETH9, DAI, USDC's proxy) certified by mainnet replay, mainnet mutations, fuzzing and mutation testing ([verified page](https://fevm-replay.vercel.app/verified.html)). Also all four of Ethereum's system contracts (EIP-4788, EIP-2935, EIP-7002, EIP-7251), ported from assembly: on 55 mainnet blocks they store and return what the deployed ones do, and with all four system calls run by the Fe ports every root in the header still matches; the mainnet transactions that call them run identically ([more](#ethereums-own-system-contracts-in-fe)) |
 | **Fe-specific** | Effects prove the verdict and the proof verifier offline; `const fn` + `static_assert` check the blob fee against a real block; std units, `core::fixed`, `msg`/`recv` ([Fe highlight](#fe-highlight)) |
 | **Found** | 4 bugs in the Fe ports (one in our own EIP-7002 port, found by validating a mainnet block on it), 2 node tracer bugs, the transactions the Osaka fork changed, and where Fe's code cost more than solc's ([argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002), since fixed in Fe's std) |
 | **Upstream** | fe#2002 led to `Call::forward_delegatecall` in Fe's std ([argotorg/fe#2004](https://github.com/argotorg/fe/pull/2004), merged); our request in [fevm#26](https://github.com/fe-lang/fevm/issues/26) became the operand stack in `Tracer::step` ([fevm#32](https://github.com/fe-lang/fevm/pull/32)); dRPC is deploying a fix for the tracer bug we reported |
-| **Beside fevm's chain** | fevm now imports blocks itself ([`fevm_chain`](https://github.com/fe-lang/fevm/tree/main/ingots/chain)), on a full world and its conformance fixtures. fevm-replay is the other half: mainnet blocks, a *partial* world from the parent's proofs, the state root computed from that witness, and Fe ports in place of Solidity. It builds on that fevm and runs each block through `fevm_chain` and `fevm::Block` too: both drivers agree with the header on all 47 blocks ([more](#beside-fevms-chain-layer)) |
+| **Beside fevm's chain** | fevm now imports blocks itself ([`fevm_chain`](https://github.com/fe-lang/fevm/tree/main/ingots/chain)), on a full world and its conformance fixtures. fevm-replay is the other half: mainnet blocks, a *partial* world from the parent's proofs, the state root computed from that witness, and Fe ports in place of Solidity. It builds on that fevm and runs each block through `fevm_chain` and `fevm::Block` too: both drivers agree with the header on all 51 blocks ([more](#beside-fevms-chain-layer)) |
 | **Watch** | [3-minute tour](demo/tour-v3.mp4): the site and real terminal runs, driven like a user, with captions, highlights and a neural voice |
 | **Try** | No Fe needed: [three commands](#try-it-without-fe) with the release binary |
 
@@ -200,10 +200,10 @@ the draft does not exempt. Exempting it, as the draft exempts the sender and
 target, takes the increase to 19%. Sent with the gas limit they had, 35% of
 the transactions would run out of gas under the draft, and 13% with the
 coinbase exempt: any contract or bot that hard-codes a gas limit breaks. The
-exemption saves ETH transfers (48% short, 1.3% exempt), most sent with a
-gas limit of exactly 21,000; contract calls stay short (26%, 22% exempt),
-from code chunks and storage, though only 94 of 6,069 were sent with no
-margin. Five of 47 blocks would not fit their gas limit as built.
+exemption saves ETH transfers (51% short, 1.3% exempt), most sent with a
+gas limit of exactly 21,000; contract calls stay short (26%, 21% exempt),
+from code chunks and storage, though only 103 of 6,903 were sent with no
+margin. Six of 51 blocks would not fit their gas limit as built.
 
 **Who makes the witness big.** Storage is 59% of it; XEN Crypto's trie is
 the deepest (8.2 nodes a slot), a USDT or USDC slot needs 7.4 nodes, about
@@ -289,7 +289,7 @@ contracts on a block's proven state:
 **Whole blocks on Fe system code.** `fevm_replay chain <dir> --system
 <out-dir>` validates a block with all four system calls run by the Fe ports
 (built into `out-dir`); the deployed code goes back before the roots are
-hashed, since a system call writes storage, never code. On 51 of 51 mainnet
+hashed, since a system call writes storage, never code. On 55 of 55 mainnet
 blocks every root still matches the header: the parent beacon root and hash
 the ports stored, and the withdrawal and consolidation requests they
 returned (12 blocks with consolidations, 2 with withdrawals), hashed into
@@ -304,13 +304,12 @@ ways; the first block with a real withdrawal request failed its
 `requestsHash`. The port is fixed, and `system`'s calls now use bytes that
 differ from position to position, so the old port fails them too.
 
-`fevm_replay mutants-system ports/system <dir>...` plants each of the 72
+`fevm_replay mutants-system ports/system <dir>...` plants each of the 66
 operator changes in the ports' source, builds each mutant with `fe`, and runs
-`system`: on the CI block and three blocks with real requests, 68 of 72 are
-caught (65 on the CI block alone, checked in CI). Of the 4 that survive,
-three mean the same as the original (a byte written past the end and cut
-off, a bound where `>` and `>=` agree); one writes a zero over the next
-queue slot, which the deployed contract would have left as an old request,
+`system`: on the CI block and three blocks with real requests, 63 of 66 are
+caught (60 on the CI block alone, checked in CI). Of the 3 that survive,
+two mean the same as the original (a bound where `>` and `>=` agree); one
+writes a zero over the next queue slot, which the deployed contract would have left as an old request,
 and the proven state does not hold that slot.
 
 Shadow replay runs the mainnet transactions that call these contracts with
@@ -318,17 +317,17 @@ the port in place of the deployed one.
 
 | | Mainnet blocks | Block's system call | Calls answered as deployed | Mainnet transactions that called it | Gas (Fe vs deployed) |
 | --- | ---: | --- | ---: | ---: | --- |
-| EIP-4788 beacon roots | 51 | same slots, every block | 8 of 8, every block | 15 of 15 identical | call +25 (10,076), read +24 |
-| EIP-2935 history | 51 | same slots, every block | 8 of 8, every block | none in these blocks | call +55 (5,098) |
-| EIP-7002 withdrawal requests | 51 | same output and storage (empty queue every block; 16 dequeued from the synthetic queue) | 5 of 5, every block | 2 of 2 identical | call +133, request +712 |
-| EIP-7251 consolidation requests | 51 | same output and storage; 11 blocks dequeued 2 from queues of 6 to 93 | 5 of 5, every block, fees 1 to 1,230 wei | none in these blocks | call +133 to +1,938 |
+| EIP-4788 beacon roots | 55 | same slots, every block | 8 of 8, every block | 15 of 15 identical | call +25 (10,076), read +24 |
+| EIP-2935 history | 55 | same slots, every block | 8 of 8, every block | none in these blocks | call +55 (5,098) |
+| EIP-7002 withdrawal requests | 55 | same output and storage (empty queue every block; 16 dequeued from the synthetic queue) | 5 of 5, every block | 2 of 2 identical | call +133, request +263 |
+| EIP-7251 consolidation requests | 55 | same output and storage; 12 blocks dequeued 2 from real queues (6 to 93 deep) | 5 of 5, every block, fees 1 to 1,230 wei | none in these blocks | call +133, 2 dequeued +2,050 |
 
 CI runs the check on a proven block. The ports cost more gas than
 hand-written assembly: a few dozen a call at the start of the block, more
-for the request contracts, which build their logs and outputs in Fe's
-`MemBuffer`. The two small ports are about the deployed size (96 bytes
-against 97, 128 against 83); the request ports are 833 bytes against 504
-and 414.
+for the request contracts, which build their outputs in Fe's `MemBuffer`
+(the log is one `CALLDATACOPY`, which took a request from +712 to +263). The
+two small ports are about the deployed size (96 bytes against 97, 128
+against 83); the request ports are 808 and 747 bytes against 504 and 414.
 
 The full account is in [docs/details.md](docs/details.md): shadow fuzzing,
 [every Uniswap V2 pair at once](docs/details.md#every-uniswap-v2-pair-at-once),
@@ -464,8 +463,8 @@ logsBloom, withdrawalsRoot, blobGasUsed, requestsHash and, from the witness, sta
 with the header
 ```
 
-They agree on all 47 mainnet blocks validated statelessly so far (26,424,722
-to 26,445,956, taken on three days), 26,424,772's EIP-7002 withdrawal request among them. One setting is mainnet's own: `Config::osaka()`
+They agree on all 51 mainnet blocks validated statelessly so far (26,424,722
+to 26,454,458, taken on four days), 26,424,772's EIP-7002 withdrawal request among them. One setting is mainnet's own: `Config::osaka()`
 carries Osaka's blob schedule (6/9), and mainnet runs BPO2's (14/21, EIP-7892).
 
 ## Try it without Fe

@@ -153,7 +153,7 @@ jobs:
         run: |
           out=$(./out/fevm_replay mutants-system ports/system proven/0x19335e5)
           echo "$out"
-          echo "$out" | grep -q "72 mutants built: 65 killed"
+          echo "$out" | grep -q "66 mutants built: 60 killed"
 
       - name: A mainnet block validated with its four system calls run by the Fe ports
         run: |
