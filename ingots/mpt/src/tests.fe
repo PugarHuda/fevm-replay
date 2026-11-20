@@ -1,0 +1,124 @@
+// Run with `fe test .` in ingots/mpt. The proofs of real mainnet blocks are
+// checked by the tool's own tests (src/proof_tests.fe) and in CI; these
+// cover the pieces and the ways a proof can be wrong.
+use ingot::{
+    EMPTY_CODE,
+    EMPTY_TRIE,
+    account,
+    compare_path,
+    hashed,
+    hex_bytes,
+    nibble,
+    slot,
+    walk,
+    word,
+}
+use json::parse
+
+#[test]
+fn hex_bytes_takes_either_case_and_an_optional_prefix() {
+    let a = hex_bytes("0xA0ff".span())
+    let b = hex_bytes("a0FF".span())
+    assert!(a.len() == 2 && b.len() == 2)
+    assert!(a.span()[0] == 0xa0 && a.span()[1] == 0xff)
+    assert!(b.span()[0] == 0xa0 && b.span()[1] == 0xff)
+    assert!(hex_bytes("0x".span()).len() == 0)
+}
+
+#[test]
+fn word_reads_big_endian_bytes() {
+    let bytes = hex_bytes("0x0102".span())
+    assert!(word(bytes.span()) == 0x0102)
+    assert!(word(hex_bytes("0x".span()).span()) == 0)
+}
+
+#[test]
+fn nibbles_count_from_the_most_significant() {
+    let key: u256 = 0xab << 248
+    assert!(nibble(key, 0) == 0xa)
+    assert!(nibble(key, 1) == 0xb)
+    assert!(nibble(key, 2) == 0)
+    assert!(nibble(1, 63) == 1)
+}
+
+#[test]
+fn a_leaf_path_with_an_odd_length() {
+    // Flag 3: a leaf with an odd number of nibbles; the first, 0xa, shares
+    // the flag's byte, then 0xb and 0xc.
+    let path = hex_bytes("0x3abc".span())
+    let key: u256 = 0xabc << 244
+    let (count, same, leaf) = compare_path(path.span(), key, at: 0).unwrap()
+    assert!(count == 3 && same && leaf)
+    let (_, other, _) = compare_path(path.span(), key + (1 << 252), at: 0).unwrap()
+    assert!(!other)
+}
+
+#[test]
+fn an_extension_path_with_an_even_length() {
+    // Flag 0: an extension with an even number of nibbles (0xab), the
+    // second byte of the flag padded.
+    let path = hex_bytes("0x00ab".span())
+    let key: u256 = 0xab << 248
+    let (count, same, leaf) = compare_path(path.span(), key, at: 0).unwrap()
+    assert!(count == 2 && same && !leaf)
+}
+
+#[test]
+fn a_flag_above_three_is_no_path() {
+    let path = hex_bytes("0x41".span())
+    assert!(compare_path(path.span(), 0, at: 0).is_none())
+    assert!(
+        compare_path(hex_bytes("0x".span()).span(), 0, at: 0).is_none(),
+    )
+}
+
+#[test]
+fn an_empty_trie_proves_every_key_absent() {
+    let none = parse("[]".span()).unwrap()
+    let found = walk(root: EMPTY_TRIE, key: 5, none).unwrap()
+    assert!(found.is_none())
+    let acct = account(state_root: EMPTY_TRIE, address: 0xaa, none).unwrap()
+    assert!(acct.nonce == 0 && acct.balance == 0)
+    assert!(
+        acct.storage_root == EMPTY_TRIE && acct.code_hash == EMPTY_CODE,
+    )
+    assert!(
+        slot(storage_root: EMPTY_TRIE, slot: 1, none).unwrap() == 0,
+    )
+}
+
+#[test]
+fn a_root_with_no_nodes_proves_nothing() {
+    let none = parse("[]".span()).unwrap()
+    assert!(walk(root: 0x1234, key: 5, none).is_none())
+    assert!(account(state_root: 0x1234, address: 0xaa, none).is_none())
+}
+
+#[test]
+fn a_node_whose_hash_is_not_the_root_is_refused() {
+    // A single leaf node, offered under a root that is not its hash.
+    let proof = parse(
+        "[\"0xe3a120290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e56301\"]".span(),
+    )
+        .unwrap()
+    assert!(
+        walk(root: 0x1234, key: hashed(0, len: 32), proof).is_none(),
+    )
+}
+
+#[test]
+fn a_single_leaf_trie_proves_its_one_value() {
+    // The trie holding slot 0 = 1: one leaf, the key's full hash as its
+    // path, and the RLP of 1 as its value. Its hash is the root.
+    let node = hex_bytes(
+        "0xe3a120290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e56301".span(),
+    )
+    let root = core::hash::keccak256_word(node.span())
+    let proof = parse(
+        "[\"0xe3a120290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e56301\"]".span(),
+    )
+        .unwrap()
+    assert!(slot(storage_root: root, slot: 0, proof).unwrap() == 1)
+    // Another key leaves the leaf's path: proven absent.
+    assert!(slot(storage_root: root, slot: 1, proof).unwrap() == 0)
+}

@@ -102,6 +102,12 @@ jobs:
           ~/fe-ports/bin/fe test .
           ~/fe-ports/bin/fe build -O 2 --out-dir ../../out/dai .
 
+      - name: Merkle-Patricia proof ingot (ingots/mpt)
+        working-directory: ingots/mpt
+        run: |
+          fe fmt --check
+          fe test --backend native .
+
       - name: The proof check on WebAssembly (web/, Fe 26.7's release binary)
         run: |
           curl -sSfL -o fe-release https://github.com/argotorg/fe/releases/download/v26.7.0/fe_linux_amd64
