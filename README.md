@@ -517,9 +517,10 @@ so their bytecode is the certified one. WETH9 and USDT also build with 26.7.
 The pair and DAI do not: 26.7 names each effect by its type, so a helper can
 no longer take three `u256` storage fields as three effects, and it no
 longer lets `Call` or `Evm` sit beside a `mut` storage effect in one call
-([effects](https://github.com/argotorg/fe/blob/master/docs/language/effects.md)),
-which both ports do around their token calls. Porting them means
-restructuring those paths and certifying the new bytecode again.
+([effects](https://github.com/argotorg/fe/blob/master/docs/language/effects.md)):
+the pair's helpers do the first, DAI's transfer helpers the second (`evm`
+beside `mut balance_of`). Porting them means restructuring those helpers
+and certifying the new bytecode again.
 
 ```sh
 # Fe at the pinned commit (needs rustup, a C compiler and the tree-sitter CLI)
