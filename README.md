@@ -513,8 +513,13 @@ proxy's bytecode is the same as with the master commit it was certified
 with, `913403388`). The WETH9,
 Uniswap V2 pair, USDT and DAI ports build with the Fe they were certified
 with, [`4608e5fdf`](https://github.com/argotorg/fe/commit/4608e5fdfa3783ec78347f297ad0fced8928fcc7),
-so their bytecode is the certified one (later Fe also refuses the pair's and
-DAI's two effects of one type, which is how they hold their storage fields).
+so their bytecode is the certified one. WETH9 and USDT also build with 26.7.
+The pair and DAI do not: 26.7 names each effect by its type, so a helper can
+no longer take three `u256` storage fields as three effects, and it no
+longer lets `Call` or `Evm` sit beside a `mut` storage effect in one call
+([effects](https://github.com/argotorg/fe/blob/master/docs/language/effects.md)),
+which both ports do around their token calls. Porting them means
+restructuring those paths and certifying the new bytecode again.
 
 ```sh
 # Fe at the pinned commit (needs rustup, a C compiler and the tree-sitter CLI)
