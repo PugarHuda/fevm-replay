@@ -473,14 +473,15 @@ Each release carries the executable for x86-64 Linux (or WSL), the ports'
 bytecode and the fixtures:
 
 ```sh
-curl -sL https://github.com/PugarHuda/fevm-replay/releases/latest/download/fevm-replay-v0.5.0-x86_64-linux.tar.gz | tar xz
-cd fevm-replay-v0.5.0-x86_64-linux
+curl -sL https://github.com/PugarHuda/fevm-replay/releases/latest/download/fevm-replay-v0.6.0-x86_64-linux.tar.gz | tar xz
+cd fevm-replay-v0.6.0-x86_64-linux
 ./fevm_replay fixtures/mainnet/*.json            # 7 real transactions, all MATCH
 mkdir proven && tar xzf fixtures/proven/0x19335e5.tar.gz -C proven
 ./fevm_replay chain proven/0x19335e5             # a mainnet block, every root in its header
-./fevm_replay system proven/0x19335e5 ports/system/BeaconRoots.runtime.bin ports/system/HistoryStorage.runtime.bin
-                                                 # Ethereum's system contracts in Fe, beside the deployed ones
-                                                 # (add ports/system/WithdrawalRequests.runtime.bin ports/system/ConsolidationRequests.runtime.bin for all four)
+./fevm_replay chain proven/0x19335e5 --system ports/system
+                                                 # the same block with its four system calls run by the Fe ports
+cd ports/system && ../../fevm_replay system ../../proven/0x19335e5 BeaconRoots.runtime.bin   HistoryStorage.runtime.bin WithdrawalRequests.runtime.bin ConsolidationRequests.runtime.bin
+                                                 # each Fe system contract beside the deployed one
 ```
 
 Then fetch a live block, prove it and replay it as a chain (needs `curl`):
