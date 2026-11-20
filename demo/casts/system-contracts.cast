@@ -1,5 +1,9 @@
-{"version": 2, "width": 150, "height": 14, "timestamp": 1795054355, "env": {"SHELL": "/bin/bash", "TERM": "xterm-256color"}}
-[0.005085, "o", "\u001b[1;32m$\u001b[0m ./fevm_replay system proven/0x19335e5 out/system/BeaconRoots.runtime.bin out/system/HistoryStorage.runtime.bin\r\n"]
-[0.629838, "o", "EIP-4788 beacon roots: the system call writes what the header implies, deployed yes and Fe port yes; gas 10051 deployed, 10076 Fe (97 and 96 bytes of code)\r\nEIP-4788 beacon roots: 8/8 reads answered as deployed; gas 13300 deployed, 13487 Fe\r\nEIP-2935 history: the system call writes what the header implies, deployed yes and Fe port yes; gas 5043 deployed, 5098 Fe (83 and 128 bytes of code)\r\nEIP-2935 history: 8/8 reads answered as deployed; gas 4914 deployed, 5192 Fe\r\nsystem contracts: the Fe ports did what the deployed ones did (16 reads)\r\n"]
-[1.434283, "o", "\u001b[1;32m$\u001b[0m ./fevm_replay block blocks/0x1933853 0x000f3df6d732807ef1319fb7b8bb8522d0beac02 out/system/BeaconRoots.runtime.bin | tail -3\r\n"]
-[2.872769, "o", "shadow: 2 transactions ran the shadow code, 2 identical, 0 differ where code reads the gas left, 0 where code reads code hashes, 0 behave differently; gas used chain 405348, shadow 405396\r\ngas per call in identical transactions (deployed -> shadow):\r\n  0x00000000 fallback: 2 calls, 4320 -> 4344 (+0.5%)\r\n"]
+{"version": 2, "width": 150, "height": 14, "timestamp": 1795158751, "env": {"SHELL": "/bin/bash", "TERM": "xterm-256color"}}
+[0.004356, "o", "\u001b[1;32m$\u001b[0m ./fevm_replay chain blocks/0x1933736 --system out/system | grep -E 'MATCH|system calls|requests|stateRoot'\r\n"]
+[0.763959, "o", "system calls: fevm ran EIP-4788 (beacon root) and EIP-2935 (parent hash) before the first transaction, both as the Fe ports\r\n"]
+[0.948942, "o", "chain blocks/0x1933736: 193/193 transactions MATCH (100%)\r\n"]
+[0.961474, "o", "requests: fevm's 0 deposits, 0 withdrawal and 2 consolidation requests hash to the header's requestsHash, both request lists from the Fe ports\r\n"]
+[1.275098, "o", "state root: fevm's end state (267 accounts and 838 slots written) on the parent's witness (6433 nodes, 2301 KiB) hashes to the header's stateRoot\r\n"]
+[1.578008, "o", "fevm_chain: the header is valid against its parent; 193 transactions decoded from their bytes, each to its hash and the sender its signature recovers; fevm::Block ran the system calls, transactions, withdrawals and request contracts; gasUsed, transactionsRoot, receiptsRoot, logsBloom, withdrawalsRoot, blobGasUsed, requestsHash and, from the witness, stateRoot agree with the header\r\n"]
+[3.180287, "o", "\u001b[1;32m$\u001b[0m ./fevm_replay system blocks/0x1933736 out/system/{BeaconRoots,HistoryStorage,WithdrawalRequests,ConsolidationRequests}.runtime.bin | tail -1\r\n"]
+[3.834337, "o", "system contracts: the Fe ports did what the deployed ones did (52 reads)\r\n"]

@@ -103,14 +103,13 @@ export const scenes: Scene[] = [
     cast: 'stateless-block.cast',
     termTitle: 'WSL: fevm-replay, recorded run (asciinema)',
     narration:
-      "Here is that run: block 26,424,805, checked by CI on every push. 71 of 71 transactions match. They re-encode to the transactions root, the requests hash matches, and the state root is the header's. It also estimates EIP-7864's binary-tree witness: about half{ (stems and values exact, depth and positions assumed)|}, 505 to 557 KiB against 1,002.",
+      "Here is that run: block 26,424,805, checked by CI on every push. 71 of 71 transactions match, they re-encode to the transactions root, the requests hash matches, and the state root is the header's.",
     source: 'demo/casts/stateless-block.cast (real run); README "Every root in the header" (block 26,424,805, CI)',
     cues: [
       { at: '71 of 71', target: { sel: '#term', line: 5 } },
-      { at: 'They re-encode', target: { sel: '#term', line: 7 } },
+      { at: 'they re-encode', target: { sel: '#term', line: 7 } },
       { at: 'the requests hash', target: { sel: '#term', line: 10 } },
       { at: 'the state root is', target: { sel: '#term', line: 12 } },
-      { at: 'binary-tree', target: { sel: '#term', line: 13 } },
     ],
   },
   {
@@ -148,12 +147,13 @@ export const scenes: Scene[] = [
     url: 'stateless.html',
     start: { sel: '#eip4762' },
     narration:
-      "And what would stateless Ethereum cost? Priced by the EIP-4762 draft, these same blocks would need 23% more gas. 35% of the transactions, sent with the gas limit they had, would run out of gas. Exempt the block's coinbase, and it is 13%.",
-    source: 'site/stateless.html #eip4762 (computed live from data/stateless.json); docs/stateless-findings.md 13 and 14',
+      "And what would stateless Ethereum cost? Priced by the EIP-4762 draft, these blocks would need 23% more gas, and 35% of transactions would run out of gas at the limit they were sent with. Exempting the coinbase saves the transfers, but not the contract calls: 21% still fail.",
+    source: 'site/stateless.html #eip4762 (computed live from data/stateless.json); docs/stateless-findings.md 13 to 15',
     cues: [
       { at: '23% more gas', target: { sel: '#facts4762 > div >> nth=0' } },
-      { at: '35%', target: { sel: '#facts4762 > div >> nth=2' } },
-      { at: 'Exempt the', target: { sel: '#facts4762 > div >> nth=2' } },
+      { at: '35% of transactions', target: { sel: '#facts4762 > div >> nth=2' } },
+      { at: 'saves the transfers', target: { sel: '#facts4762 > div >> nth=4' } },
+      { at: 'not the contract calls', target: { sel: '#facts4762 > div >> nth=5' } },
     ],
   },
   {
@@ -203,12 +203,13 @@ export const scenes: Scene[] = [
     cast: 'system-contracts.cast',
     termTitle: 'WSL: fevm-replay, recorded run (asciinema)',
     narration:
-      "Fe can stand in for Ethereum's own code too. Every block starts with two system calls, to contracts written in assembly. Their Fe ports store what the header implies, and answer all 16 reads as the deployed ones do: on 51 mainnet blocks. Mainnet transactions that read beacon roots run identically on the port.",
-    source: 'demo/casts/system-contracts.cast (real run); README section on the system contracts (51 blocks, 15 of 15 transactions)',
+      "Fe can stand in for Ethereum's own code too. All four system contracts the protocol calls in every block are ported from assembly. Here a mainnet block runs its system calls on the Fe ports: two consolidation requests come out, and every root still matches. On 55 blocks it held, after catching one bug in our own port.",
+    source: 'demo/casts/system-contracts.cast (real run, block 26,425,142); README section on the system contracts (55 blocks, the EIP-7002 amount bug)',
     cues: [
-      { at: 'store what the header', target: { sel: '#term', line: 1 } },
-      { at: 'answer all 16', target: { sel: '#term', line: 5 } },
-      { at: 'Mainnet transactions that read', target: { sel: '#term', line: 7 } },
+      { at: 'runs its system calls', target: { sel: '#term', line: 1 } },
+      { at: 'two consolidation requests', target: { sel: '#term', line: 3 } },
+      { at: 'every root still matches', target: { sel: '#term', line: 4 } },
+      { at: 'On 55 blocks', target: { sel: '#term', line: 7 } },
     ],
   },
   {
@@ -229,15 +230,14 @@ export const scenes: Scene[] = [
       sub: 'github.com/PugarHuda/fevm-replay  ·  fevm-replay.vercel.app',
       bullets: [
         '115,213 mainnet transactions replayed in fevm, no fevm bug',
-        'Whole mainnet blocks validated statelessly: every root in the header from fevm',
-        "5 Fe ports certified against mainnet, and Ethereum's EIP-4788 and EIP-2935 system contracts in Fe",
-        'EIP-4762 measured on mainnet: +23% gas, 35% of transactions short of gas',
-        'Found: 3 bugs in the Fe ports, 2 node tracer bugs, what Osaka changed',
+        'Mainnet blocks validated statelessly: every root in the header from fevm',
+        "5 Fe ports certified, and all four of Ethereum's system contracts in Fe",
+        'EIP-4762 on mainnet: +23% gas, 35% of transactions short of gas',
       ],
     },
     narration:
-      "fevm-replay validates whole mainnet blocks statelessly, measures what stateless Ethereum would cost, and runs Ethereum's own system contracts in Fe. It found three bugs in the Fe ports, two node tracer bugs, and what the Osaka fork changed. Code on GitHub, results at {fevm-replay.vercel.app|fevm-replay dot vercel dot app}.",
-    source: 'README "For judges: one screen" (Found, Trust, Fe ports); README "Every root in the header"',
+      "fevm-replay: mainnet blocks validated statelessly, Ethereum's own system code in Fe, and what stateless Ethereum would cost. Code on GitHub, results at {fevm-replay.vercel.app|fevm-replay dot vercel dot app}.",
+    source: 'README "For judges: one screen"',
   },
 ];
 

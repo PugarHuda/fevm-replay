@@ -88,55 +88,34 @@
   }
  },
  "stateless": {
-  "audio": 26.472,
+  "audio": 15.552,
   "captions": [
    {
     "start": 0.094541,
-    "end": 1.502083,
+    "end": 1.533625,
     "text": "Here is that run:"
    },
    {
-    "start": 1.502083,
-    "end": 7.237375,
+    "start": 1.533625,
+    "end": 7.479,
     "text": "block 26,424,805, checked by CI on every push."
    },
    {
-    "start": 7.237375,
-    "end": 10.168083,
-    "text": "71 of 71 transactions match."
+    "start": 7.479,
+    "end": 12.153375,
+    "text": "71 of 71 transactions match, they re-encode to the transactions root,"
    },
    {
-    "start": 10.168083,
-    "end": 14.149166,
-    "text": "They re-encode to the transactions root, the requests hash matches,"
-   },
-   {
-    "start": 14.149166,
-    "end": 15.913875,
-    "text": "and the state root is the header's."
-   },
-   {
-    "start": 15.913875,
-    "end": 21.113458,
-    "text": "It also estimates EIP-7864's binary-tree witness:"
-   },
-   {
-    "start": 21.113458,
-    "end": 22.016791,
-    "text": "about half (stems and values exact, depth and positions assumed),"
-   },
-   {
-    "start": 22.016791,
-    "end": 26.465958,
-    "text": "505 to 557 KiB against 1,002."
+    "start": 12.153375,
+    "end": 15.531082,
+    "text": "the requests hash matches, and the state root is the header's."
    }
   ],
   "cues": {
-   "71 of 71": 7.237375,
-   "They re-encode": 10.168083,
-   "the requests hash": 12.447458,
-   "the state root is": 14.201666,
-   "binary-tree": 19.852958
+   "71 of 71": 7.479,
+   "they re-encode": 9.905458,
+   "the requests hash": 12.153375,
+   "the state root is": 13.855041
   }
  },
  "one-wei": {
@@ -299,36 +278,26 @@
   }
  },
  "end": {
-  "audio": 17.856,
+  "audio": 11.088,
   "captions": [
    {
     "start": 0.115541,
-    "end": 3.686958,
-    "text": "fevm-replay validates whole mainnet blocks statelessly,"
+    "end": 1.2815,
+    "text": "fevm-replay:"
    },
    {
-    "start": 3.686958,
-    "end": 6.018916,
-    "text": "measures what stateless Ethereum would cost,"
+    "start": 1.2815,
+    "end": 5.556708,
+    "text": "mainnet blocks validated statelessly, Ethereum's own system code in Fe,"
    },
    {
-    "start": 6.018916,
-    "end": 8.855041,
-    "text": "and runs Ethereum's own system contracts in Fe."
+    "start": 5.556708,
+    "end": 7.458,
+    "text": "and what stateless Ethereum would cost."
    },
    {
-    "start": 8.855041,
-    "end": 12.373958,
-    "text": "It found three bugs in the Fe ports, two node tracer bugs,"
-   },
-   {
-    "start": 12.373958,
-    "end": 14.254208,
-    "text": "and what the Osaka fork changed."
-   },
-   {
-    "start": 14.254208,
-    "end": 17.842041000000002,
+    "start": 7.458,
+    "end": 11.077333000000001,
     "text": "Code on GitHub, results at fevm-replay.vercel.app."
    }
   ],
@@ -426,73 +395,75 @@
   }
  },
  "eip4762": {
-  "audio": 16.536,
+  "audio": 18.144,
   "captions": [
    {
     "start": 0.084041,
-    "end": 2.079833,
+    "end": 2.048333,
     "text": "And what would stateless Ethereum cost?"
    },
    {
-    "start": 2.079833,
-    "end": 8.7185,
-    "text": "Priced by the EIP-4762 draft, these same blocks would need 23% more gas."
+    "start": 2.048333,
+    "end": 7.962166,
+    "text": "Priced by the EIP-4762 draft, these blocks would need 23% more gas,"
    },
    {
-    "start": 8.7185,
-    "end": 13.634458,
-    "text": "35% of the transactions, sent with the gas limit they had, would run out of gas."
+    "start": 7.962166,
+    "end": 12.100833,
+    "text": "and 35% of transactions would run out of gas at the limit they were sent with."
    },
    {
-    "start": 13.634458,
-    "end": 16.5184569,
-    "text": "Exempt the block's coinbase, and it is 13%."
+    "start": 12.100833,
+    "end": 16.102958,
+    "text": "Exempting the coinbase saves the transfers, but not the contract calls:"
+   },
+   {
+    "start": 16.102958,
+    "end": 18.115123999999998,
+    "text": "21% still fail."
    }
   ],
   "cues": {
-   "23% more gas": 6.470583,
-   "35%": 8.7185,
-   "Exempt the": 13.634458
+   "23% more gas": 5.966375,
+   "35% of transactions": 8.09875,
+   "saves the transfers": 13.245791,
+   "not the contract calls": 14.42225
   }
  },
  "system": {
-  "audio": 17.712,
+  "audio": 18.144,
   "captions": [
    {
-    "start": 0.115541,
-    "end": 2.626041,
+    "start": 0.105041,
+    "end": 2.752083,
     "text": "Fe can stand in for Ethereum's own code too."
    },
    {
-    "start": 2.626041,
-    "end": 6.649166,
-    "text": "Every block starts with two system calls, to contracts written in assembly."
+    "start": 2.752083,
+    "end": 7.426458,
+    "text": "All four system contracts the protocol calls in every block are ported from assembly."
    },
    {
-    "start": 6.649166,
-    "end": 8.991583,
-    "text": "Their Fe ports store what the header implies,"
+    "start": 7.426458,
+    "end": 11.039916,
+    "text": "Here a mainnet block runs its system calls on the Fe ports:"
    },
    {
-    "start": 8.991583,
-    "end": 11.964291,
-    "text": "and answer all 16 reads as the deployed ones do:"
+    "start": 11.039916,
+    "end": 14.642875,
+    "text": "two consolidation requests come out, and every root still matches."
    },
    {
-    "start": 11.964291,
-    "end": 13.686958,
-    "text": "on 51 mainnet blocks."
-   },
-   {
-    "start": 13.686958,
-    "end": 17.705499,
-    "text": "Mainnet transactions that read beacon roots run identically on the port."
+    "start": 14.642875,
+    "end": 18.157125,
+    "text": "On 55 blocks it held, after catching one bug in our own port."
    }
   ],
   "cues": {
-   "store what the header": 7.394958,
-   "answer all 16": 9.170166,
-   "Mainnet transactions that read": 13.686958
+   "runs its system calls": 8.214291,
+   "two consolidation requests": 11.039916,
+   "every root still matches": 13.07775,
+   "On 55 blocks": 14.642875
   }
  }
 }
