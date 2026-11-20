@@ -146,7 +146,14 @@ jobs:
           echo "$out" | grep -q "EIP-2935 history: the system call writes what the header implies, deployed yes and Fe port yes"
           echo "$out" | grep -q "EIP-7002 withdrawal requests: 5/5 calls"
           echo "$out" | grep -q "EIP-7251 consolidation requests: 5/5 calls"
-          echo "$out" | grep -q "the Fe ports did what the deployed ones did (28 reads)"
+          echo "$out" | grep -q "a queue of 17 requests and two end-of-block calls: 19/19 steps as deployed"
+          echo "$out" | grep -q "the Fe ports did what the deployed ones did (52 reads)"
+
+      - name: Mutation testing of the system contracts check
+        run: |
+          out=$(./out/fevm_replay mutants-system ports/system proven/0x19335e5)
+          echo "$out"
+          echo "$out" | grep -q "66 mutants built: 59 killed"
 
       - name: Two consecutive mainnet blocks validated as one chain, and refused in the wrong order
         run: |

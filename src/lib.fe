@@ -97,6 +97,7 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         println!(
             "       fevm-replay system <dir> <BeaconRoots.runtime.bin> <HistoryStorage.runtime.bin> [<WithdrawalRequests.runtime.bin> <ConsolidationRequests.runtime.bin>]",
         )
+        println!("       fevm-replay mutants-system <port-dir> <dir>...")
         println!(
             "       fevm-replay fuzz <deployed.hex> <port.bin> [runs] [steps] [seed]",
         )
@@ -134,6 +135,13 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     // "chain"
     if is_word(args.get(1), [0x63, 0x68, 0x61, 0x69, 0x6e]) {
         return chain_command()
+    }
+    // "mutants-system"
+    if is_word(
+        args.get(1),
+        [0x6d, 0x75, 0x74, 0x61, 0x6e, 0x74, 0x73, 0x2d, 0x73, 0x79, 0x73, 0x74, 0x65, 0x6d],
+    ) {
+        return mutants_system_command()
     }
     // "system"
     if is_word(args.get(1), [0x73, 0x79, 0x73, 0x74, 0x65, 0x6d]) {
@@ -4386,7 +4394,7 @@ uses (out: mut Stdout)
         }
         var b_port = b
         b_port.set_code(address: address, code: port)
-        let (ad, dr) = requests::call_as(
+        let (ad, dr, dl) = requests::call_logged(
             a,
             caller: 0x1234,
             target: address,
@@ -4394,7 +4402,7 @@ uses (out: mut Stdout)
             value,
             env,
         )
-        let (ap, pr) = requests::call_as(
+        let (ap, pr, pl) = requests::call_logged(
             b_port,
             caller: 0x1234,
             target: address,
@@ -4407,6 +4415,7 @@ uses (out: mut Stdout)
         }
         if dr.status == pr.status
             && fuzz::same_bytes(dr.output.span(), pr.output.span())
+            && requests::same_logs(dl, pl)
             && same_storage(ad, ap, address) {
             same += 1
         } else {
@@ -4418,11 +4427,83 @@ uses (out: mut Stdout)
         name,
         ": ",
         same,
-        "/5 calls (a fee read; requests paying the fee, nothing and more; a wrong length) answered as deployed, same storage; fee ",
+        "/5 calls (a fee read; requests paying the fee, nothing and more; a wrong length) answered as deployed, same logs and storage; fee ",
         fee,
         " wei",
     )
-    (differ, 6)
+    // A queue the blocks did not have: one request more than a block
+    // takes, then two end-of-block calls, so the second starts from a head
+    // past zero and empties the queue (head and tail back to zero), with
+    // the count above the target.
+    let most: usize = if address == proof::WITHDRAWAL_REQUESTS {
+        16
+    } else {
+        2
+    }
+    let Option::Some(start_d) = d_world.try_clone() else {
+        return (differ + 1, 0)
+    }
+    let Option::Some(start_p) = d_world.try_clone() else {
+        return (differ + 1, 0)
+    }
+    var wd = start_d
+    var wp = start_p
+    wp.set_code(address: address, code: port)
+    var steps_same: u64 = 0
+    for step in 0 .. most + 3 {
+        var data = MemBuffer::with_capacity(input + 32)
+        var w: usize = 0
+        while w * 32 < input {
+            data.write_word(offset: w * 32, value: 0xabc0 + (step * 8 + w) as u256)
+            w += 1
+        }
+        let system = step > most
+        data.truncate(if system { 0 } else { input })
+        let (nd, dr, dl) = requests::call_logged(
+            wd,
+            caller: if system { requests::SYSTEM } else { 0x5678 },
+            target: address,
+            input: data.span(),
+            value: if system { 0 } else { fee },
+            env,
+        )
+        let (np, pr, pl) = requests::call_logged(
+            wp,
+            caller: if system { requests::SYSTEM } else { 0x5678 },
+            target: address,
+            input: data.span(),
+            value: if system { 0 } else { fee },
+            env,
+        )
+        wd = nd
+        wp = np
+        if dr.status == pr.status
+            && fuzz::same_bytes(dr.output.span(), pr.output.span())
+            && requests::same_logs(dl, pl)
+            && same_storage(wd, wp, address) {
+            steps_same += 1
+        } else {
+            differ += 1
+            println!(
+                "DIFF ",
+                name,
+                ": queue step ",
+                step,
+                " answered differently",
+            )
+        }
+    }
+    println!(
+        name,
+        ": a queue of ",
+        most + 1,
+        " requests and two end-of-block calls: ",
+        steps_same,
+        "/",
+        most + 3,
+        " steps as deployed",
+    )
+    (differ, 6 + (most + 3).downcast_unchecked())
 }
 
 // Whether `a` and `b` hold the same storage for `address`.
@@ -4440,4 +4521,128 @@ fn same_storage(_ a: fevm::WorldState, _ b: fevm::WorldState, _ address: u256) -
         }
     }
     true
+}
+
+/// `mutants-system <port-dir> <dir>...`: mutation testing of the system
+/// contracts' check. Every operator in `port-dir`'s `src/lib.fe` (the four
+/// system contracts, see `mutants::sites`) is flipped in turn, the mutant
+/// is built with `fe`, and `system` runs it beside the deployed contracts
+/// on each saved block; a block where it differs kills it. The unchanged
+/// ports go first and must pass on every block.
+#[cfg(target_family = "unix")]
+fn mutants_system_command() -> i32
+uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut Stdout)
+{
+    if args.count() < 4 {
+        println!("usage: fevm-replay mutants-system <port-dir> <dir>...")
+        return 2
+    }
+    let port_dir = args.get(2)
+    let Result::Ok(source) = fs.read(fetch::join(port_dir, "src/lib.fe")) else {
+        println!("ERROR ", port_dir, "/src/lib.fe: cannot read")
+        return 1
+    }
+    let Result::Ok(manifest) = fs.read(fetch::join(port_dir, "fe.toml")) else {
+        println!("ERROR ", port_dir, "/fe.toml: cannot read")
+        return 1
+    }
+    let work = "/tmp/fevm-replay-mutant-system"
+    let Result::Ok(_) = fs.create_dir_all(fetch::join(work, "src")) else {
+        println!("ERROR ", work, ": cannot create")
+        return 1
+    }
+    let Result::Ok(_) = fs.write(fetch::join(work, "fe.toml"), manifest.span()) else {
+        return 1
+    }
+    let all = mutants::sites(source.span())
+    var built: u64 = 0
+    var killed: u64 = 0
+    var survivors = MemBuffer::empty()
+    for n in 0 .. all.len() + 1 {
+        let mutated = if n == 0 {
+            MemBuffer::from_span(source.span())
+        } else {
+            mutants::apply(source.span(), all[n - 1])
+        }
+        let Result::Ok(_) = fs.write(fetch::join(work, "src/lib.fe"), mutated.span()) else {
+            return 1
+        }
+        if !fe_build(work, "/tmp/fevm-replay-mutant-system/out") {
+            if n == 0 {
+                println!("ERROR the ports themselves do not build with fe")
+                return 1
+            }
+            continue
+        }
+        var differs = false
+        for d in 3 .. args.count() {
+            let command = std::process::Command::new(args.get(0))
+                .arg("system")
+                .arg(args.get(d))
+                .arg(
+                    "/tmp/fevm-replay-mutant-system/out/BeaconRoots.runtime.bin",
+                )
+                .arg(
+                    "/tmp/fevm-replay-mutant-system/out/HistoryStorage.runtime.bin",
+                )
+                .arg(
+                    "/tmp/fevm-replay-mutant-system/out/WithdrawalRequests.runtime.bin",
+                )
+                .arg(
+                    "/tmp/fevm-replay-mutant-system/out/ConsolidationRequests.runtime.bin",
+                )
+                .stdout(std::process::Redirect::Capture)
+                .stderr(std::process::Redirect::Capture)
+            let ok = match proc.output(command) {
+                Result::Ok(output) => output.status.success(),
+                Result::Err(_) => false,
+            }
+            if !ok {
+                differs = true
+                break
+            }
+        }
+        if n == 0 {
+            if differs {
+                println!("ERROR the unchanged ports already differ; fix them first")
+                return 1
+            }
+            continue
+        }
+        built += 1
+        if differs {
+            killed += 1
+        } else {
+            let (line, start, end) = mutants::line_of(mutated.span(), all[n - 1].at)
+            "  survived, line ".fmt(mut survivors)
+            line.fmt(mut survivors)
+            ": ".fmt(mut survivors)
+            let text = mutated.span()
+            var i = start
+            while i < end && text[i] == 0x20 {
+                i += 1
+            }
+            while i < end {
+                survivors.push(text[i])
+                i += 1
+            }
+            "\n".fmt(mut survivors)
+        }
+    }
+    println!("mutated ", port_dir, ": ", all.len(), " operators")
+    print!(survivors)
+    println!(
+        "  ",
+        built,
+        " mutants built: ",
+        killed,
+        " killed by the system check on ",
+        args.count() - 3,
+        " mainnet blocks, ",
+        built - killed,
+        " survived; ",
+        if built == 0 { 0 } else { killed * 100 / built },
+        "% killed",
+    )
+    0
 }

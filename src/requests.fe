@@ -81,6 +81,19 @@ pub fn call_as(
     value: u256,
     _ block: BlockEnv,
 ) -> (WorldState, ExecutionResult) {
+    let (state, result, _) = call_logged(world, caller, target, input, value, block)
+    (state, result)
+}
+
+/// `call_as`, with the logs the call left.
+pub fn call_logged(
+    _ world: own WorldState,
+    caller: u256,
+    target: u256,
+    input: MemSpan,
+    value: u256,
+    _ block: BlockEnv,
+) -> (WorldState, ExecutionResult, LogBuffer) {
     var tx = Transaction::new(
         world,
         sender: caller,
@@ -111,9 +124,40 @@ pub fn call_as(
     } else {
         tx.revert(checkpoint)
     }
-    tx.end(commit: true)
-    let (state, _) = tx.release()
-    (state, result)
+    let done = tx.finish(commit: true, gas_spent: 0)
+    (done.state, result, done.logs)
+}
+
+/// Whether `a` and `b` hold the same logs: emitters, topics and data.
+pub fn same_logs(_ a: LogBuffer, _ b: LogBuffer) -> bool {
+    if a.len() != b.len() {
+        return false
+    }
+    var i: u64 = 0
+    while i < a.len() {
+        let x = a.entry(i)
+        let y = b.entry(i)
+        if x.address != y.address || x.topic_count != y.topic_count {
+            return false
+        }
+        for t in 0 .. 4 {
+            if x.topics[t] != y.topics[t] {
+                return false
+            }
+        }
+        let p = a.payload(i)
+        let q = b.payload(i)
+        if p.len() != q.len() {
+            return false
+        }
+        for k in 0 .. p.len() {
+            if p[k] != q[k] {
+                return false
+            }
+        }
+        i += 1
+    }
+    true
 }
 
 /// EIP-7685: `sha256` of the `sha256` of each non-empty request list, its

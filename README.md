@@ -281,7 +281,19 @@ contracts on a block's proven state:
   and must return the same requests and leave the same queue, excess and
   count. Then come 5 calls on what that call left: a fee read, and requests
   paying the fee, nothing, three times the fee, and one of the wrong length.
-  Every answer and every storage slot must be the deployed contract's.
+  Last, a queue no block had: one request more than a block takes (17 or 3),
+  then two end-of-block calls, the second from a head past zero, emptying
+  the queue. Every answer, log and storage slot must be the deployed
+  contract's.
+
+`fevm_replay mutants-system ports/system <dir>...` plants each of the 66
+operator changes in the ports' source, builds each mutant with `fe`, and runs
+`system`: on the CI block and two blocks with real consolidation queues, 62
+of 66 are caught. Of the 4 that survive, three mean the same as the
+original (a byte written past the end and cut off, a bound where `>` and
+`>=` agree); one writes a zero over the next queue slot, which the deployed
+contract would have left as an old request, and the proven state does not
+hold that slot.
 
 Shadow replay runs the mainnet transactions that call these contracts with
 the port in place of the deployed one.
@@ -290,7 +302,7 @@ the port in place of the deployed one.
 | --- | ---: | --- | ---: | ---: | --- |
 | EIP-4788 beacon roots | 51 | same slots, every block | 8 of 8, every block | 15 of 15 identical | call +25 (10,076), read +24 |
 | EIP-2935 history | 51 | same slots, every block | 8 of 8, every block | none in these blocks | call +55 (5,098) |
-| EIP-7002 withdrawal requests | 51 | same output and storage (empty queue every block) | 5 of 5, every block | 2 of 2 identical | call +133, request +712 |
+| EIP-7002 withdrawal requests | 51 | same output and storage (empty queue every block; 16 dequeued from the synthetic queue) | 5 of 5, every block | 2 of 2 identical | call +133, request +712 |
 | EIP-7251 consolidation requests | 51 | same output and storage; 11 blocks dequeued 2 from queues of 6 to 93 | 5 of 5, every block, fees 1 to 1,230 wei | none in these blocks | call +133 to +1,938 |
 
 CI runs the check on a proven block. The ports cost more gas than
