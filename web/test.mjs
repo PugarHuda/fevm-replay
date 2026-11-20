@@ -29,3 +29,24 @@ for (const name of ["usdt.json", "usdc.json"]) {
   assert.match(wrong.out, /does NOT hold/);
   console.log(`${name}: proven; a tampered value and a wrong state root are refused`);
 }
+
+// A whole mainnet block, validated statelessly by fevm in the module: the
+// fixture CI validates natively, with the same verdict and every root.
+import { bundle, tamper, untar, validate } from "../site/wasm/block.mjs";
+const archive = fs.readFileSync(new URL("../fixtures/proven/0x19335e5.tar.gz", import.meta.url));
+const block = bundle(await untar(archive));
+const good = await validate(wasm, manifest, block);
+assert.deepEqual(good.reply, { ok: true, value: 1 }, good.out);
+for (const line of [
+  "71/71 transactions MATCH",
+  "receipts: fevm's 71 receipts hash to the header's receiptsRoot",
+  "hash to the header's requestsHash",
+  "end state: 213 accounts and 521 slots proven against the block's state root, 0 differ",
+  "hashes to the header's stateRoot",
+]) {
+  assert.ok(good.out.includes(line), `missing "${line}" in:\n${good.out}`);
+}
+const bad = await validate(wasm, manifest, tamper(block));
+assert.deepEqual(bad.reply, { ok: true, value: 0 }, bad.out);
+assert.match(bad.out, /70\/71 transactions MATCH/);
+console.log(`block 26,424,805: every root holds (${(good.ms / 1000).toFixed(2)} s); a receipt claiming one more gas is caught`);

@@ -45,8 +45,8 @@ jobs:
         run: |
           head=$(git ls-remote https://github.com/fe-lang/fevm refs/heads/main | cut -f1)
           echo "fevm main: $head"
-          sed -i -E "s/(fe-lang\/fevm\", rev = \")[0-9a-f]{40}/\1$head/" fe.toml
-          grep fevm fe.toml
+          sed -i -E "s/(fe-lang\/fevm\", rev = \")[0-9a-f]{40}/\1$head/" fe.toml ingots/replay_core/fe.toml web/fe.toml
+          grep fevm fe.toml ingots/replay_core/fe.toml
 
       - name: Build fevm-replay
         run: fe build --backend native -O 2 --emit executable --out-dir out .

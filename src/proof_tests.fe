@@ -1,3 +1,4 @@
+use replay_core::{load, proof}
 // Merkle proofs from mainnet: block 26,407,882's header and the proof of
 // one account (0x3d90...6be9) and one of its slots, as eth_getProof sent
 // them. Nothing here asks the node: the hashes prove the values.
@@ -5,8 +6,8 @@
 use core::MemBuffer
 use std::io::Display
 use json::{Value, parse}
-use ingot::load::field
-use ingot::proof
+use load::field
+use proof
 
 fn vector() -> Value {
     var text = MemBuffer::empty()

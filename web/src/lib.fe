@@ -10,27 +10,26 @@ use std::io::Stdout
 use std::wasm::{HostText, Reply}
 use std::wasm::files::{Files, close, open, read, size}
 use json::{Value, parse}
+use replay_core::validate::{SystemPorts, validate}
 
 fn number(_ value: Value) -> u256 {
     parse_hex_uint(value.text()).unwrap_or(default: 0)
 }
 
-/// Checks the proof file `name` (`{"stateRoot", "address", "accountProof",
-/// "storageProof": [{"key", "value", "proof"}]}`). Replies 1 if every proof
-/// holds and every value is the one claimed, 0 if not, and an error code if
-/// the file cannot be read or parsed.
-#[unsafe(export)]
-pub fn verify(name: HostText) -> Reply uses (files: mut Files, out: mut Stdout) {
+/// The whole of the host's file `name`, or the error code reading it gave.
+fn read_all(_ name: HostText) -> Result<u32, MemArray<u8>>
+uses (files: mut Files)
+{
     let handle = match open(name.copy()) {
         Result::Ok(handle) => handle,
         Result::Err(error) => {
-            return Reply::error(error.code())
+            return Result::Err(error.code())
         },
     }
     let length = match size(handle) {
         Result::Ok(length) => length,
         Result::Err(error) => {
-            return Reply::error(error.code())
+            return Result::Err(error.code())
         },
     }
     var data: MemArray<u8> = MemArray::new_zeroed(length as usize)
@@ -47,11 +46,26 @@ pub fn verify(name: HostText) -> Reply uses (files: mut Files, out: mut Stdout) 
             },
             Result::Err(error) => {
                 close(handle)
-                return Reply::error(error.code())
+                return Result::Err(error.code())
             },
         }
     }
     close(handle)
+    Result::Ok(data)
+}
+
+/// Checks the proof file `name` (`{"stateRoot", "address", "accountProof",
+/// "storageProof": [{"key", "value", "proof"}]}`). Replies 1 if every proof
+/// holds and every value is the one claimed, 0 if not, and an error code if
+/// the file cannot be read or parsed.
+#[unsafe(export)]
+pub fn verify(name: HostText) -> Reply uses (files: mut Files, out: mut Stdout) {
+    let data = match read_all(name) {
+        Result::Ok(data) => data,
+        Result::Err(code) => {
+            return Reply::error(code)
+        },
+    }
     let Result::Ok(doc) = parse(data.as_slice()) else {
         return Reply::error(100)
     }
@@ -113,4 +127,45 @@ pub fn verify(name: HostText) -> Reply uses (files: mut Files, out: mut Stdout) 
         }
     }
     Reply::ok(if all { 1 } else { 0 })
+}
+
+/// Validates a mainnet block statelessly: `name` is one JSON file holding
+/// what a node said about the block (`chain`, `block`, `receipts`,
+/// `prestate`, `diff`, `delegates`) and the parent's and the block's proofs
+/// (`proofs`). fevm, compiled into this module, runs the block's system
+/// calls and transactions on the pre-state the parent's proofs prove, and
+/// every root in the header is checked: the same `validate` the native
+/// tool runs. Replies 1 if every transaction matched and every root held.
+#[unsafe(export)]
+pub fn validate_block(name: HostText) -> Reply
+uses (files: mut Files, out: mut Stdout)
+{
+    let data = match read_all(name) {
+        Result::Ok(data) => data,
+        Result::Err(code) => {
+            return Reply::error(code)
+        },
+    }
+    let Result::Ok(doc) = parse(data.as_slice()) else {
+        return Reply::error(100)
+    }
+    let found = validate(
+        "block",
+        chain: doc["chain"],
+        block: doc["block"],
+        receipts: doc["receipts"],
+        prestates: doc["prestate"],
+        diffs: doc["diff"],
+        extras: doc["delegates"],
+        proofs: doc["proofs"],
+        proving: true,
+        fetched: fevm::WorldState::empty(),
+        ports: SystemPorts::none(),
+    )
+    let clean = !found.failed
+        && found.matched == found.count.downcast_unchecked()
+        && found.unknown == 0
+        && found.unproven == 0
+        && found.stateless_ok
+    Reply::ok(if clean { 1 } else { 0 })
 }

@@ -2,8 +2,8 @@
   "manifest_version": 1,
   "module": {
     "file": "fevm_replay_web.wasm",
-    "sha256": "b1c8fa3066b16072df76d9892f17d28f592b168ba8c95c0161adcae94647979c",
-    "size": 72452,
+    "sha256": "9b32f32e24c9c4a5bc934f70343ea9391b8e5d3eb005c8c8e28c54547c59c931",
+    "size": 3934736,
     "initial_memory_pages": 18
   },
   "contract_version": 3,
@@ -15,7 +15,10 @@
       "name": "__fe_revert",
       "kind": "function",
       "type": {
-        "params": ["i32", "i32"],
+        "params": [
+          "i32",
+          "i32"
+        ],
         "results": []
       }
     },
@@ -24,7 +27,9 @@
       "name": "sys_wasm_files_close",
       "kind": "function",
       "type": {
-        "params": ["i32"],
+        "params": [
+          "i32"
+        ],
         "results": []
       }
     },
@@ -33,8 +38,13 @@
       "name": "sys_wasm_files_open",
       "kind": "function",
       "type": {
-        "params": ["i32", "i32"],
-        "results": ["i64"]
+        "params": [
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i64"
+        ]
       }
     },
     {
@@ -42,8 +52,15 @@
       "name": "sys_wasm_files_read",
       "kind": "function",
       "type": {
-        "params": ["i32", "i32", "i32", "i32"],
-        "results": ["i64"]
+        "params": [
+          "i32",
+          "i32",
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i64"
+        ]
       }
     },
     {
@@ -51,8 +68,12 @@
       "name": "sys_wasm_files_size",
       "kind": "function",
       "type": {
-        "params": ["i32"],
-        "results": ["i64"]
+        "params": [
+          "i32"
+        ],
+        "results": [
+          "i64"
+        ]
       }
     },
     {
@@ -60,8 +81,14 @@
       "name": "sys_wasm_stream_write",
       "kind": "function",
       "type": {
-        "params": ["i32", "i32", "i32"],
-        "results": ["i32"]
+        "params": [
+          "i32",
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i32"
+        ]
       }
     }
   ],
@@ -74,12 +101,16 @@
         {
           "name": "size",
           "type": "u32",
-          "wasm": ["i32"]
+          "wasm": [
+            "i32"
+          ]
         }
       ],
       "result": {
         "type": "u32",
-        "wasm": ["i32"]
+        "wasm": [
+          "i32"
+        ]
       }
     },
     {
@@ -89,7 +120,9 @@
       "params": [],
       "result": {
         "type": "u32",
-        "wasm": ["i32"]
+        "wasm": [
+          "i32"
+        ]
       }
     },
     {
@@ -100,7 +133,9 @@
         {
           "name": "mark",
           "type": "u32",
-          "wasm": ["i32"]
+          "wasm": [
+            "i32"
+          ]
         }
       ],
       "result": null
@@ -110,18 +145,43 @@
       "kind": "memory"
     },
     {
+      "name": "validate_block",
+      "kind": "function",
+      "params": [
+        {
+          "name": "name",
+          "type": "HostText",
+          "wasm": [
+            "i32",
+            "i32"
+          ]
+        }
+      ],
+      "result": {
+        "type": "Reply",
+        "wasm": [
+          "i64"
+        ]
+      }
+    },
+    {
       "name": "verify",
       "kind": "function",
       "params": [
         {
           "name": "name",
           "type": "HostText",
-          "wasm": ["i32", "i32"]
+          "wasm": [
+            "i32",
+            "i32"
+          ]
         }
       ],
       "result": {
         "type": "Reply",
-        "wasm": ["i64"]
+        "wasm": [
+          "i64"
+        ]
       }
     }
   ]

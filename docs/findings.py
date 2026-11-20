@@ -275,7 +275,7 @@ if bd:
     depth = [r["bal_depth"] / r["transactions"] for r in bd]
     free = [r["bal_free"] / r["transactions"] for r in bd]
     w(f"18. **A block access list is {st.median(bal_ratio):.0f} times smaller than the witness, and the blocks are about a "
-      f"third serial.** EIP-7928's list, built from each transaction's traces (`src/bal.fe`): {st.median(r['bal_bytes'] for r in bd) / KiB:.0f} KiB "
+      f"third serial.** EIP-7928's list, built from each transaction's traces (`ingots/replay_core/src/bal.fe`): {st.median(r['bal_bytes'] for r in bd) / KiB:.0f} KiB "
       f"a block (median; {min(r['bal_bytes'] for r in bd) / KiB:.0f} to {max(r['bal_bytes'] for r in bd) / KiB:.0f} KiB), "
       f"{sum(r['bal_bytes'] for r in bd) / sum(r['transactions'] for r in bd):.0f} bytes a transaction, RLP uncompressed. "
       f"With it a client knows each transaction's reads and writes before it runs; the longest chain of transactions "

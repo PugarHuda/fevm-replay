@@ -10,6 +10,7 @@
 //! the heaviest storage tries. A block that cannot be proven in time is
 //! recorded as such.
 
+use replay_core::{load}
 use core::{MemBuffer, MemSpan}
 use core::text::decimal
 use std::env::{Arg, Args}
@@ -18,7 +19,7 @@ use std::io::{Display, Stdout}
 use std::process::{Command, Redirect, Spawn}
 use json::parse
 use fevm::WorldState
-use ingot::load::field
+use load::field
 use ingot::fetch
 
 // Where `needle` first occurs in `text` at or after `from`.

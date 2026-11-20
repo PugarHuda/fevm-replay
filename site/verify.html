@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Verify in your browser · fevm-replay</title>
-<meta name="description" content="fevm-replay's Merkle-Patricia proof check, compiled from Fe to WebAssembly, verifies mainnet account and storage proofs against a block's state root in your browser.">
+<title>Validate in your browser · fevm-replay</title>
+<meta name="description" content="fevm, the EVM written in Fe, compiled to WebAssembly with fevm-replay's stateless validation: a whole mainnet block validated in your browser against every root in its header, and mainnet proofs checked against a state root.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -17,7 +17,7 @@
   .controls button { font: inherit; font-weight: 600; padding: 0.55rem 1rem; border-radius: 6px; border: 1px solid var(--rule); background: var(--paper); color: var(--ink); cursor: pointer; }
   .controls button.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
   .controls label { display: inline-flex; gap: 0.4rem; align-items: center; color: var(--steel); }
-  pre#out { min-height: 12rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+  pre#out, pre#bout { min-height: 12rem; white-space: pre-wrap; overflow-wrap: anywhere; }
   .verdict { font-weight: 700; margin: 0.75rem 0; }
   .verdict.ok { color: var(--match, #2e8b6f); }
   .verdict.bad { color: var(--diff, #c9961a); }
@@ -43,7 +43,26 @@
 
 <main class="wrap">
   <section class="g-head">
-    <h1>Verify a mainnet proof in your browser</h1>
+    <h1>Validate a mainnet block in your browser</h1>
+    <p class="intro">This runs fevm, the EVM written in Fe, compiled to WebAssembly with fevm-replay's stateless validation (<a href="https://github.com/PugarHuda/fevm-replay/blob/main/ingots/replay_core/src/validate.fe"><code>ingots/replay_core</code></a>): the same Fe code the native tool and CI run. Your browser downloads mainnet block 26,424,805, the node's traces of it and its parent's proofs (3.5 MB compressed), then fevm proves the parent's state from those proofs, runs the block's two first system calls and 71 transactions, and checks every root the header commits to: receipts, transactions, withdrawals, requests, gas, logs bloom and, from the witness and fevm's end state, the state root. Nothing is trusted but the block hash.</p>
+  </section>
+
+  <div class="controls">
+    <label><input type="checkbox" id="btamper"> a receipt claims one more gas than the transaction used</label>
+    <button class="primary" id="brun">Validate block 26,424,805</button>
+  </div>
+  <p class="verdict" id="bverdict" aria-live="polite"></p>
+  <pre id="bout">fevm runs in a worker, off the page's thread.</pre>
+
+  <section class="why">
+    <h2>How a 3.9 MB module runs a block</h2>
+    <p>The page loads <code>fevm_replay_web.wasm</code> into a Web Worker with Fe's own WebAssembly host, checks it against its build manifest and calls <code>validate_block</code> on one JSON document: the block, its receipts and traces, and the parent's and the block's proofs, as <code>fevm_replay fetch</code> and <code>fetch-proofs</code> saved them. fevm dispatches opcodes with tail calls, each handler calling the next; Fe's WebAssembly backend emits them as plain calls, which overflow the browser's stack within one transaction. <a href="https://github.com/PugarHuda/fevm-replay/blob/main/web/tailcalls.py"><code>web/tailcalls.py</code></a> turns the 66,146 calls that are in tail position into <code>return_call</code>, in place, and CI checks that the module served here is exactly that build.</p>
+  </section>
+
+  <hr>
+
+  <section class="g-head">
+    <h2>Verify a mainnet proof</h2>
     <p class="intro">Every stateless block fevm-replay validates starts from <code>eth_getProof</code> answers checked against the parent's state root. That check is Fe (<a href="https://github.com/PugarHuda/fevm-replay/blob/main/ingots/mpt/src/lib.fe"><code>ingots/mpt</code></a>), with no host capability, so Fe 26.7 compiles the same code to WebAssembly (<a href="https://github.com/PugarHuda/fevm-replay/blob/main/web/src/lib.fe"><code>web/</code></a>, <code>fe build --backend wasm</code>). Below, your browser runs it on the real proofs of USDT's and USDC's accounts and three of their slots, under the state root of mainnet block 26,424,804. Change a value and the proof no longer proves it.</p>
   </section>
 
@@ -114,6 +133,33 @@ run.addEventListener("click", async () => {
     out.textContent = "Error: " + e.message;
   }
   run.disabled = false;
+});
+</script>
+<script type="module">
+const brun = document.getElementById("brun");
+const bout = document.getElementById("bout");
+const bverdict = document.getElementById("bverdict");
+brun.addEventListener("click", () => {
+  brun.disabled = true;
+  bverdict.textContent = "";
+  bverdict.className = "verdict";
+  const worker = new Worker("wasm/block-worker.mjs", { type: "module" });
+  worker.onmessage = ({ data }) => {
+    if (data.step) { bout.textContent = data.step; return; }
+    worker.terminate();
+    brun.disabled = false;
+    if (data.error) { bout.textContent = data.error; return; }
+    bout.textContent = data.out;
+    const s = (data.ms / 1000).toFixed(2);
+    if (data.reply.ok && data.reply.value === 1) {
+      bverdict.textContent = `Every root holds: fevm validated the block in ${s} s in your browser.`;
+      bverdict.classList.add("ok");
+    } else {
+      bverdict.textContent = `The block does not validate as given (${s} s).`;
+      bverdict.classList.add("bad");
+    }
+  };
+  worker.postMessage({ archive: "block-0x19335e5.tar.gz", tamper: document.getElementById("btamper").checked });
 });
 </script>
 </body>

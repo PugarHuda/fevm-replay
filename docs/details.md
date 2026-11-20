@@ -683,7 +683,7 @@ header. `chain` then checks, offline:
    against the block's own state root;
 4. fevm's own receipts (status, cumulative gas, logs bloom and every log),
    encoded as the chain encodes them (EIP-2718), built into a
-   Merkle-Patricia trie in Fe ([`src/receipts.fe`](../src/receipts.fe)),
+   Merkle-Patricia trie in Fe ([`ingots/replay_core/src/receipts.fe`](../ingots/replay_core/src/receipts.fe)),
    against the header's `receiptsRoot`. This one needs no proofs and no
    node: `chain` checks it for every saved block;
 5. the end-of-block system calls (EIP-7002 withdrawal and EIP-7251
@@ -692,7 +692,7 @@ header. `chain` then checks, offline:
    proven code hash, the queue's bookkeeping slots and the entries the call
    dequeues. Their output, after the deposits cut from fevm's own deposit
    contract logs (EIP-6110), is hashed as EIP-7685 says (sha256 through
-   fevm's own precompile, [`src/requests.fe`](../src/requests.fe)) and
+   fevm's own precompile, [`ingots/replay_core/src/requests.fe`](../ingots/replay_core/src/requests.fe)) and
    matched with the header's `requestsHash`. The request contracts are then
    part of the end state like any other account.
 
@@ -738,7 +738,7 @@ DIFF  balance 0x2271adcc…6f92: proven 0x…21db88ec4fe3dd, fevm 0x…21db88ec4
 BROKEN account proof 0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48
 ```
 
-The verifier is `src/proof.fe`, about 300 lines of Fe: RLP from std
+The verifier is `ingots/replay_core/src/proof.fe`, about 300 lines of Fe: RLP from std
 (`std::evm::rlp`), keccak from core, a walk down the trie along the key's
 64 nibbles through branch, extension and leaf nodes, inline nodes under 32
 bytes, and proofs that a key is absent. It uses no effect but a text
@@ -963,29 +963,33 @@ deployed code, and an ordinary swap. Its data comes from `trace`:
 
 | Module | Role |
 | --- | --- |
-| `src/fetch.fe` | JSON-RPC through curl (`Spawn`), fixtures, block directories and proofs, EIP-4844 blob base fee |
-| `src/load.fe` | JSON to fevm: `load_world`, `load_tx`, `load_block` |
-| `src/replay.fe` | `replay_tx`: load, `transact`, compare; `trace_tx`; finding the account whose code hash a bot checked. No host capabilities |
+| `src/fetch.fe` | JSON-RPC through curl (`Spawn`), fixtures, block directories and proofs |
+| `ingots/replay_core/src/validate.fe` | `validate`: a block run on the pre-state its parent's proofs prove and checked against every root in its header; the native `chain` and the browser's `validate_block` both call it |
+| `ingots/replay_core/src/blob.fe` | EIP-4844's blob base fee and mainnet's blob schedule, as `const fn`s checked by `static_assert` |
+| `ingots/replay_core/src/load.fe` | JSON to fevm: `load_world`, `load_tx`, `load_block` |
+| `ingots/replay_core/src/replay.fe` | `replay_tx`: load, `transact`, compare; `trace_tx`; finding the account whose code hash a bot checked. No host capabilities |
 | `src/check.fe` | checks the shape of the node's answers before anything reads them |
-| `src/compare.fe` | applies the chain's diff, then compares worlds, receipts and logs |
-| `src/proof.fe` | Merkle-Patricia proofs (EIP-1186) against a state root, block header hashes, a world checked account by account and slot by slot. No host capabilities |
-| `src/receipts.fe` | receipts encoded as the chain encodes them, and a Merkle-Patricia trie built from them, for the header's `receiptsRoot`. No host capabilities |
-| `src/roots.fe` | transactions re-encoded (EIP-2718) and withdrawals, for the header's `transactionsRoot` and `withdrawalsRoot`. No host capabilities |
+| `ingots/replay_core/src/compare.fe` | applies the chain's diff, then compares worlds, receipts and logs |
+| `ingots/replay_core/src/proof.fe` | Merkle-Patricia proofs (EIP-1186) against a state root, block header hashes, a world checked account by account and slot by slot. No host capabilities |
+| `ingots/replay_core/src/receipts.fe` | receipts encoded as the chain encodes them, and a Merkle-Patricia trie built from them, for the header's `receiptsRoot`. No host capabilities |
+| `ingots/replay_core/src/roots.fe` | transactions re-encoded (EIP-2718) and withdrawals, for the header's `transactionsRoot` and `withdrawalsRoot`. No host capabilities |
 | `src/follow.fe` | `follow`: the chain head validated as it grows, by running `fetch-block`, `fetch-proofs` and `chain`; the stateless page's data |
-| `src/binary.fe` | the binary tree (EIP-7864) witness estimated for the same keys and the code chunks run. No host capabilities |
-| `src/chunks.fe` | `CodeWatch`, a tracer that notes the 31-byte code chunks a block runs (EIP-7864) |
-| `src/bal.fe` | EIP-7928's block access list built from the traces, its RLP size, and the block's longest chain of dependent transactions. No host capabilities |
-| `src/gas4762.fe` | what EIP-4762 would charge for a transaction's witness, against today's charges for the same accesses |
-| `src/crosscheck.fe` | the block a second time through `fevm_chain` and `fevm::Block`, against the header |
-| `src/compat.fe` | fevm's `transact` as the replay, fuzz and shadow call sites use it |
-| `src/stateless.fe` | the end-state root computed from the parent's witness and fevm's end state: inserts, changes and deletions in a partial Merkle-Patricia trie. No host capabilities |
-| `src/requests.fe` | the system calls (EIP-4788, EIP-2935, EIP-7002, EIP-7251), deposits from fevm's logs (EIP-6110), and the EIP-7685 requests hash, for the header's `requestsHash`. No host capabilities |
-| `src/fuzz.fe` | shadow fuzzing of WETH9 and of a Uniswap V2 pair: random calls against deployed code and its port, compared after each |
+| `ingots/replay_core/src/binary.fe` | the binary tree (EIP-7864) witness estimated for the same keys and the code chunks run. No host capabilities |
+| `ingots/replay_core/src/chunks.fe` | `CodeWatch`, a tracer that notes the 31-byte code chunks a block runs (EIP-7864) |
+| `ingots/replay_core/src/bal.fe` | EIP-7928's block access list built from the traces, its RLP size, and the block's longest chain of dependent transactions. No host capabilities |
+| `ingots/replay_core/src/gas4762.fe` | what EIP-4762 would charge for a transaction's witness, against today's charges for the same accesses |
+| `ingots/replay_core/src/crosscheck.fe` | the block a second time through `fevm_chain` and `fevm::Block`, against the header |
+| `ingots/replay_core/src/compat.fe` | fevm's `transact` as the replay, fuzz and shadow call sites use it |
+| `ingots/replay_core/src/stateless.fe` | the end-state root computed from the parent's witness and fevm's end state: inserts, changes and deletions in a partial Merkle-Patricia trie. No host capabilities |
+| `ingots/replay_core/src/requests.fe` | the system calls (EIP-4788, EIP-2935, EIP-7002, EIP-7251), deposits from fevm's logs (EIP-6110), and the EIP-7685 requests hash, for the header's `requestsHash`. No host capabilities |
+| `ingots/replay_core/src/fuzz.fe` | shadow fuzzing of WETH9 and of a Uniswap V2 pair: random calls against deployed code and its port, compared after each |
 | `src/mutate.fe` | mainnet-seeded fuzzing: real transactions mutated on their own pre-state, calls changed in flight through a proxy |
-| `src/watch.fe` | `GasWatch`, a tracer that records every call (caller, account it runs as, value, gas, calldata and output), reads of the gas left after shadow code ran, of code hashes, `BLOCKHASH`, and the port's program counters; where two runs part and which gas reading explains it |
+| `ingots/replay_core/src/watch.fe` | `GasWatch`, a tracer that records every call (caller, account it runs as, value, gas, calldata and output), reads of the gas left after shadow code ran, of code hashes, `BLOCKHASH`, and the port's program counters; where two runs part and which gas reading explains it |
 | `src/mutants.fe` | mutation sites in a port's source and the mutants planted there |
 | `src/certify.fe` | the certificate page |
 | `src/source.fe` | a selector's `msg` variant and `recv` arm in a port's source, for lack of a source map |
+| `ingots/replay_core/` | every module above under that path: no file, process or network, so it builds natively and for WebAssembly |
+| `web/` | the WebAssembly build: `verify` (proofs) and `validate_block` (a whole block); `web/tailcalls.py` makes its calls in tail position tail calls |
 | `src/lib.fe` | the CLI: `fetch`, `fetch-block`, `fetch-code`, `fetch-hashes`, `fetch-proofs`, `block`, `range`, `chain`, `trace`, `opgas`, `fuzz`, `fuzz-pair`, `fuzz-usdt`, `fuzz-dai`, `fuzz-proxy`, `fuzz-block`, `mutants`, `mutants-system`, `system`, `certify`, `follow`, replaying fixture files |
 | `src/tests.fe`, `src/proof_tests.fe` | unit tests for the helpers; the proof tests run on a real proof and header from mainnet |
 | `ports/weth9` | WETH9 in Fe, for shadow replay |

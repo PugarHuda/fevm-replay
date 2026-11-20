@@ -1,0 +1,14 @@
+[ingot]
+name = "replay_core"
+version = "0.7.0"
+
+# What validates a block and replays its transactions, with no host
+# capability: the native tool builds on it, and so does the browser's
+# WebAssembly build (web/).
+[dependencies]
+mpt = { path = "../mpt" }
+fevm = { source = "https://github.com/fe-lang/fevm", rev = "9c5fa9199d2760fc9651debca89279ecab4b75f2", path = "ingots/evm", allow_unsafe = true }
+keccak = { source = "https://github.com/fe-lang/keccak", rev = "345d5088de986fe54b23a6aaa3a33e1c349d0960" }
+json = { source = "https://github.com/fe-lang/json", rev = "93b2935c254085558dfd96885744cdf42ac1fe71" }
+fevm_chain = { source = "https://github.com/fe-lang/fevm", rev = "9c5fa9199d2760fc9651debca89279ecab4b75f2", path = "ingots/chain", allow_unsafe = true }
+fevm_precompiles = { source = "https://github.com/fe-lang/fevm", rev = "9c5fa9199d2760fc9651debca89279ecab4b75f2", path = "ingots/precompiles", allow_unsafe = true }

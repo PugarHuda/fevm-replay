@@ -8,6 +8,7 @@
 //! every account's balance, nonce and non-zero storage after must agree.
 //! The system contracts, which `t8n` calls around the transaction and fevm
 //! does not, are left out of the comparison.
+use replay_core::{compat, fuzz, load, proof}
 use core::{MemBuffer, MemSpan}
 use core::text::{decimal, hex, parse_hex_uint}
 use std::fs::Fs
@@ -16,11 +17,11 @@ use std::process::{Command, Redirect, Spawn}
 use json::{Value, parse}
 use fevm::{Buffers, Config, LogBuffer, WorldState}
 use fevm::status::VALID
-use ingot::compat::transact
+use compat::transact
 use ingot::fetch::{header_blob_fee, join}
-use ingot::load::{field, hex_bytes, load_block, load_tx_with, load_world}
+use load::{field, hex_bytes, load_block, load_tx_with, load_world}
 use ingot::mutate::{Rng, mutate}
-use ingot::proof
+use proof
 
 /// The test account (the key execution-spec-tests use).
 const SENDER: u256 = 0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b
@@ -265,7 +266,7 @@ fn differences(
                 }
                 let data = hex_bytes(g["data"].text())
                 let mine = logs.payload(i.downcast_unchecked())
-                same = same && ingot::fuzz::same_bytes(data.span(), mine)
+                same = same && fuzz::same_bytes(data.span(), mine)
             }
             if !same {
                 "log ".fmt(mut why)

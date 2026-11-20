@@ -15,25 +15,19 @@
 //! transaction did not touch are absent from the pre-state and read as
 //! empty in both runs: a mutation that wanders off is still compared fairly.
 
+use replay_core::{compat, fuzz, load, replay, watch}
 use core::{MemBuffer, MemSpan, MemVec}
 use json::Value
 use fevm::{BlockEnv, Buffers, Config, WorldState}
-use ingot::compat::transact
+use compat::transact
 use fevm::trace::{CallEnd, CallStart, Tracer}
 use fevm::status::{ERR_OUT_OF_GAS, OK}
-use ingot::fuzz::{same_bytes, same_logs, same_reason, same_state_except, same_status}
-use ingot::load::{field, hex_bytes, load_tx_with, load_world}
+use fuzz::{same_bytes, same_logs, same_reason, same_state_except, same_status}
+use load::{field, hex_bytes, load_tx_with, load_world}
 use core::text::parse_hex_uint
 use std::process::Spawn
-use ingot::replay::{build_world, shadow_targets}
-use ingot::watch::{
-    GasWatch,
-    differing_owner,
-    explain_gas,
-    first_parting,
-    merge_coverage,
-    ran_out_first,
-}
+use replay::{build_world, shadow_targets}
+use watch::{GasWatch, differing_owner, explain_gas, first_parting, merge_coverage, ran_out_first}
 
 /// A contract that read the gas left where two runs part, and in how many
 /// runs.
@@ -259,7 +253,7 @@ fn slot_in(_ part: Value, _ address: u256, _ slot: u256) -> Option<u256> {
             && member.value.has("storage") {
             for ref s in member.value["storage"].members() {
                 if parse_hex_uint(s.key.span()).unwrap_or(default: 0) == slot {
-                    return Option::Some(ingot::load::hex_word(s.value))
+                    return Option::Some(load::hex_word(s.value))
                 }
             }
         }

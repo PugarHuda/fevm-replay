@@ -1,0 +1,5 @@
+//! fevm-replay's core: loading a block and its traces into fevm, replaying
+//! and comparing transactions, proofs against a state root, the roots a
+//! header commits to, and validating a block statelessly. No module here
+//! touches the file system, a process or the network, so the same code
+//! builds natively and for WebAssembly.

@@ -1,8 +1,33 @@
 //! fevm-replay: replay Ethereum mainnet transactions in fevm and check the
 //! result against the chain.
 
-use core::MemBuffer
+use replay_core::validate::{
+    SystemPorts,
+    header_commitments,
+    print_checked,
+    print_share,
+    same_length,
+    validate,
+}
 use certify::Check
+use replay_core::{
+    bal,
+    binary,
+    compare,
+    compat,
+    crosscheck,
+    fuzz,
+    gas4762,
+    load,
+    proof,
+    receipts,
+    replay,
+    requests,
+    roots,
+    stateless,
+    watch,
+}
+use core::MemBuffer
 use core::fixed::UFixed
 use std::env::{Arg, Args}
 use std::io::{Display, Stdout}
@@ -331,14 +356,6 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     0
 }
 
-// Whether `list` is a JSON array of `count` entries.
-fn same_length(_ list: Value, _ count: usize) -> bool {
-    match list.as_array() {
-        Option::Some(ref items) => items.len() == count,
-        Option::None => false,
-    }
-}
-
 // The JSON document saved in `dir/name`.
 #[cfg(target_family = "unix")]
 fn load_json<D: Display>(_ dir: D, _ name: String<16>) -> Option<json::Value>
@@ -445,16 +462,6 @@ impl Totals {
             shadow_profile: core::MemVec::new(),
         }
     }
-}
-
-fn print_share(_ matched: u64, _ total: u64) uses (out: mut Stdout) {
-    // Nothing to replay matched in full.
-    let share = if total == 0 {
-        UFixed<1>::from_int(100)
-    } else {
-        certify::share(matched, total)
-    }
-    println!(matched, "/", total, " transactions MATCH (", share, "%)")
 }
 
 fn read_shadow(_ path: Arg) -> Option<MemBuffer>
@@ -1121,564 +1128,76 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     let Option::Some(diffs) = load_response(dir, "diff.json") else {
         return 1
     }
-    let header = ref block["result"]
-    let txs = header["transactions"].items()
-    let count = txs.len()
-    if !same_length(receipts["result"], count)
-        || !same_length(prestates["result"], count)
-        || !same_length(diffs["result"], count) {
-        println!(
-            "ERROR ",
-            dir,
-            ": the receipts and traces do not list one entry per transaction",
-        )
-        return 1
-    }
-    let env = load_block(
-        header,
-        chain_id: field(chain, "result"),
-        blobbasefee: fetch::header_blob_fee(header).as_wei(),
-    )
     let extras = match load_json(dir, "delegates.json") {
         Option::Some(doc) => doc,
         Option::None => Value::object(),
     }
-    // The block's pre-state.
-    var world = fevm::WorldState::empty()
-    var i = count
-    while i > 0 {
-        i -= 1
-        load::add_prestate(mut world, prestates["result"][i]["result"])
-        load::clear_created(
-            mut world,
-            prestates["result"][i]["result"],
-            diffs["result"][i]["result"],
-        )
-    }
-    // An empty account does not exist on chain (EIP-161), though the
-    // tracer lists accounts a transaction only looked at; a record of one
-    // would count as existing, as for an EIP-7702 authority's refund.
-    var empty: core::MemVec<u256> = core::MemVec::new()
-    for k in 0 .. world.account_count() {
-        let address = world.account_at(k).address
-        if world.is_empty(address) && !world.has_storage(address) {
-            empty.push(address)
-        }
-    }
-    for k in 0 .. empty.len() {
-        world.remove_account(empty[k])
-    }
-    world.set_block_hash(env.number - 1, field(header, "parentHash"))
-    load::add_extras(mut world, extras)
     // With proofs saved beside the block (`fetch-proofs`), the block's
-    // pre-state is checked against the parent's state root here, and the end
-    // state against the block's own after the last transaction. Both roots
-    // come from headers whose hashes are checked, so what a MATCH rests on
-    // is the block hash, not the node.
-    var proofs = Value::object()
+    // pre-state is checked against the parent's state root, and the end
+    // state against the block's own.
     let proving = has_file(dir, "proofs.json")
-    var keys = fevm::WorldState::empty()
-    var parent_root: u256 = 0
-    var unproven: u64 = 0
-    var first_calls = false
-    // What `summary.json` adds for a block validated statelessly.
-    var stateless_summary = MemBuffer::empty()
-    var stateless_ok = false
-    // The pre-state for fevm's own block layer (`crosscheck`).
-    var cross_pre: Option<fevm::WorldState> = Option::None
+    var proofs = Value::object()
     if proving {
         let Option::Some(doc) = load_json(dir, "proofs.json") else {
             return 1
         }
         proofs = doc
-        let parent = ref proofs["parent"]
-        if proof::header_hash(header) != field(header, "hash")
-            || proof::header_hash(parent) != field(parent, "hash")
-            || field(parent, "hash") != field(header, "parentHash") {
-            println!(
-                "PROOF ",
-                dir,
-                ": the headers do not hash to the block's hash and its parent's",
-            )
-            return 1
-        }
-        parent_root = field(parent, "stateRoot")
-        keys = proof::touched(
-            prestates["result"],
-            diffs["result"],
-            header,
-            recipients: false,
-        )
-        // Proofs that saved the first system contracts' code let fevm run
-        // their calls: the world starts as the parent left it, and fevm
-        // writes what EIP-4788 and EIP-2935 store. Older proofs check the
-        // written slots against what the calls store instead.
-        first_calls = !proof::code_of(proofs, proof::BEACON_ROOTS).is_empty()
-            && !proof::code_of(proofs, proof::HISTORY).is_empty()
-        var written: core::MemVec<proof::Written> = proof::system_writes(header)
-        if first_calls {
-            proof::add_system_keys(mut keys, header)
-            for c in 0 .. 2 {
-                let target = if c == 0 {
-                    proof::BEACON_ROOTS
-                } else {
-                    proof::HISTORY
-                }
-                if !proof::load_system_contract(
-                    mut world,
-                    proofs,
-                    state_root: parent_root,
-                    address: target,
-                    keys,
-                ) {
-                    first_calls = false
-                }
-            }
-            written = core::MemVec::new()
-        }
-        var text = MemBuffer::empty()
-        let pre = with (mut text) {
-            proof::check(
-                world,
-                state_root: parent_root,
-                proofs["pre"],
-                keys,
-                written,
-                skip: core::MemVec::new(),
-                code_unknown: core::MemVec::new(),
-            )
-        }
-        print!(text)
-        println!(
-            "headers: block 0x",
-            core::text::hex(field(header, "hash"), 32),
-            " and its parent hash to themselves",
-        )
-        print_checked("pre-state", "the parent's", pre)
-        unproven += pre.differ + pre.broken + pre.unproven
-        if first_calls {
-            cross_pre = world.try_clone()
-            var ran: u64 = 0
-            for c in 0 .. 2 {
-                let (target, input) = if c == 0 {
-                    (proof::BEACON_ROOTS, field(header, "parentBeaconBlockRoot"))
-                } else {
-                    (proof::HISTORY, field(header, "parentHash"))
-                }
-                var bytes = MemBuffer::with_capacity(32)
-                bytes.write_word(offset: 0, value: input)
-                ports.install(mut world, target)
-                let (after, result) = requests::system_call(world, target, input: bytes.span(), env)
-                world = after
-                ports.restore(mut world, proofs, target)
-                if result.status == fevm::OK {
-                    ran += 1
-                }
-            }
-            if ran == 2 {
-                println!(
-                    "system calls: fevm ran EIP-4788 (beacon root) and EIP-2935 (parent hash) before the first transaction",
-                    if ports.on {
-                        ", both as the Fe ports"
-                    } else {
-                        ""
-                    },
-                )
-            } else {
-                unproven += 1
-                println!("SYSTEM a first system call failed in fevm")
-            }
-        }
     }
-    var matched: u64 = 0
-    var old_hashes: u64 = 0
-    var drift: u64 = 0
-    // fevm's own receipts, encoded as the chain encodes them, for the
-    // receipts root the header commits to.
-    var own_receipts: core::MemVec<MemBuffer> = core::MemVec::new()
-    var cumulative_gas: u256 = 0
-    // The OR of their blooms: the header's logsBloom.
-    var block_bloom: [u8; 256] = [0; 256]
-    // The deposits fevm's logs hold (EIP-6110), for the requests hash.
-    var deposits = MemBuffer::empty()
-    var deposits_ok = true
-    for index in 0 .. count {
-        // The carried state must hold what the node saw before this
-        // transaction, for every account and slot it touched.
-        let off = load::prestate_mismatches(world, prestates["result"][index]["result"])
-        if off > 0 {
-            drift += 1
-            println!(
-                "STATE tx ",
-                index,
-                ": ",
-                off,
-                " values differ from the node's prestate",
-            )
-        }
-        let Option::Some(before) = world.try_clone() else {
-            println!("ERROR out of memory")
-            return 1
-        }
-        var expected = before
-        apply_diff(mut expected, diffs["result"][index]["result"])
-        var buffers = fevm::Buffers::new()
-        var tracer = watch::GasWatch::new(shadows: core::MemVec::new())
-        let applied = ingot::compat::transact(
-            world,
-            load_tx(txs[index]),
-            env,
-            fevm::Config::osaka(),
-            mut buffers,
-            mut tracer,
-        )
-        cumulative_gas += applied.receipt.gas_used as u256
-        if !requests::add_deposits(mut deposits, applied.receipt.logs) {
-            deposits_ok = false
-        }
-        own_receipts
-            .push(
-                receipts::encode(
-                    tx_type: field(txs[index], "type"),
-                    success: applied.receipt.status == fevm::OK,
-                    cumulative_gas,
-                    applied.receipt.logs,
-                    block_bloom: mut block_bloom,
-                ),
-            )
-        var text = MemBuffer::empty()
-        let found = with (mut text) {
-            compare(
-                applied.receipt,
-                applied.state,
-                receipts["result"][index],
-                expected,
-                gas_must_match: true,
-            )
-        }
-        if found.total() == 0 {
-            matched += 1
-            world = applied.state
-        } else {
-            if tracer.read_blockhash {
-                old_hashes += 1
-                println!(
-                    "DIFF  tx ",
-                    index,
-                    " ",
-                    txs[index]["hash"].text(),
-                    " (ran BLOCKHASH; a hash before the parent's is not in the node's traces)",
-                )
-            } else {
-                println!("DIFF  tx ", index, " ", txs[index]["hash"].text())
-                print!(text)
-                // The same transaction on its own prestate: the first call
-                // whose gas differs shows where the carried state matters.
-                var alone = watch::GasWatch::new(shadows: core::MemVec::new())
-                var more = fevm::Buffers::new()
-                let mut_world = replay::build_world(
-                    prestates["result"][index]["result"],
-                    env,
-                    field(header, "parentHash"),
-                    extras,
-                    core::MemVec::new(),
-                    MemBuffer::empty().span(),
-                )
-                ingot::compat::transact(
-                    mut_world,
-                    load_tx(txs[index]),
-                    env,
-                    fevm::Config::osaka(),
-                    mut more,
-                    mut alone,
-                )
-                let n = if alone.calls.len() < tracer.calls.len() {
-                    alone.calls.len()
-                } else {
-                    tracer.calls.len()
-                }
-                for c in 0 .. n {
-                    let x = tracer.calls[c]
-                    let y = alone.calls[c]
-                    if x.used != y.used || x.gas != y.gas || x.to != y.to {
-                        println!(
-                            "  call ",
-                            c,
-                            " to 0x",
-                            core::text::hex(x.to, 20),
-                            " selector 0x",
-                            core::text::hex(x.selector as u256, 4),
-                            ": gas given ",
-                            x.gas,
-                            " used ",
-                            x.used,
-                            " in the chain, given ",
-                            y.gas,
-                            " used ",
-                            y.used,
-                            " on its own prestate",
-                        )
-                        break
-                    }
-                }
-            }
-            // Go on from the chain's state, so one difference stays one.
-            let Option::Some(chain_state) = expected.try_clone() else {
-                return 1
-            }
-            world = chain_state
-        }
-    }
-    print!("chain ", dir, ": ")
-    print_share(matched, count.downcast_unchecked())
-    // fevm's receipts against the header: status, gas and every log, with
-    // no node in between. The header itself must hash to the block's hash.
-    let receipts_root = receipts::trie_root(own_receipts)
-    let header_hashes = proof::header_hash(header) == field(header, "hash")
-    let receipts_match = header_hashes && receipts_root == field(header, "receiptsRoot")
-    if receipts_match {
-        println!(
-            "receipts: fevm's ",
-            count,
-            " receipts hash to the header's receiptsRoot",
-        )
-    } else if !header_hashes {
-        println!("RECEIPTS the header does not hash to the block's hash")
-    } else {
-        println!(
-            "RECEIPTS fevm's receipts hash to 0x",
-            core::text::hex(receipts_root, 32),
-            ", the header's receiptsRoot is 0x",
-            core::text::hex(field(header, "receiptsRoot"), 32),
-        )
-    }
-    if !receipts_match {
-        unproven += 1
-    }
-    // The rest of what the header commits to about the block's body and
-    // its execution, from the block's own data and fevm's results.
-    unproven += header_commitments(header, gas_used: cumulative_gas, bloom: block_bloom)
-    if old_hashes > 0 {
-        println!("  of the differences, ", old_hashes, " ran BLOCKHASH")
-    }
-    if drift > 0 {
-        println!(
-            "  ",
-            drift,
-            " transactions started from a state that differs from the node's prestate",
-        )
-    }
-    // Withdrawals: each credits its recipient, in gwei.
-    var unknown: u64 = 0
-    var code_unknown: core::MemVec<u256> = core::MemVec::new()
-    var paid: u64 = 0
-    if header.has("withdrawals") {
-        let withdrawals = header["withdrawals"].items()
-        paid = withdrawals.len().downcast_unchecked()
+    // Without proofs, an RPC URL gives the withdrawal recipients' balances
+    // before the block.
+    var fetched = fevm::WorldState::empty()
+    if rpc && !proving && block["result"].has("withdrawals") {
+        let number = field(block["result"], "number")
+        let withdrawals = block["result"]["withdrawals"].items()
         for w in 0 .. withdrawals.len() {
             let address = field(withdrawals[w], "address")
-            // A recipient no transaction touched is not in the world: its
-            // balance before the withdrawals is the parent block's.
-            if !world.exists(address) {
-                if proving {
-                    match proof::find_account(proofs["pre"], state_root: parent_root, address) {
-                        Option::Some(account) => {
-                            if !world.set_balance(address, account.balance)
-                                || !world.set_nonce(address, account.nonce) {
-                                unknown += 1
-                            }
-                            // Its code, if any, is not fetched.
-                            if account.code_hash != proof::EMPTY_CODE {
-                                code_unknown.push(address)
-                            }
-                        },
-                        Option::None => {
-                            unknown += 1
-                        },
-                    }
-                } else if rpc {
-                    match fetch::balance_at(args.get(3), address, number: env.number - 1) {
-                        Option::Some(balance) => {
-                            if !world.set_balance(address, balance) {
-                                unknown += 1
-                            }
-                        },
-                        Option::None => {
-                            unknown += 1
-                        },
-                    }
-                } else {
-                    unknown += 1
-                }
-            }
-            if !world
-                .set_balance(
-                    address,
-                    world.balance(address) + field(withdrawals[w], "amount") * 1_000_000_000,
-                ) {
-                unknown += 1
-            }
-        }
-    }
-    // The end-of-block system calls (EIP-7002, EIP-7251) run on the
-    // request contracts as the parent's proofs prove them; with the
-    // deposits, their output must hash to the header's requestsHash.
-    // Proofs saved before `fetch-proofs` saved the contracts' code leave
-    // them out, and the end state skips the two contracts.
-    let system_calls = proving && proofs.has("code")
-    if system_calls {
-        var withdrawal_requests = MemBuffer::empty()
-        var consolidation_requests = MemBuffer::empty()
-        var ran: u64 = 0
-        for c in 0 .. 2 {
-            let target = if c == 0 {
-                proof::WITHDRAWAL_REQUESTS
-            } else {
-                proof::CONSOLIDATION_REQUESTS
-            }
-            if !proof::load_request_contract(
-                mut world,
-                proofs,
-                state_root: parent_root,
-                address: target,
-                keys,
+            if let Option::Some(balance) = fetch::balance_at(
+                args.get(3),
+                address,
+                number: number - 1,
             ) {
-                println!(
-                    "SYSTEM 0x",
-                    core::text::hex(target, 20),
-                    ": its code or slots are not proven, or its queue held earlier requests",
-                )
-                continue
-            }
-            ports.install(mut world, target)
-            let (after, result) = requests::system_call(
-                world,
-                target,
-                input: MemBuffer::empty().span(),
-                env,
-            )
-            world = after
-            ports.restore(mut world, proofs, target)
-            if result.status != fevm::OK {
-                println!(
-                    "SYSTEM 0x",
-                    core::text::hex(target, 20),
-                    ": the system call failed",
-                )
-                continue
-            }
-            ran += 1
-            if c == 0 {
-                withdrawal_requests = result.output
-            } else {
-                consolidation_requests = result.output
-            }
-        }
-        let hash = requests::requests_hash(
-            deposits: deposits.span(),
-            withdrawals: withdrawal_requests.span(),
-            consolidations: consolidation_requests.span(),
-        )
-        if ran == 2
-            && deposits_ok
-            && header.has("requestsHash")
-            && hash == field(header, "requestsHash") {
-            println!(
-                "requests: fevm's ",
-                deposits.len() / 192,
-                " deposits, ",
-                withdrawal_requests.len() / 76,
-                " withdrawal and ",
-                consolidation_requests.len() / 116,
-                " consolidation requests hash to the header's requestsHash",
-                if ports.on {
-                    ", both request lists from the Fe ports"
-                } else {
-                    ""
-                },
-            )
-        } else {
-            unproven += 1
-            if ran == 2 && deposits_ok && header.has("requestsHash") {
-                println!(
-                    "REQUESTS fevm's requests hash to 0x",
-                    core::text::hex(hash, 32),
-                    ", the header's requestsHash is 0x",
-                    core::text::hex(field(header, "requestsHash"), 32),
-                )
-            } else {
-                println!(
-                    "REQUESTS not checked: a system call did not run, or a deposit log is malformed",
-                )
+                let _ = fetched.ensure_account(address)
+                let _ = fetched.set_balance(address, balance)
             }
         }
     }
+    let v = validate(
+        dir,
+        chain: chain,
+        block: block,
+        receipts: receipts,
+        prestates: prestates,
+        diffs: diffs,
+        extras: extras,
+        proofs: proofs,
+        proving: proving,
+        fetched: fetched,
+        ports: ports,
+    )
+    if v.failed { return 1 }
+    let header = ref block["result"]
+    let txs = header["transactions"].items()
+    let count = v.count
+    let env = v.env
+    let world = v.world
+    let keys = v.keys
+    let parent_root = v.parent_root
+    let matched = v.matched
+    var unproven = v.unproven
+    let unknown = v.unknown
+    let paid = v.paid
+    let cumulative_gas = v.cumulative_gas
+    let code_unknown = v.code_unknown
+    let cross_pre = v.cross_pre
+    let first_calls = v.first_calls
+    let system_calls = v.system_calls
+    let stateless_ok = v.stateless_ok
+    // What `summary.json` adds for a block validated statelessly.
+    var stateless_summary = MemBuffer::empty()
     if proving {
-        keys = proof::touched(
-            prestates["result"],
-            diffs["result"],
-            header,
-            recipients: true,
-        )
-        if first_calls {
-            proof::add_system_keys(mut keys, header)
-        }
-        var skip: core::MemVec<u256> = core::MemVec::new()
-        if system_calls {
-            proof::add_request_keys(mut keys)
-        } else {
-            skip.push(proof::WITHDRAWAL_REQUESTS)
-            skip.push(proof::CONSOLIDATION_REQUESTS)
-        }
-        var text = MemBuffer::empty()
-        let post = with (mut text) {
-            proof::check(
-                world,
-                state_root: field(header, "stateRoot"),
-                proofs["post"],
-                keys,
-                written: core::MemVec::new(),
-                skip,
-                code_unknown,
-            )
-        }
-        print!(text)
-        print_checked("end state", "the block's", post)
-        unproven += post.differ + post.broken + post.unproven
-        // Stateless: the end-state root itself, computed from the parent's
-        // witness and fevm's end state, against the header.
         if first_calls && system_calls {
-            let computed = stateless::state_root(world, parent_root, proofs, keys, code_unknown)
-            stateless_ok = computed.root == field(header, "stateRoot")
-            if stateless_ok {
-                println!(
-                    "state root: fevm's end state (",
-                    computed.accounts,
-                    " accounts and ",
-                    computed.slots,
-                    " slots written) on the parent's witness (",
-                    computed.witness_nodes,
-                    " nodes, ",
-                    computed.witness_bytes / 1024,
-                    " KiB) hashes to the header's stateRoot",
-                )
-            } else {
-                unproven += 1
-                println!(
-                    "STATE ROOT fevm's end state hashes to 0x",
-                    core::text::hex(computed.root, 32),
-                    ", the header's stateRoot is 0x",
-                    core::text::hex(field(header, "stateRoot"), 32),
-                )
-                if computed.stage > 0 {
-                    println!(
-                        "  a node is missing at 0x",
-                        core::text::hex(computed.stuck, 20),
-                        " (stage ",
-                        computed.stage,
-                        ")",
-                    )
-                }
+            let Option::Some(computed) = v.root else {
+                return 1
             }
             // The code that ran, from the second run through fevm's block
             // layer: whole for the Merkle-Patricia witness, by the 31-byte
@@ -1688,9 +1207,9 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
             var code_bytes: u64 = 0
             var chunk_count: u64 = 0
             var tx_gas: core::MemVec<u64> = core::MemVec::new()
-            var charges: core::MemVec<ingot::gas4762::Charged> = core::MemVec::new()
+            var charges: core::MemVec<gas4762::Charged> = core::MemVec::new()
             if let Option::Some(pre) = cross_pre {
-                let checked = ingot::crosscheck::run(
+                let checked = crosscheck::run(
                     pre,
                     header,
                     proofs["parent"],
@@ -1965,7 +1484,7 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
             )
             json_num(mut stateless_summary, "tx_witness_sum", alone_sum)
             // EIP-7928's block access list, and the block's dependency depth.
-            let bal = ingot::bal::measure(
+            let bal = bal::measure(
                 prestates["result"],
                 diffs["result"],
                 header,
@@ -2196,89 +1715,6 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     if clean { 0 } else { 1 }
 }
 
-// The header's transactionsRoot (each transaction re-encoded, and hashing
-// to its own hash), withdrawalsRoot, gasUsed (fevm's cumulative gas),
-// blobGasUsed and logsBloom (fevm's logs). Returns how many do not match.
-fn header_commitments(_ header: Value, gas_used: u256, bloom: [u8; 256]) -> u64
-uses (out: mut Stdout)
-{
-    var wrong: u64 = 0
-    let txs = header["transactions"].items()
-    let (encoded, misencoded) = roots::transactions(header["transactions"])
-    let tx_root = receipts::trie_root(encoded)
-    if misencoded == 0 && tx_root == field(header, "transactionsRoot") {
-        println!(
-            "transactions: ",
-            txs.len(),
-            " re-encoded, each hashes to its hash, and they hash to the header's transactionsRoot",
-        )
-    } else {
-        wrong += 1
-        println!(
-            "TRANSACTIONS ",
-            misencoded,
-            " do not hash to their hash; the trie hashes to 0x",
-            core::text::hex(tx_root, 32),
-            ", the header's transactionsRoot is 0x",
-            core::text::hex(field(header, "transactionsRoot"), 32),
-        )
-    }
-    let withdrawals = roots::withdrawals(header)
-    let w_root = receipts::trie_root(withdrawals)
-    if w_root == field(header, "withdrawalsRoot") {
-        println!(
-            "withdrawals: ",
-            withdrawals.len(),
-            " hash to the header's withdrawalsRoot",
-        )
-    } else {
-        wrong += 1
-        println!(
-            "WITHDRAWALS hash to 0x",
-            core::text::hex(w_root, 32),
-            ", the header's withdrawalsRoot is 0x",
-            core::text::hex(field(header, "withdrawalsRoot"), 32),
-        )
-    }
-    var blob_gas: u256 = 0
-    for ref tx in txs {
-        if tx.has("blobVersionedHashes") {
-            blob_gas += 131072 * tx["blobVersionedHashes"].items().len() as u256
-        }
-    }
-    let bloom_bytes = load::hex_bytes(header["logsBloom"].text())
-    var same_bloom = bloom_bytes.len() == 256
-    for i in 0 .. bloom_bytes.len() {
-        if same_bloom && bloom_bytes.span()[i] != bloom[i] {
-            same_bloom = false
-        }
-    }
-    if gas_used == field(header, "gasUsed")
-        && blob_gas == field(header, "blobGasUsed")
-        && same_bloom {
-        println!(
-            "header: fevm's gas (",
-            gas_used,
-            "), the blob gas and fevm's logs bloom are the header's gasUsed, blobGasUsed and logsBloom",
-        )
-    } else {
-        wrong += 1
-        println!(
-            "HEADER gasUsed: fevm ",
-            gas_used,
-            ", header ",
-            field(header, "gasUsed"),
-            "; blobGasUsed: ",
-            blob_gas,
-            ", header ",
-            field(header, "blobGasUsed"),
-            "; logsBloom ",
-            if same_bloom { "matches" } else { "differs" },
-        )
-    }
-    wrong
-}
-
 // `,"name":value` into a JSON object being written.
 fn json_num(_ out: mut MemBuffer, _ name: String<24>, _ value: u64) {
     ",\"".fmt(mut out)
@@ -2295,46 +1731,6 @@ uses (fs: std::fs::Fs)
     match fs.read(fetch::join(dir, name)) {
         Result::Ok(_) => true,
         Result::Err(_) => false,
-    }
-}
-
-fn print_checked(_ what: String<10>, _ whose: String<12>, _ found: proof::Checked)
-uses (out: mut Stdout)
-{
-    println!(
-        what,
-        ": ",
-        found.accounts,
-        " accounts and ",
-        found.slots,
-        " slots proven against ",
-        whose,
-        " state root, ",
-        found.differ,
-        " differ",
-    )
-    if found.written > 0 {
-        println!(
-            "  ",
-            found.written,
-            " slots set by the block's first system calls, checked",
-        )
-    }
-    if found.skipped > 0 {
-        println!(
-            "  ",
-            found.skipped,
-            " request contracts (EIP-7002, EIP-7251) not compared",
-        )
-    }
-    if found.unproven > 0 || found.broken > 0 {
-        println!(
-            "  ",
-            found.unproven,
-            " touched accounts and slots without a proof, ",
-            found.broken,
-            " proofs that do not hold",
-        )
     }
 }
 
@@ -3138,7 +2534,7 @@ fn opgas_command() -> i32 uses (args: Args, fs: std::fs::Fs, out: mut Stdout) {
                     },
                     port.span(),
                 )
-                ingot::compat::transact(
+                compat::transact(
                     world,
                     load_tx(txs[index]),
                     env,
@@ -4778,55 +4174,6 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         "% killed",
     )
     0
-}
-
-/// The Fe ports of the four system contracts (ports/system), which `chain
-/// <dir> --system <out-dir>` runs in place of the deployed code; `on` is
-/// false when the block runs the deployed code.
-pub struct SystemPorts {
-    on: bool,
-    beacon: MemBuffer,
-    history: MemBuffer,
-    withdrawals: MemBuffer,
-    consolidations: MemBuffer,
-}
-
-impl SystemPorts {
-    fn none() -> Self {
-        SystemPorts {
-            on: false,
-            beacon: MemBuffer::empty(),
-            history: MemBuffer::empty(),
-            withdrawals: MemBuffer::empty(),
-            consolidations: MemBuffer::empty(),
-        }
-    }
-
-    // Puts the port of system contract `address` in its place.
-    fn install(self, _ world: mut fevm::WorldState, _ address: u256) {
-        if !self.on { return }
-        if address == proof::BEACON_ROOTS {
-            world.set_code(address: address, code: self.beacon.span())
-        } else if address == proof::HISTORY {
-            world.set_code(address: address, code: self.history.span())
-        } else if address == proof::WITHDRAWAL_REQUESTS {
-            world.set_code(address: address, code: self.withdrawals.span())
-        } else {
-            world.set_code(address: address, code: self.consolidations.span())
-        }
-    }
-
-    // Puts the deployed code, as the parent's proofs prove it, back: a
-    // system call writes storage, never code, so the roots see the code
-    // the chain holds and the storage the port wrote.
-    fn restore(self, _ world: mut fevm::WorldState, _ proofs: Value, _ address: u256) {
-        if self.on {
-            world.set_code(
-                    address: address,
-                    code: proof::code_of(proofs, address).span(),
-                )
-        }
-    }
 }
 
 #[cfg(target_family = "unix")]

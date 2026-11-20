@@ -30,8 +30,8 @@ Replaying is fast: those 5,129 transactions take 5.9 seconds once fetched.
 | **For EIP authors** | Measured on 51 mainnet blocks over 4 days ([findings](docs/stateless-findings.md)): code is 43% of a stateless witness; EIP-4762 (Draft) would cost 23% more gas, and 35% of transactions, sent with the same gas limit, would run out of gas. Exempting the coinbase, as the draft exempts the sender and target, brings that to 13%: it saves ETH transfers (51% short, 1.3% exempt) but not contract calls (26%, still 21%: code and storage). Code at half price would bring it to 5.7%, free code to 1.4% |
 | **Fe ports** | 5 ports (USDT, every Uniswap V2 pair, WETH9, DAI, USDC's proxy) certified by mainnet replay, mainnet mutations, fuzzing and mutation testing ([verified page](https://fevm-replay.vercel.app/verified.html)). Also all four of Ethereum's system contracts (EIP-4788, EIP-2935, EIP-7002, EIP-7251), ported from assembly: on 55 mainnet blocks they store and return what the deployed ones do, and with all four system calls run by the Fe ports every root in the header still matches; the mainnet transactions that call them run identically ([more](#ethereums-own-system-contracts-in-fe)) |
 | **Gas vs Solidity** | On 57,034 mainnet calls in identical transactions, the five Fe ports used 3.3% less gas than the deployed solc bytecode; 59 of 61 functions are cheaper (USDT −4.4%, WETH9 −4.0%, DAI −1.6%, pair −1.1%, USDC proxy −1.0%). The system contracts go the other way: hand-written assembly beats them by 24 to 2,026 gas a call ([per function](docs/gas.md)) |
-| **Fe-specific** | Effects prove the verdict and the proof verifier offline, so Fe 26.7 compiles that verifier to WebAssembly: [verify a mainnet proof in your browser](https://fevm-replay.vercel.app/verify.html) with the same Fe code; `const fn` + `static_assert` check the blob fee against a real block; std units, `core::fixed`, `msg`/`recv` ([Fe highlight](#fe-highlight)) |
-| **Found** | 4 bugs in the Fe ports (one in our own EIP-7002 port, found by validating a mainnet block on it), 2 node tracer bugs, the transactions the Osaka fork changed, and where Fe's code cost more than solc's ([argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002), since fixed in Fe's std) |
+| **Fe-specific** | Effects prove validation needs no file, process or network, so the same Fe compiles to WebAssembly with fevm in it: [validate a whole mainnet block in your browser](https://fevm-replay.vercel.app/verify.html), every root in its header, in under a second; `const fn` + `static_assert` check the blob fee against a real block; std units, `core::fixed`, `msg`/`recv` ([Fe highlight](#fe-highlight)) |
+| **Found** | 4 bugs in the Fe ports (one in our own EIP-7002 port, found by validating a mainnet block on it), 2 node tracer bugs, the transactions the Osaka fork changed, where Fe's code cost more than solc's ([argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002), since fixed in Fe's std), and that Fe's WebAssembly backend emits fevm's tail-call dispatch as plain calls, which overflow a browser's stack ([`web/tailcalls.py`](web/tailcalls.py) works around it) |
 | **Upstream** | fe#2002 led to `Call::forward_delegatecall` in Fe's std ([argotorg/fe#2004](https://github.com/argotorg/fe/pull/2004), merged); our request in [fevm#26](https://github.com/fe-lang/fevm/issues/26) became the operand stack in `Tracer::step` ([fevm#32](https://github.com/fe-lang/fevm/pull/32)); dRPC is deploying a fix for the tracer bug we reported |
 | **Beside fevm's chain** | fevm now imports blocks itself ([`fevm_chain`](https://github.com/fe-lang/fevm/tree/main/ingots/chain)), on a full world and its conformance fixtures. fevm-replay is the other half: mainnet blocks, a *partial* world from the parent's proofs, the state root computed from that witness, and Fe ports in place of Solidity. It builds on that fevm and runs each block through `fevm_chain` and `fevm::Block` too: both drivers agree with the header on all 51 blocks ([more](#beside-fevms-chain-layer)) |
 | **Watch** | [3-minute tour](demo/tour-v4.mp4): the site and real terminal runs, driven like a user, with captions, highlights and a neural voice |
@@ -170,11 +170,11 @@ withdrawals: 16 credited, their recipients checked by the end state's proofs
 
 | Header field | What fevm-replay matches it with |
 | --- | --- |
-| `stateRoot` | Computed ([`src/stateless.fe`](src/stateless.fe)): fevm's end state written into the partial trie the parent's proofs witness, then hashed. Also checked key by key against the block's own proofs |
-| `transactionsRoot` | Every transaction re-encoded (EIP-2718: legacy, access list, fee market, blob, set code), each hashing to its own hash ([`src/roots.fe`](src/roots.fe)) |
-| `receiptsRoot` | fevm's receipts: status, cumulative gas, bloom, every log ([`src/receipts.fe`](src/receipts.fe)) |
+| `stateRoot` | Computed ([`ingots/replay_core/src/stateless.fe`](ingots/replay_core/src/stateless.fe)): fevm's end state written into the partial trie the parent's proofs witness, then hashed. Also checked key by key against the block's own proofs |
+| `transactionsRoot` | Every transaction re-encoded (EIP-2718: legacy, access list, fee market, blob, set code), each hashing to its own hash ([`ingots/replay_core/src/roots.fe`](ingots/replay_core/src/roots.fe)) |
+| `receiptsRoot` | fevm's receipts: status, cumulative gas, bloom, every log ([`ingots/replay_core/src/receipts.fe`](ingots/replay_core/src/receipts.fe)) |
 | `withdrawalsRoot` | The withdrawals fevm credits |
-| `requestsHash` | Deposits cut from fevm's logs, and the EIP-7002 and EIP-7251 system calls run in fevm ([`src/requests.fe`](src/requests.fe)) |
+| `requestsHash` | Deposits cut from fevm's logs, and the EIP-7002 and EIP-7251 system calls run in fevm ([`ingots/replay_core/src/requests.fe`](ingots/replay_core/src/requests.fe)) |
 | `parentBeaconBlockRoot`, `parentHash` | Stored by the EIP-4788 and EIP-2935 system calls, run in fevm before the first transaction |
 | `gasUsed`, `blobGasUsed`, `logsBloom` | fevm's gas, the blobs, fevm's logs |
 | The block hash | The header's RLP, and the parent's, which carries the state root fevm starts from |
@@ -196,20 +196,20 @@ Block 26,424,772 carries an EIP-7002 withdrawal request matched with
 [stateless blocks page](https://fevm-replay.vercel.app/stateless.html).
 
 **Binary tree.** `chain` also estimates the witness EIP-7864's binary tree
-would need for the same keys ([`src/binary.fe`](src/binary.fe)): stems and
+would need for the same keys ([`ingots/replay_core/src/binary.fe`](ingots/replay_core/src/binary.fe)): stems and
 values exact, stems placed by keccak (the EIP's hash is not fixed yet), 28 to 31 levels deep.
 For the block above: 505 to 557 KiB against 1,002 KiB, code left out.
 
 **Code.** `eth_getProof` carries no code, but a stateless client needs
 every contract a block runs. While `fevm::Block` runs the block a second
-time, a tracer ([`src/chunks.fe`](src/chunks.fe)) notes the 31-byte chunks
+time, a tracer ([`ingots/replay_core/src/chunks.fe`](ingots/replay_core/src/chunks.fe)) notes the 31-byte chunks
 each contract's code runs, as EIP-7864 would carry them. Code is 43% of a
 full Merkle-Patricia witness (median; 18% to 51%), and a block runs about a
 quarter of the code it touches; with code, the binary tree shrinks the
 witness 2.0 to 3.3 times.
 
 **Gas.** EIP-4762 (Draft) would charge for that witness
-([`src/gas4762.fe`](src/gas4762.fe)): per transaction, for each stem and
+([`ingots/replay_core/src/gas4762.fe`](ingots/replay_core/src/gas4762.fe)): per transaction, for each stem and
 leaf read and written, code chunk by chunk, in place of EIP-2929's cold
 charges and EIP-2200's SSTORE costs. From each transaction's traces and the
 chunks fevm ran, the same blocks would cost 23% more gas (per block 1% to
@@ -229,7 +229,7 @@ that stay short go to USDC and USDT: the draft charges for the code chunks
 they run, which today's rules do not.
 
 **Block access lists.** EIP-7928's list for the same blocks, built from
-each transaction's traces ([`src/bal.fe`](src/bal.fe)), is 82 KiB a block
+each transaction's traces ([`ingots/replay_core/src/bal.fe`](ingots/replay_core/src/bal.fe)), is 82 KiB a block
 (median), 44 times smaller than the witness; with it the longest chain of
 transactions each touching what an earlier one wrote is 29% of a block's
 transactions, so unlimited cores would need about a third as many steps.
@@ -375,23 +375,37 @@ and the [explorer](docs/details.md#explorer).
 
 ## Fe highlight
 
-**The same proof check, native and in the browser.** The Merkle-Patricia
-walk every stateless block rests on ([`ingots/mpt`](ingots/mpt/src/lib.fe))
-asks for no capability, so it is one ingot for two targets: the native tool
-uses it, and [`web/`](web/src/lib.fe) builds it with Fe 26.7's
-`fe build --backend wasm` into a 72 KB module. The
-[Verify page](https://fevm-replay.vercel.app/verify.html) runs it in the
-browser, with the host from Fe's own `examples/wasm`, on USDT's and USDC's
-real account and storage proofs under block 26,424,804's state root, in a
-few milliseconds, and refuses a tampered value or a wrong root. CI rebuilds
-the module with the release binary, checks it is byte-for-byte the one the
-site serves, and runs it in Node.js (`web/test.mjs`).
+**The same stateless validation, native and in the browser.** Everything
+that validates a block (loading it into fevm, the proofs, the system calls,
+the roots, the state root from the witness) is
+[`ingots/replay_core`](ingots/replay_core/src/validate.fe): no module there
+asks for a file, a process or the network, so it is one ingot for two
+targets. The native tool reads a block from disk and calls `validate`;
+[`web/`](web/src/lib.fe) builds the same ingot, with fevm itself, with Fe
+26.7's `fe build --backend wasm`. On the
+[Verify page](https://fevm-replay.vercel.app/verify.html) your browser
+downloads mainnet block 26,424,805 with its traces and its parent's proofs
+and fevm validates it there in under a second: 71 of 71 transactions, and
+every root in the header, as `fevm_replay chain` prints natively. A receipt
+claiming one more gas than its transaction used is caught. One thing stood
+in the way: fevm dispatches opcodes as tail calls (each handler calls the
+next), which Fe's WebAssembly backend emits as plain calls, so a single
+transaction overflowed the browser's stack.
+[`web/tailcalls.py`](web/tailcalls.py) rewrites the 66,146 calls that are in
+tail position into `return_call` in place, proving from the control flow
+that nothing follows them. CI rebuilds the module with the release binary,
+rewrites it, checks it is byte for byte the one the site serves, and
+validates the block with it in Node.js (`web/test.mjs`). The same page also
+walks USDT's and USDC's real account and storage proofs with
+[`ingots/mpt`](ingots/mpt/src/lib.fe) and refuses a tampered value.
 
 **The compiler proves the replay cannot touch the network or the disk.**
 Fe functions declare the capabilities they use, and native I/O is a
-capability like any other. Only `main` and the `fetch` module ask for
-`Spawn` (which starts curl) and `Fs`. `replay_tx`, which produces the
-verdict, asks only for a text buffer to write its report to:
+capability like any other. Only the CLI's own modules (`lib`, `fetch`,
+`follow`, `geth`, `mutate`) ask for `Spawn` (which starts curl, or geth)
+and `Fs`; nothing in `ingots/replay_core` does, which is also why it builds
+for the browser. `replay_tx`, which produces the verdict, asks only for a
+text buffer to write its report to:
 
 ```fe
 pub fn replay_tx(
@@ -484,11 +498,11 @@ everything it holds. fevm-replay works where no node keeps the whole state:
 | --- | --- | --- |
 | Blocks | conformance fixtures | mainnet, from the chain head |
 | World | full | partial: the parent's `eth_getProof` witness |
-| `stateRoot` | hash of the whole world | computed from the witness and fevm's end state (`src/stateless.fe`) |
+| `stateRoot` | hash of the whole world | computed from the witness and fevm's end state (`ingots/replay_core/src/stateless.fe`) |
 | Beyond the header | | Fe ports shadow-replayed, fuzzing, mutants, witness research (EIP-7864) |
 
 fevm-replay now builds on that fevm, and `chain` runs every block validated
-statelessly a second time through fevm's own layer (`src/crosscheck.fe`):
+statelessly a second time through fevm's own layer (`ingots/replay_core/src/crosscheck.fe`):
 `fevm_chain` decodes the header and validates it against its parent's,
 decodes each transaction from its bytes and recovers its sender from the
 signature, and hashes the transactions, receipts and withdrawals;

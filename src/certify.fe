@@ -1,10 +1,11 @@
 //! The certificate page: what one `certify` run found about a port, as a
 //! self-contained HTML file.
 
+use replay_core::{watch}
 use core::{MemBuffer, MemSpan}
 use core::fixed::{Fixed, UFixed}
 use std::io::Display
-use ingot::watch::Gas
+use watch::Gas
 
 /// Writes `value` with `<`, `>`, `&` and `"` escaped for HTML.
 pub fn escape(_ value: MemSpan) uses (html: mut MemBuffer) {
@@ -64,16 +65,7 @@ pub fn row<L: Display>(_ label: L, _ value: u64) uses (html: mut MemBuffer) {
     "</td></tr>\n".fmt(mut html)
 }
 
-/// `part` of `whole` in percent, to a tenth, rounded down; zero of nothing.
-/// The scale is in the type: `UFixed<1>` counts tenths and prints as a
-/// decimal.
-pub fn share(_ part: u64, _ whole: u64) -> UFixed<1> {
-    if whole == 0 {
-        UFixed<1>::zero()
-    } else {
-        UFixed<1>::from_ratio(part as u256 * 100, whole as u256)
-    }
-}
+pub use replay_core::validate::share
 
 /// How far `after` is from `before`, in percent of `before`, to a tenth,
 /// rounded towards zero.

@@ -1,7 +1,21 @@
+use replay_core::{
+    bal,
+    binary,
+    chunks,
+    compare,
+    fuzz,
+    gas4762,
+    load,
+    proof,
+    receipts,
+    replay,
+    roots,
+    watch,
+}
 // Run with `fe test --backend native .` on Linux or macOS.
 
 use json::parse
-use ingot::load::{field, hex_bytes, hex_word}
+use load::{field, hex_bytes, hex_word}
 
 #[test]
 fn hex_word_reads_quantities_and_numbers() {
@@ -66,11 +80,10 @@ fn delegation_targets_missing_from_the_prestate_are_collected() {
 fn delegation_designators_are_recognized() {
     let designator = hex_bytes("0xef0100490aac77c960b0569c8e446ac7e12490bd44ca1d".span())
     assert!(
-        ingot::load::delegation_target(designator.span())
-            == 0x490aac77c960b0569c8e446ac7e12490bd44ca1d,
+        load::delegation_target(designator.span()) == 0x490aac77c960b0569c8e446ac7e12490bd44ca1d,
     )
     let plain = hex_bytes("0x6080604052".span())
-    assert!(ingot::load::delegation_target(plain.span()) == 0)
+    assert!(load::delegation_target(plain.span()) == 0)
 }
 
 // Code fuzzed against itself never differs; code that reverts where the
@@ -79,8 +92,8 @@ fn delegation_designators_are_recognized() {
 fn fuzz_finds_a_difference_only_where_there_is_one() {
     let stop = hex_bytes("0x00".span())
     let revert = hex_bytes("0x60006000fd".span())
-    var same = ingot::fuzz::Findings::new()
-    ingot::fuzz::fuzz(
+    var same = fuzz::Findings::new()
+    fuzz::fuzz(
         stop.span(),
         stop.span(),
         token: core::MemBuffer::empty().span(),
@@ -90,8 +103,8 @@ fn fuzz_finds_a_difference_only_where_there_is_one() {
         mut same,
     )
     assert!(same.first_step == 0)
-    var differ = ingot::fuzz::Findings::new()
-    ingot::fuzz::fuzz(
+    var differ = fuzz::Findings::new()
+    fuzz::fuzz(
         stop.span(),
         revert.span(),
         token: core::MemBuffer::empty().span(),
@@ -113,7 +126,7 @@ fn shadow_targets_are_every_copy_of_the_code() {
     world.set_code(address: 0xa1, code: pair.span())
     world.set_code(address: 0xa2, code: other.span())
     world.set_code(address: 0xa3, code: pair.span())
-    let targets = ingot::replay::shadow_targets(world, 0, pair.span())
+    let targets = replay::shadow_targets(world, 0, pair.span())
     assert!(targets.len() == 2)
     assert!(
         (targets[0] == 0xa1 && targets[1] == 0xa3) || (targets[0] == 0xa3 && targets[1] == 0xa1),
@@ -136,24 +149,20 @@ fn reasons_compare_without_their_padding() {
         other.push(0)
         dirty.push(if i == 30 { 0x80 } else { 0 })
     }
-    assert!(ingot::fuzz::same_reason(clean.span(), dirty.span()))
-    assert!(!ingot::fuzz::same_reason(clean.span(), other.span()))
+    assert!(fuzz::same_reason(clean.span(), dirty.span()))
+    assert!(!fuzz::same_reason(clean.span(), other.span()))
 }
 
 // Two runs part at the first call, in the order calls ended, whose output
 // differs.
 #[test]
 fn runs_part_at_the_first_differing_call() {
-    var a = ingot::watch::GasWatch::new(shadows: core::MemVec::new())
-    var b = ingot::watch::GasWatch::new(shadows: core::MemVec::new())
+    var a = watch::GasWatch::new(shadows: core::MemVec::new())
+    var b = watch::GasWatch::new(shadows: core::MemVec::new())
     for i in 0 .. 3 {
-        let call = ingot::watch::CallRecord {
+        let call = watch::CallRecord {
             depth: i,
-            parent: if i == 0 {
-                ingot::watch::NO_PARENT
-            } else {
-                i - 1
-            },
+            parent: if i == 0 { watch::NO_PARENT } else { i - 1 },
             read_gas: false,
             context: 0xb0,
             kind: 0,
@@ -175,25 +184,25 @@ fn runs_part_at_the_first_differing_call() {
         a.ended.push(2 - i)
         b.ended.push(2 - i)
     }
-    assert!(ingot::watch::first_parting(a, b).is_none())
+    assert!(watch::first_parting(a, b).is_none())
     b.calls[1].output = 10
-    assert!(ingot::watch::first_parting(a, b) == Option::Some(1))
+    assert!(watch::first_parting(a, b) == Option::Some(1))
     // No gas reading explains it, until the call above it read the gas left.
-    assert!(ingot::watch::gas_reader(a, b).is_none())
+    assert!(watch::gas_reader(a, b).is_none())
     a.calls[0].read_gas = true
     a.calls[0].context = 0xa0
-    assert!(ingot::watch::gas_reader(a, b) == Option::Some(0xa0))
+    assert!(watch::gas_reader(a, b) == Option::Some(0xa0))
 }
 
 // A run where the deployed code ran out of gas at a call the port, with the
 // same calldata, got through counts as a cost, not a behavior.
 #[test]
 fn running_out_of_gas_first_is_a_cost() {
-    var a = ingot::watch::GasWatch::new(shadows: core::MemVec::new())
-    var b = ingot::watch::GasWatch::new(shadows: core::MemVec::new())
-    let call = ingot::watch::CallRecord {
+    var a = watch::GasWatch::new(shadows: core::MemVec::new())
+    var b = watch::GasWatch::new(shadows: core::MemVec::new())
+    let call = watch::CallRecord {
         depth: 1,
-        parent: ingot::watch::NO_PARENT,
+        parent: watch::NO_PARENT,
         read_gas: false,
         context: 0xb0,
         kind: 0,
@@ -215,19 +224,19 @@ fn running_out_of_gas_first_is_a_cost() {
     a.ended.push(0)
     b.ended.push(0)
     a.calls[0].status = fevm::status::ERR_OUT_OF_GAS
-    assert!(ingot::watch::ran_out_first(a, b))
+    assert!(watch::ran_out_first(a, b))
     // The port running out is a difference.
-    assert!(!ingot::watch::ran_out_first(b, a))
+    assert!(!watch::ran_out_first(b, a))
     // So is the deployed code reverting.
     a.calls[0].status = fevm::status::ERR_REVERT
-    assert!(!ingot::watch::ran_out_first(a, b))
+    assert!(!watch::ran_out_first(a, b))
 }
 
 // Solidity mapping slots: balanceOf[0x01] in slot 0.
 #[test]
 fn mapping_slots_match_solidity() {
     assert!(
-        ingot::fuzz::mapping_slot(1, 0)
+        fuzz::mapping_slot(1, 0)
             == 0xada5013122d395ba3c54772283fb069b10426056ef8ca54750cb9bb552a59e7d,
     )
 }
@@ -298,7 +307,7 @@ fn a_kept_cleared_slot_counts_once() {
     let _ = actual.storage_store(0xa1, 7, 5)
     var text = core::MemBuffer::empty()
     let count = with (mut text) {
-        ingot::compare::compare_storage(expected, actual)
+        compare::compare_storage(expected, actual)
     }
     assert!(count == 1)
 }
@@ -356,7 +365,7 @@ fn receipts_tries_hash_as_mainnet_does() {
     var one: core::MemVec<core::MemBuffer> = core::MemVec::new()
     var bloom: [u8; 256] = [0; 256]
     one.push(
-        ingot::receipts::encode(
+        receipts::encode(
             tx_type: 0,
             success: true,
             cumulative_gas: 21000,
@@ -365,13 +374,11 @@ fn receipts_tries_hash_as_mainnet_does() {
         ),
     )
     assert!(
-        ingot::receipts::trie_root(one)
+        receipts::trie_root(one)
             == 0x056b23fbba480696b65fe5a59b8f2148a1299103c4f57df839233af2cf4ca2d2,
     )
     let none: core::MemVec<core::MemBuffer> = core::MemVec::new()
-    assert!(
-        ingot::receipts::trie_root(none) == ingot::proof::EMPTY_TRIE,
-    )
+    assert!(receipts::trie_root(none) == proof::EMPTY_TRIE)
 }
 
 // Two mainnet transactions of block 26,420,759, re-encoded: a legacy
@@ -384,7 +391,7 @@ fn transactions_encode_to_their_mainnet_hashes() {
     )
         .unwrap()
     assert!(
-        core::hash::keccak256_word(ingot::roots::encode_tx(legacy).span())
+        core::hash::keccak256_word(roots::encode_tx(legacy).span())
             == 0x8b1c90f50a49b7cdd2eba8b254098358b0839b4dffb97ce10da406dfde5c7799,
     )
     let blob = parse(
@@ -393,7 +400,7 @@ fn transactions_encode_to_their_mainnet_hashes() {
     )
         .unwrap()
     assert!(
-        core::hash::keccak256_word(ingot::roots::encode_tx(blob).span())
+        core::hash::keccak256_word(roots::encode_tx(blob).span())
             == 0x4ba798126dc24806af0d586ed4d03da9aeec028f4da4601d013a35ff535a7d47,
     )
 }
@@ -405,7 +412,7 @@ fn transactions_encode_to_their_mainnet_hashes() {
 fn a_lone_account_costs_one_path_in_the_binary_tree() {
     var keys = fevm::WorldState::empty()
     let _ = keys.ensure_account(0x1234)
-    let e = ingot::binary::estimate(keys, fevm::WorldState::empty())
+    let e = binary::estimate(keys, fevm::WorldState::empty())
     assert!(e.stems == 1 && e.values == 2)
     assert!(e.low_bytes == 31 + 32 * 9 + 32 * 28)
     assert!(e.high_bytes == 31 + 32 * 9 + 32 * 31)
@@ -420,7 +427,7 @@ fn at(_ pc: usize, _ op: u8) -> fevm::trace::Step {
 // nested inside it, counts nothing.
 #[test]
 fn executed_code_counts_by_31_byte_chunks() {
-    var watch = ingot::chunks::CodeWatch::new()
+    var watch = chunks::CodeWatch::new()
     let none = core::MemBuffer::empty()
     let call = fevm::trace::CallStart {
         kind: 0xf1,
@@ -452,7 +459,7 @@ fn executed_code_counts_by_31_byte_chunks() {
     assert!(watch.chunks.storage_load(0xc0de, 0) == 1)
     assert!(watch.chunks.storage_load(0xc0de, 1) == 1)
     assert!(watch.chunks.storage_load(0xc0de, 2) == 1)
-    assert!(ingot::proof::slots_of(watch.chunks, 0xc0de).len() == 3)
+    assert!(proof::slots_of(watch.chunks, 0xc0de).len() == 3)
     assert!(
         !watch.chunks.exists(0xbeef) && watch.created.exists(0xbeef),
     )
@@ -482,7 +489,7 @@ fn eip_4762_charges_the_witness_a_call_needs() {
     var chunks = fevm::WorldState::empty()
     let _ = chunks.ensure_account(0xbb)
     let _ = chunks.storage_store(0xbb, 0, 1)
-    let c = ingot::gas4762::charge(
+    let c = gas4762::charge(
         prestate,
         pre,
         post,
@@ -499,7 +506,7 @@ fn eip_4762_charges_the_witness_a_call_needs() {
     assert!(c.coinbase == 0)
     // With 0xcc as the coinbase, everything but the code is the coinbase's:
     // its header (1,900 + 200), its slot (200) and the slot's fill (9,700).
-    let k = ingot::gas4762::charge(
+    let k = gas4762::charge(
         prestate,
         pre,
         post,
@@ -533,7 +540,7 @@ fn a_block_access_list_and_its_dependencies() {
             .span(),
     )
         .unwrap()
-    let access = ingot::bal::measure(prestates, diffs, header, coinbase: 0xfee)
+    let access = bal::measure(prestates, diffs, header, coinbase: 0xfee)
     assert!(access.writes == 4)
     assert!(access.reads == 1)
     assert!(access.depth == 2)

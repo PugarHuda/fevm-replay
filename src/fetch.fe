@@ -3,6 +3,8 @@
 //! which this module starts with `Spawn`: the only code in fevm-replay that
 //! may reach the network is code that declares `proc: mut Spawn`.
 
+use replay_core::{load, proof}
+pub use replay_core::blob::{blob_base_fee, header_blob_fee, update_fraction}
 use core::{MemBuffer, MemVec}
 use core::text::parse_hex_uint
 use std::fs::Fs
@@ -11,63 +13,7 @@ use std::evm::units::{Timestamp, Wei, wei}
 use std::process::{Command, Redirect, Spawn}
 use json::{Value, parse}
 use fevm::WorldState
-use ingot::load::{delegation_target, field, hex_bytes}
-
-/// The blob base fee, per unit of blob gas, for `excess` blob gas under the
-/// schedule's update fraction: EIP-4844's `fake_exponential(1, excess,
-/// fraction)`. A `const fn`, so the compiler can check it against mainnet
-/// below.
-pub const fn blob_base_fee(excess: u256, fraction: u256) -> Wei {
-    var output: u256 = 0
-    var accumulator: u256 = fraction
-    var i: u256 = 1
-    while accumulator > 0 {
-        output += accumulator
-        accumulator = accumulator * excess / (fraction * i)
-        i += 1
-    }
-    wei(output / fraction)
-}
-
-/// Mainnet's blob schedule (`eth_config`): Prague's update fraction until
-/// BPO1 (9 Dec 2025), BPO1's until BPO2 (7 Jan 2026), then BPO2's.
-pub const PRAGUE_UPDATE_FRACTION: u256 = 5007716
-pub const BPO1_UPDATE_FRACTION: u256 = 8346193
-pub const BPO2_UPDATE_FRACTION: u256 = 11684671
-pub const BPO1: Timestamp = Timestamp::from_seconds(1765290071)
-pub const BPO2: Timestamp = Timestamp::from_seconds(1767747671)
-
-/// The blob base fee update fraction mainnet used at `at`.
-pub const fn update_fraction(_ at: Timestamp) -> u256 {
-    if at.as_seconds() < BPO1.as_seconds() {
-        PRAGUE_UPDATE_FRACTION
-    } else if at.as_seconds() < BPO2.as_seconds() {
-        BPO1_UPDATE_FRACTION
-    } else {
-        BPO2_UPDATE_FRACTION
-    }
-}
-
-// Checked at compile time, against the chain. Block 26,393,604 (BPO2) had
-// 0xb58bccf excess blob gas, and the node priced its blobs at 0xb58b03 wei.
-static_assert(blob_base_fee(excess: 0xb58bccf, fraction: BPO2_UPDATE_FRACTION).as_wei() == 0xb58b03)
-// No excess: the minimum, one wei.
-static_assert(blob_base_fee(excess: 0, fraction: BPO2_UPDATE_FRACTION).as_wei() == 1)
-// The forks come in order, each raising the fraction (blob fees move slower).
-static_assert(BPO1.as_seconds() < BPO2.as_seconds())
-static_assert(PRAGUE_UPDATE_FRACTION < BPO1_UPDATE_FRACTION)
-static_assert(BPO1_UPDATE_FRACTION < BPO2_UPDATE_FRACTION)
-static_assert(update_fraction(BPO1) == BPO1_UPDATE_FRACTION)
-static_assert(update_fraction(BPO2) == BPO2_UPDATE_FRACTION)
-static_assert(update_fraction(Timestamp::from_seconds(1765290070)) == PRAGUE_UPDATE_FRACTION)
-
-/// The blob base fee of a block, from its header.
-pub fn header_blob_fee(_ header: Value) -> Wei {
-    blob_base_fee(
-        excess: field(header, "excessBlobGas"),
-        fraction: update_fraction(Timestamp::from_seconds(field(header, "timestamp"))),
-    )
-}
+use load::{delegation_target, field, hex_bytes}
 
 /// One JSON-RPC call; `params` is the JSON text of the parameter array.
 /// curl retries rate-limit answers (HTTP 429), which free endpoints send often.
@@ -706,7 +652,7 @@ uses (proc: mut Spawn, fs: mut Fs)
     var piece_len: core::MemVec<usize> = core::MemVec::new()
     for a in 0 .. count {
         let address = keys.account_at(first + a).address
-        let total = ingot::proof::slots_of(keys, address).len()
+        let total = proof::slots_of(keys, address).len()
         var from: usize = 0
         while true {
             let len = if total - from > PROOF_SLOTS {
@@ -739,7 +685,7 @@ uses (proc: mut Spawn, fs: mut Fs)
             if i > 0 { ",".fmt(mut body) }
             let p = g * 3 + i
             let address = piece_account[p]
-            let slots = ingot::proof::slots_of(keys, address)
+            let slots = proof::slots_of(keys, address)
             "{\"jsonrpc\":\"2.0\",\"id\":".fmt(mut body)
             core::text::decimal(i as u256).fmt(mut body)
             ",\"method\":\"eth_getProof\",\"params\":[\"0x".fmt(mut body)

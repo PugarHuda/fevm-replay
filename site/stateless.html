@@ -108,13 +108,13 @@
 
   <section id="eip4762">
     <h2>What EIP-4762 would charge for these blocks</h2>
-    <p class="intro">EIP-4762 (Draft) prices the witness a stateless client needs: per transaction, each stem and leaf read and written, code chunk by chunk, in place of today's cold-access and <code>SSTORE</code> charges. fevm-replay counts it for every transaction from its traces and the 31-byte code chunks fevm ran (<a href="https://github.com/PugarHuda/fevm-replay/blob/main/src/gas4762.fe"><code>src/gas4762.fe</code></a>). The draft makes the sender and target free but not the block's coinbase, which every transaction pays its fee to.</p>
+    <p class="intro">EIP-4762 (Draft) prices the witness a stateless client needs: per transaction, each stem and leaf read and written, code chunk by chunk, in place of today's cold-access and <code>SSTORE</code> charges. fevm-replay counts it for every transaction from its traces and the 31-byte code chunks fevm ran (<a href="https://github.com/PugarHuda/fevm-replay/blob/main/ingots/replay_core/src/gas4762.fe"><code>ingots/replay_core/src/gas4762.fe</code></a>). The draft makes the sender and target free but not the block's coinbase, which every transaction pays its fee to.</p>
     <div class="facts" id="facts4762"></div>
   </section>
 
   <section id="bal">
     <h2>Block access lists (EIP-7928)</h2>
-    <p class="intro">The list each block would carry, built from its transactions' traces: every account it touched, each storage write and balance, nonce and code change by transaction, and the slots only read (<a href="https://github.com/PugarHuda/fevm-replay/blob/main/src/bal.fe"><code>src/bal.fe</code></a>, RLP, uncompressed). With it a client knows each transaction's reads and writes before it runs; the <strong>longest chain</strong> is the most transactions that each touch what an earlier one wrote, the steps unlimited cores would need. The coinbase, which every transaction credits, is left out.</p>
+    <p class="intro">The list each block would carry, built from its transactions' traces: every account it touched, each storage write and balance, nonce and code change by transaction, and the slots only read (<a href="https://github.com/PugarHuda/fevm-replay/blob/main/ingots/replay_core/src/bal.fe"><code>ingots/replay_core/src/bal.fe</code></a>, RLP, uncompressed). With it a client knows each transaction's reads and writes before it runs; the <strong>longest chain</strong> is the most transactions that each touch what an earlier one wrote, the steps unlimited cores would need. The coinbase, which every transaction credits, is left out.</p>
     <div class="facts" id="factsbal"></div>
   </section>
 
