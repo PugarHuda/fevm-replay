@@ -91,3 +91,63 @@ jobs:
         with:
           name: fevm-replay
           path: ${{ env.ARCHIVE }}
+
+  # The same release for Apple silicon: fevm-replay built natively on macOS
+  # (Fe builds AArch64 macOS executables), packaged with the Linux job's
+  # ports' bytecode and fixtures, which do not depend on the platform.
+  macos:
+    needs: release
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Restore the Fe compiler
+        id: fe-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/fe
+          key: fe-${{ runner.os }}-${{ runner.arch }}-${{ env.FE_REVISION }}-${{ env.RUST_VERSION }}-cranelift
+
+      - name: Build the Fe compiler
+        if: steps.fe-cache.outputs.cache-hit != 'true'
+        run: |
+          npm install -g tree-sitter-cli@0.24.7
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          cargo "+$RUST_VERSION" install --locked --root ~/fe \
+            --git https://github.com/argotorg/fe --rev "$FE_REVISION" --features cranelift fe
+
+      - run: echo "$HOME/fe/bin" >> "$GITHUB_PATH"
+
+      - name: Build
+        run: |
+          fe build --backend native -O 2 --emit executable --out-dir out .
+          ./out/fevm_replay fixtures/mainnet/*.json
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: fevm-replay
+
+      - name: Package
+        run: |
+          linux=$(ls fevm-replay-*-x86_64-linux.tar.gz)
+          tar xzf "$linux"
+          from="${linux%.tar.gz}"
+          name="${from%-x86_64-linux}-aarch64-macos"
+          mv "$from" "$name"
+          cp out/fevm_replay "$name/fevm_replay"
+          otool -L out/fevm_replay > "$name/LINKED.txt" || true
+          mkdir proven && tar xzf fixtures/proven/0x19335e5.tar.gz -C proven
+          "$name/fevm_replay" chain proven/0x19335e5 | grep -q "hashes to the header's stateRoot"
+          tar czf "$name.tar.gz" "$name"
+          echo "ARCHIVE=$name.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Publish
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" "$ARCHIVE"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fevm-replay-macos
+          path: ${{ env.ARCHIVE }}
