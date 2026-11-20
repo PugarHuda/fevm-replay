@@ -67,17 +67,18 @@ pub fn system_call(_ world: own WorldState, target: u256, input: MemSpan, _ bloc
     WorldState,
     ExecutionResult,
 ) {
-    call_as(world, caller: SYSTEM, target, input, block)
+    call_as(world, caller: SYSTEM, target, input, value: 0, block)
 }
 
 /// A call to `target` from `caller`, as `system_call` runs it: 30M gas, no
-/// value, no fee and no nonce. With another caller it reads what a system
-/// contract stored, as a contract reading it would.
+/// fee and no nonce; `value` is what CALLVALUE reads (no balance moves).
+/// With another caller it calls a system contract as a contract would.
 pub fn call_as(
     _ world: own WorldState,
     caller: u256,
     target: u256,
     input: MemSpan,
+    value: u256,
     _ block: BlockEnv,
 ) -> (WorldState, ExecutionResult) {
     var tx = Transaction::new(
@@ -92,7 +93,7 @@ pub fn call_as(
         address: target,
         caller,
         origin: caller,
-        callvalue: 0,
+        callvalue: value,
         gasprice: 0,
         gas_limit: SYSTEM_GAS,
         is_static: false,

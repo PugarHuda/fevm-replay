@@ -28,7 +28,7 @@ Replaying is fast: those 5,129 transactions take 5.9 seconds once fetched.
 | **fevm on mainnet** | 115,213 transactions replayed, 290 blocks as chains, no fevm bug |
 | **Stateless** | With the parent's proofs as a witness, fevm runs a block's system calls and transactions and *computes* its `stateRoot`; `transactionsRoot`, `receiptsRoot`, `withdrawalsRoot`, `requestsHash`, `logsBloom` and `gasUsed` come out of fevm too. every block validated so far matched every root (the badge above counts them; 3 consecutive ones as one chain), and `follow` keeps taking more from the chain head; one is checked in CI on every push. A MATCH rests on the block hash, not the node ([details](#every-root-in-the-header)) |
 | **For EIP authors** | Measured on 47 mainnet blocks over 3 days ([findings](docs/stateless-findings.md)): code is 43% of a stateless witness; EIP-4762 (Draft) would cost 23% more gas, and 35% of transactions, sent with the same gas limit, would run out of gas. Exempting the coinbase, as the draft exempts the sender and target, brings that to 13% |
-| **Fe ports** | 5 ports (USDT, every Uniswap V2 pair, WETH9, DAI, USDC's proxy) certified by mainnet replay, mainnet mutations, fuzzing and mutation testing ([verified page](https://fevm-replay.vercel.app/verified.html)). Also Ethereum's own EIP-4788 and EIP-2935 system contracts, ported from assembly: on 51 mainnet blocks they store what the deployed ones store, and they answer every read as the deployed ones do ([more](#ethereums-own-system-contracts-in-fe)) |
+| **Fe ports** | 5 ports (USDT, every Uniswap V2 pair, WETH9, DAI, USDC's proxy) certified by mainnet replay, mainnet mutations, fuzzing and mutation testing ([verified page](https://fevm-replay.vercel.app/verified.html)). Also all four of Ethereum's system contracts (EIP-4788, EIP-2935, EIP-7002, EIP-7251), ported from assembly: on 51 mainnet blocks they store and return what the deployed ones do, dequeued consolidation requests included, and the mainnet transactions that call them run identically ([more](#ethereums-own-system-contracts-in-fe)) |
 | **Fe-specific** | Effects prove the verdict and the proof verifier offline; `const fn` + `static_assert` check the blob fee against a real block; std units, `core::fixed`, `msg`/`recv` ([Fe highlight](#fe-highlight)) |
 | **Found** | 3 bugs in the Fe ports, 2 node tracer bugs, the transactions the Osaka fork changed, and where Fe's code cost more than solc's ([argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002), since fixed in Fe's std) |
 | **Upstream** | fe#2002 led to `Call::forward_delegatecall` in Fe's std ([argotorg/fe#2004](https://github.com/argotorg/fe/pull/2004), merged); our request in [fevm#26](https://github.com/fe-lang/fevm/issues/26) became the operand stack in `Tracer::step` ([fevm#32](https://github.com/fe-lang/fevm/pull/32)); dRPC is deploying a fix for the tracer bug we reported |
@@ -260,25 +260,42 @@ identically.
 
 ### Ethereum's own system contracts, in Fe
 
-Every block begins with two calls from the protocol: EIP-4788's contract
-stores the parent beacon root, EIP-2935's the parent block's hash. Both
-were written in assembly. [`ports/system`](ports/system/src/lib.fe) is
-both in Fe, about 30 lines each. `fevm_replay system <dir> <BeaconRoots.runtime.bin>
-<HistoryStorage.runtime.bin>` runs the ports beside the deployed contracts on
-a block's proven state. Each must store what the header implies, and then
-give the deployed contract's answer to the same 16 reads: a stored and a
-missing timestamp or number, zero, the window's edges, and calldata that is
-too short or too long. Shadow replay runs the mainnet transactions that read
-beacon roots with the port in place of the deployed contract.
+The protocol calls four contracts in every block, all written in assembly:
+at the start, EIP-4788's stores the parent beacon root and EIP-2935's the
+parent block's hash; at the end, EIP-7002's and EIP-7251's hand the
+consensus layer the withdrawal and consolidation requests queued in them,
+and move their fee. [`ports/system`](ports/system/src/lib.fe) is all four in
+Fe. `fevm_replay system <dir> <BeaconRoots.runtime.bin>
+<HistoryStorage.runtime.bin> [<WithdrawalRequests.runtime.bin>
+<ConsolidationRequests.runtime.bin>]` runs the ports beside the deployed
+contracts on a block's proven state:
 
-| | Mainnet blocks | Block's system call | Reads answered as deployed | Mainnet transactions that read it | Gas (Fe vs deployed) |
+- EIP-4788 and EIP-2935: each port must store what the header implies, and
+  give the deployed contract's answer to the same 8 reads: a stored and a
+  missing timestamp or number, zero, the window's edges, and calldata that
+  is too short or too long.
+- EIP-7002 and EIP-7251: the end-of-block call runs on the parent's queue,
+  and must return the same requests and leave the same queue, excess and
+  count. Then come 5 calls on what that call left: a fee read, and requests
+  paying the fee, nothing, three times the fee, and one of the wrong length.
+  Every answer and every storage slot must be the deployed contract's.
+
+Shadow replay runs the mainnet transactions that call these contracts with
+the port in place of the deployed one.
+
+| | Mainnet blocks | Block's system call | Calls answered as deployed | Mainnet transactions that called it | Gas (Fe vs deployed) |
 | --- | ---: | --- | ---: | ---: | --- |
 | EIP-4788 beacon roots | 51 | same slots, every block | 8 of 8, every block | 15 of 15 identical | call +25 (10,076), read +24 |
 | EIP-2935 history | 51 | same slots, every block | 8 of 8, every block | none in these blocks | call +55 (5,098) |
+| EIP-7002 withdrawal requests | 51 | same output and storage (empty queue every block) | 5 of 5, every block | 2 of 2 identical | call +133, request +712 |
+| EIP-7251 consolidation requests | 51 | same output and storage; 11 blocks dequeued 2 from queues of 6 to 93 | 5 of 5, every block, fees 1 to 1,230 wei | none in these blocks | call +133 to +1,938 |
 
-CI runs the check on a proven block. Against hand-written assembly the ports
-cost a few dozen gas more a call. EIP-4788's port is a byte smaller (96 bytes
-of runtime code against 97); EIP-2935's is bigger (128 against 83).
+CI runs the check on a proven block. The ports cost more gas than
+hand-written assembly: a few dozen a call at the start of the block, more
+for the request contracts, which build their logs and outputs in Fe's
+`MemBuffer`. The two small ports are about the deployed size (96 bytes
+against 97, 128 against 83); the request ports are 833 bytes against 504
+and 414.
 
 The full account is in [docs/details.md](docs/details.md): shadow fuzzing,
 [every Uniswap V2 pair at once](docs/details.md#every-uniswap-v2-pair-at-once),
@@ -456,6 +473,7 @@ mkdir proven && tar xzf fixtures/proven/0x19335e5.tar.gz -C proven
 ./fevm_replay chain proven/0x19335e5             # a mainnet block, every root in its header
 ./fevm_replay system proven/0x19335e5 ports/system/BeaconRoots.runtime.bin ports/system/HistoryStorage.runtime.bin
                                                  # Ethereum's system contracts in Fe, beside the deployed ones
+                                                 # (add ports/system/WithdrawalRequests.runtime.bin ports/system/ConsolidationRequests.runtime.bin for all four)
 ```
 
 Then fetch a live block, prove it and replay it as a chain (needs `curl`):

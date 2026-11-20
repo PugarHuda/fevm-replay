@@ -140,11 +140,13 @@ jobs:
 
       - name: The Fe system contracts do on a mainnet block what the deployed ones do
         run: |
-          out=$(./out/fevm_replay system proven/0x19335e5 out/system/BeaconRoots.runtime.bin out/system/HistoryStorage.runtime.bin)
+          out=$(./out/fevm_replay system proven/0x19335e5 out/system/BeaconRoots.runtime.bin out/system/HistoryStorage.runtime.bin out/system/WithdrawalRequests.runtime.bin out/system/ConsolidationRequests.runtime.bin)
           echo "$out"
           echo "$out" | grep -q "EIP-4788 beacon roots: the system call writes what the header implies, deployed yes and Fe port yes"
           echo "$out" | grep -q "EIP-2935 history: the system call writes what the header implies, deployed yes and Fe port yes"
-          echo "$out" | grep -q "the Fe ports did what the deployed ones did (16 reads)"
+          echo "$out" | grep -q "EIP-7002 withdrawal requests: 5/5 calls"
+          echo "$out" | grep -q "EIP-7251 consolidation requests: 5/5 calls"
+          echo "$out" | grep -q "the Fe ports did what the deployed ones did (28 reads)"
 
       - name: Two consecutive mainnet blocks validated as one chain, and refused in the wrong order
         run: |

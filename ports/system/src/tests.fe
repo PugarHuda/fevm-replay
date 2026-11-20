@@ -2,23 +2,32 @@
 // these cover the reads anyone makes; the writes are checked on mainnet
 // blocks by `fevm_replay system` (see the repository README).
 
-use ingot::{BeaconRoots, HistoryStorage}
+use ingot::{BeaconRoots, ConsolidationRequests, HistoryStorage, WithdrawalRequests}
 
 // Calls `target` with `len` bytes of calldata, the word `value` first;
 // whether it succeeded, and the word it returned.
 fn read(_ target: Address, _ value: u256, len: usize) -> (bool, u256)
 uses (evm: mut Evm)
 {
-    var args = MemBuffer::with_capacity(64)
+    send(target, value, len, paying: 0)
+}
+
+// `read`, paying `paying` wei.
+fn send(_ target: Address, _ value: u256, _ len: usize, paying: u256) -> (bool, u256)
+uses (evm: mut Evm)
+{
+    var args = MemBuffer::with_capacity(128)
     args.write_word(offset: 0, value: value)
     args.write_word(offset: 32, value: 0)
+    args.write_word(offset: 64, value: 0)
+    args.write_word(offset: 96, value: 0)
     args.truncate(len)
     var ret = MemBuffer::empty()
     let ok = evm
         .raw_call(
             addr: target,
             gas: 100000,
-            value: Wei::zero(),
+            value: std::evm::wei(paying),
             args: args.span(),
             ret: mut ret,
         )
@@ -85,4 +94,35 @@ fn history_wants_exactly_32_bytes() uses (evm: mut Evm) {
     let at = history()
     let (short, _) = read(at, 0, len: 31)
     assert!(!short)
+}
+
+fn withdrawals() -> Address uses (evm: mut Evm) {
+    evm.create2<WithdrawalRequests>(value: Wei::zero(), args: (), salt: 0)
+}
+
+fn consolidations() -> Address uses (evm: mut Evm) {
+    evm.create2<ConsolidationRequests>(value: Wei::zero(), args: (), salt: 0)
+}
+
+// Paying requests need a funded caller; they are checked on mainnet blocks
+// and transactions by `fevm_replay system` and shadow replay.
+#[test]
+fn the_fee_can_be_read() uses (evm: mut Evm) {
+    let (ok, _) = read(withdrawals(), 0, len: 0)
+    let (ok2, _) = read(consolidations(), 0, len: 0)
+    assert!(ok && ok2)
+}
+
+#[test]
+fn a_request_paying_nothing_is_refused() uses (evm: mut Evm) {
+    let (w, _) = read(withdrawals(), 7, len: 56)
+    let (c, _) = read(consolidations(), 7, len: 96)
+    assert!(!w && !c)
+}
+
+#[test]
+fn a_request_of_another_length_is_refused() uses (evm: mut Evm) {
+    let (w55, _) = read(withdrawals(), 7, len: 55)
+    let (c95, _) = read(consolidations(), 7, len: 95)
+    assert!(!w55 && !c95)
 }

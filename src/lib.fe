@@ -95,7 +95,7 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         )
         println!("       fevm-replay fetch-code <address> <file> [rpc-url]")
         println!(
-            "       fevm-replay system <dir> <BeaconRoots.runtime.bin> <HistoryStorage.runtime.bin>",
+            "       fevm-replay system <dir> <BeaconRoots.runtime.bin> <HistoryStorage.runtime.bin> [<WithdrawalRequests.runtime.bin> <ConsolidationRequests.runtime.bin>]",
         )
         println!(
             "       fevm-replay fuzz <deployed.hex> <port.bin> [runs] [steps] [seed]",
@@ -4044,9 +4044,9 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
 fn system_command() -> i32
 uses (args: Args, fs: mut std::fs::Fs, out: mut Stdout)
 {
-    if args.count() != 5 {
+    if args.count() != 5 && args.count() != 7 {
         println!(
-            "usage: fevm-replay system <dir> <BeaconRoots.runtime.bin> <HistoryStorage.runtime.bin>",
+            "usage: fevm-replay system <dir> <BeaconRoots.runtime.bin> <HistoryStorage.runtime.bin> [<WithdrawalRequests.runtime.bin> <ConsolidationRequests.runtime.bin>]",
         )
         return 2
     }
@@ -4180,8 +4180,22 @@ uses (args: Args, fs: mut std::fs::Fs, out: mut Stdout)
             }
             var b_port = b
             b_port.set_code(address: target, code: port)
-            let (_, dr) = requests::call_as(a, caller: 0x1234, target, input: data.span(), env)
-            let (_, pr) = requests::call_as(b_port, caller: 0x1234, target, input: data.span(), env)
+            let (_, dr) = requests::call_as(
+                a,
+                caller: 0x1234,
+                target,
+                input: data.span(),
+                value: 0,
+                env,
+            )
+            let (_, pr) = requests::call_as(
+                b_port,
+                caller: 0x1234,
+                target,
+                input: data.span(),
+                value: 0,
+                env,
+            )
             d_gas += requests::SYSTEM_GAS - dr.gas_remaining
             p_gas += requests::SYSTEM_GAS - pr.gas_remaining
             reads += 1
@@ -4203,6 +4217,26 @@ uses (args: Args, fs: mut std::fs::Fs, out: mut Stdout)
             " Fe",
         )
     }
+    if args.count() == 7 {
+        for c in 0 .. 2 {
+            let Option::Some(port_code) = read_shadow(args.get(5 + c)) else {
+                return 1
+            }
+            let (found, calls) = request_contract(
+                proofs,
+                parent_root,
+                address: if c == 0 {
+                    proof::WITHDRAWAL_REQUESTS
+                } else {
+                    proof::CONSOLIDATION_REQUESTS
+                },
+                port: port_code.span(),
+                env,
+            )
+            differ += found
+            reads += calls
+        }
+    }
     if differ == 0 {
         println!(
             "system contracts: the Fe ports did what the deployed ones did (",
@@ -4214,4 +4248,170 @@ uses (args: Args, fs: mut std::fs::Fs, out: mut Stdout)
         println!("system contracts: ", differ, " differences")
         1
     }
+}
+
+// Request contract `address` (EIP-7002, EIP-7251) beside its Fe port
+// `port`, on the parent's proven state: the end-of-block system call (the
+// queue it dequeues, its output, the excess and count it leaves), then a
+// fee read, a request paying the fee, one paying nothing, one paying more
+// and one of the wrong length. Each must return what the deployed code
+// returns and leave the same storage. Returns the differences and the
+// calls compared.
+#[cfg(target_family = "unix")]
+fn request_contract(
+    _ proofs: Value,
+    _ parent_root: u256,
+    address: u256,
+    port: core::MemSpan,
+    _ env: fevm::BlockEnv,
+) -> (u64, u64)
+uses (out: mut Stdout)
+{
+    let name = if address == proof::WITHDRAWAL_REQUESTS {
+        "EIP-7002 withdrawal requests"
+    } else {
+        "EIP-7251 consolidation requests"
+    }
+    let input: usize = if address == proof::WITHDRAWAL_REQUESTS {
+        56
+    } else {
+        96
+    }
+    var world = fevm::WorldState::empty()
+    if !proof::load_request_contract(
+        mut world,
+        proofs,
+        state_root: parent_root,
+        address,
+        fevm::WorldState::empty(),
+    ) {
+        println!(name, ": not in these proofs, skipped")
+        return (0, 0)
+    }
+    let queued = world.storage_load(address, 3) - world.storage_load(address, 2)
+    var differ: u64 = 0
+    // The end-of-block system call, from the parent's queue.
+    let Option::Some(a) = world.try_clone() else {
+        return (1, 0)
+    }
+    let Option::Some(b) = world.try_clone() else {
+        return (1, 0)
+    }
+    var b_port = b
+    b_port.set_code(address: address, code: port)
+    let (d_world, d) = requests::system_call(
+        a,
+        target: address,
+        input: MemBuffer::empty().span(),
+        env,
+    )
+    let (p_world, p) = requests::system_call(
+        b_port,
+        target: address,
+        input: MemBuffer::empty().span(),
+        env,
+    )
+    let dequeued_same = d.status == p.status
+        && fuzz::same_bytes(d.output.span(), p.output.span())
+        && same_storage(d_world, p_world, address)
+    if !dequeued_same {
+        differ += 1
+    }
+    println!(
+        name,
+        ": end-of-block call on a queue of ",
+        queued,
+        ": ",
+        d.output.len(),
+        " bytes of requests out, ",
+        if dequeued_same {
+            "same output and storage"
+        } else {
+            "DIFFERENT"
+        },
+        "; gas ",
+        requests::SYSTEM_GAS - d.gas_remaining,
+        " deployed, ",
+        requests::SYSTEM_GAS - p.gas_remaining,
+        " Fe",
+    )
+    // Calls from another account, on what the system call left.
+    var fee: u256 = 0
+    var same: u64 = 0
+    for r in 0 .. 5 {
+        let length: usize = if r == 0 {
+            0
+        } else if r == 4 { input - 1 } else { input }
+        let value: u256 = if r == 2 {
+            0
+        } else if r == 3 { fee * 3 } else { fee }
+        var data = MemBuffer::with_capacity(input + 32)
+        var w: usize = 0
+        while w * 32 < input {
+            data.write_word(offset: w * 32, value: 0xfe11 + (r + w) as u256)
+            w += 1
+        }
+        data.truncate(length)
+        let Option::Some(a) = d_world.try_clone() else {
+            return (differ + 1, 0)
+        }
+        let Option::Some(b) = d_world.try_clone() else {
+            return (differ + 1, 0)
+        }
+        var b_port = b
+        b_port.set_code(address: address, code: port)
+        let (ad, dr) = requests::call_as(
+            a,
+            caller: 0x1234,
+            target: address,
+            input: data.span(),
+            value,
+            env,
+        )
+        let (ap, pr) = requests::call_as(
+            b_port,
+            caller: 0x1234,
+            target: address,
+            input: data.span(),
+            value,
+            env,
+        )
+        if r == 0 && dr.output.len() == 32 {
+            fee = dr.output.span().read_word(offset: 0)
+        }
+        if dr.status == pr.status
+            && fuzz::same_bytes(dr.output.span(), pr.output.span())
+            && same_storage(ad, ap, address) {
+            same += 1
+        } else {
+            differ += 1
+            println!("DIFF ", name, ": call ", r, " answered differently")
+        }
+    }
+    println!(
+        name,
+        ": ",
+        same,
+        "/5 calls (a fee read; requests paying the fee, nothing and more; a wrong length) answered as deployed, same storage; fee ",
+        fee,
+        " wei",
+    )
+    (differ, 6)
+}
+
+// Whether `a` and `b` hold the same storage for `address`.
+fn same_storage(_ a: fevm::WorldState, _ b: fevm::WorldState, _ address: u256) -> bool {
+    for i in 0 .. a.storage_slots() {
+        let e = a.storage_at(i)
+        if e.occupied && e.address == address && b.storage_load(address, e.slot) != e.value {
+            return false
+        }
+    }
+    for i in 0 .. b.storage_slots() {
+        let e = b.storage_at(i)
+        if e.occupied && e.address == address && a.storage_load(address, e.slot) != e.value {
+            return false
+        }
+    }
+    true
 }

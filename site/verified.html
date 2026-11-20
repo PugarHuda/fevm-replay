@@ -135,15 +135,16 @@
     </article>
     <article class="port">
       <h2>System contracts</h2>
-      <p class="meta">EIP-4788 beacon roots and EIP-2935 history, hand-written assembly · <code>ports/system</code></p>
+      <p class="meta">EIP-4788, EIP-2935, EIP-7002 and EIP-7251, all four that the protocol calls, hand-written assembly · <code>ports/system</code></p>
       <dl>
-        <dt>Mainnet blocks: the block's system call stores what the header implies</dt><dd>51 of 51</dd>
-        <dt>Reads answered as deployed (16 a block)</dt><dd>816 of 816</dd>
-        <dt>Mainnet transactions that read beacon roots</dt><dd>15</dd>
+        <dt>Mainnet blocks where all four did what the deployed code did</dt><dd>51 of 51</dd>
+        <dt>Calls answered as deployed (28 a block)</dt><dd>1,428 of 1,428</dd>
+        <dt>Consolidation requests dequeued from real queues</dt><dd>11 blocks</dd>
+        <dt>Mainnet transactions that called them</dt><dd>17</dd>
         <dt>…that behaved differently</dt><dd class="zero">0</dd>
-        <dt>Gas a call</dt><dd>+24 to +55</dd>
+        <dt>Gas</dt><dd>+24 to +1,938</dd>
       </dl>
-      <p class="meta">The protocol calls both at the start of every block, so every validated block exercises them. <code>fevm_replay system</code> runs each port beside the deployed contract on the block's proven state; CI runs it on a proven block.</p>
+      <p class="meta">The protocol calls them in every block, so every validated block exercises them. <code>fevm_replay system</code> runs each port beside the deployed contract on the block's proven state; CI runs it on a proven block.</p>
       <div class="links"><a href="https://github.com/PugarHuda/fevm-replay#ethereums-own-system-contracts-in-fe">How</a><a href="https://github.com/PugarHuda/fevm-replay/tree/main/ports/system">Source</a></div>
     </article>
   </div>

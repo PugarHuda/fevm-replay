@@ -1,5 +1,5 @@
-//! Two of Ethereum's system contracts in Fe, as the protocol calls them at
-//! the start of every block and as anyone may read them:
+//! Ethereum's four system contracts in Fe, as the protocol calls them in
+//! every block and as anyone may call them:
 //!
 //! - `BeaconRoots`, EIP-4788 (mainnet 0x000F3df6D732807Ef1319fB7B8bB8522d0Beac02):
 //!   the system address stores the block's timestamp and its parent beacon
@@ -7,8 +7,13 @@
 //! - `HistoryStorage`, EIP-2935 (mainnet 0x0000F90827F1C53a10cb7A02335B175320002935):
 //!   the system address stores the parent's hash; anyone reads the hash of
 //!   any of the last 8,191 blocks by its number.
+//! - `WithdrawalRequests`, EIP-7002 (mainnet 0x00000961Ef480Eb55e80D19ad83579A64c007002)
+//!   and `ConsolidationRequests`, EIP-7251 (mainnet 0x0000BBdDc7CE488642fb579F8B00f3a590007251):
+//!   anyone queues a request by paying the fee; at the end of every block
+//!   the system address takes up to 16 (or 2) requests off the queue,
+//!   returns them and moves the fee's excess toward the target of 2 (or 1).
 //!
-//! Both take raw calldata, no selector, as the deployed contracts do, and
+//! All take raw calldata, no selector, as the deployed contracts do, and
 //! fail with an empty revert where those do.
 
 use std::evm::revert_empty
@@ -18,6 +23,18 @@ pub const SYSTEM_ADDRESS: u256 = 0xfffffffffffffffffffffffffffffffffffffffe
 /// Both ring buffers' length (EIP-4788's HISTORY_BUFFER_LENGTH, EIP-2935's
 /// HISTORY_SERVE_WINDOW).
 pub const BUFFER_LENGTH: u256 = 8191
+
+// The request contracts' storage: the fee's excess, this block's count,
+// the queue's head and tail, then the queue, a request's words in a row.
+const EXCESS: u256 = 0
+const COUNT: u256 = 1
+const HEAD: u256 = 2
+const TAIL: u256 = 3
+const QUEUE: u256 = 4
+// The excess before the fork, which makes the fee revert until the first
+// system call.
+const EXCESS_INHIBITOR: u256 = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+const FEE_UPDATE_FRACTION: u256 = 17
 
 pub contract BeaconRoots uses (ctx: Ctx, evm: mut Evm) {
     recv {
@@ -74,6 +91,154 @@ pub contract HistoryStorage uses (ctx: Ctx, evm: mut Evm) {
             }
         }
     }
+}
+
+pub contract WithdrawalRequests uses (ctx: Ctx, evm: mut Evm, log: mut Log) {
+    recv {
+        #[payable]
+        _ uses (ctx, mut evm, mut log) {
+            // A validator's 48-byte public key and an 8-byte amount; three
+            // words a request; 16 a block, 2 the target.
+            requests(input: 56, words: 3, most: 16, target: 2)
+        }
+    }
+}
+
+pub contract ConsolidationRequests uses (ctx: Ctx, evm: mut Evm, log: mut Log) {
+    recv {
+        #[payable]
+        _ uses (ctx, mut evm, mut log) {
+            // Source and target public keys, 48 bytes each; four words a
+            // request; 2 a block, 1 the target.
+            requests(input: 96, words: 4, most: 2, target: 1)
+        }
+    }
+}
+
+// Both request contracts: `input` bytes of calldata a request, stored as
+// the caller's address and then the calldata's words, `words` slots in all.
+fn requests(input: u256, words: u256, most: u256, target: u256) -> !
+uses (ctx: Ctx, evm: mut Evm, log: mut Log)
+{
+    if ctx.caller().word() == SYSTEM_ADDRESS {
+        end_of_block(input, words, most, target)
+    }
+    let size = evm.calldatasize()
+    if size == 0 {
+        return_word(fee())
+    }
+    if size != input || ctx.value().as_wei() < fee() {
+        revert_empty()
+    }
+    let caller = ctx.caller().word()
+    unsafe {
+        evm.sstore(slot: COUNT, value: evm.sload(COUNT) + 1)
+        let tail = evm.sload(TAIL)
+        let at = QUEUE + tail * words
+        evm.sstore(slot: at, value: caller)
+        var w: u256 = 1
+        while w < words {
+            evm.sstore(slot: at + w, value: evm.calldataload((w - 1) * 32))
+            w += 1
+        }
+        evm.sstore(slot: TAIL, value: tail + 1)
+    }
+    // The log: the caller's 20 bytes, then the calldata.
+    let length: usize = (20 + input).downcast_unchecked()
+    var data = MemBuffer::with_capacity(length + 32)
+    data.write_word(offset: 0, value: caller << 96)
+    var w: u256 = 0
+    while w * 32 < input {
+        data.write_word(
+            offset: 20 + (w * 32).downcast_unchecked(),
+            value: evm.calldataload(w * 32),
+        )
+        w += 1
+    }
+    data.truncate(length)
+    log.log0(data: data.span())
+    evm.return_data(data: MemBuffer::empty().span())
+}
+
+// The system call: up to `most` requests off the queue, each returned as
+// the caller's 20 bytes and its `input` bytes; then the new excess, and a
+// count of zero for the next block.
+fn end_of_block(_ input: u256, _ words: u256, _ most: u256, _ target: u256) -> !
+uses (evm: mut Evm)
+{
+    let head = unsafe {
+        evm.sload(HEAD)
+    }
+    let tail = unsafe {
+        evm.sload(TAIL)
+    }
+    let taken = if tail - head > most {
+        most
+    } else {
+        tail - head
+    }
+    let each: usize = (20 + input).downcast_unchecked()
+    let count: usize = taken.downcast_unchecked()
+    let length: usize = count * each
+    var out = MemBuffer::with_capacity(length + 32)
+    for r in 0 .. count {
+        let at = QUEUE + (head + r as u256) * words
+        let offset = r * each
+        out.write_word(offset: offset, value: unsafe { evm.sload(at) } << 96)
+        var w: u256 = 1
+        while w < words {
+            out.write_word(
+                offset: offset + 20 + ((w - 1) * 32).downcast_unchecked(),
+                value: unsafe {
+                    evm.sload(at + w)
+                },
+            )
+            w += 1
+        }
+    }
+    out.truncate(length)
+    unsafe {
+        if head + taken == tail {
+            evm.sstore(slot: HEAD, value: 0)
+            evm.sstore(slot: TAIL, value: 0)
+        } else {
+            evm.sstore(slot: HEAD, value: head + taken)
+        }
+        var excess = evm.sload(EXCESS)
+        if excess == EXCESS_INHIBITOR {
+            excess = 0
+        }
+        let count = evm.sload(COUNT)
+        let next = if excess + count > target {
+            excess + count - target
+        } else {
+            0
+        }
+        evm.sstore(slot: EXCESS, value: next)
+        evm.sstore(slot: COUNT, value: 0)
+    }
+    evm.return_data(data: out.span())
+}
+
+// The fee: EIP-4844's fake exponential of the excess, from a minimum of 1
+// wei; it reverts before the fork.
+fn fee() -> u256 uses (evm: Evm) {
+    let excess = unsafe {
+        evm.sload(EXCESS)
+    }
+    if excess == EXCESS_INHIBITOR {
+        revert_empty()
+    }
+    var i: u256 = 1
+    var output: u256 = 0
+    var accumulated: u256 = FEE_UPDATE_FRACTION
+    while accumulated > 0 {
+        // As the EVM computes it: wrapping, as the deployed code does.
+        output = output.wrapping_add(accumulated)
+        accumulated = accumulated.wrapping_mul(excess) / (FEE_UPDATE_FRACTION * i)
+        i += 1
+    }
+    output / FEE_UPDATE_FRACTION
 }
 
 fn return_word(_ value: u256) -> ! uses (evm: Evm) {
