@@ -29,7 +29,7 @@ Replaying is fast: those 5,129 transactions take 5.9 seconds once fetched.
 | **Stateless** | With the parent's proofs as a witness, fevm runs a block's system calls and transactions and *computes* its `stateRoot`; `transactionsRoot`, `receiptsRoot`, `withdrawalsRoot`, `requestsHash`, `logsBloom` and `gasUsed` come out of fevm too. every block validated so far matched every root (the badge above counts them; 3 consecutive ones as one chain), and `follow` keeps taking more from the chain head; one is checked in CI on every push. A MATCH rests on the block hash, not the node ([details](#every-root-in-the-header)) |
 | **For EIP authors** | Measured on 51 mainnet blocks over 4 days ([findings](docs/stateless-findings.md)): code is 43% of a stateless witness; EIP-4762 (Draft) would cost 23% more gas, and 35% of transactions, sent with the same gas limit, would run out of gas. Exempting the coinbase, as the draft exempts the sender and target, brings that to 13%: it saves ETH transfers (51% short, 1.3% exempt) but not contract calls (26%, still 21%: code and storage). Code at half price would bring it to 5.7%, free code to 1.4% |
 | **Fe ports** | 5 ports (USDT, every Uniswap V2 pair, WETH9, DAI, USDC's proxy) certified by mainnet replay, mainnet mutations, fuzzing and mutation testing ([verified page](https://fevm-replay.vercel.app/verified.html)). Also all four of Ethereum's system contracts (EIP-4788, EIP-2935, EIP-7002, EIP-7251), ported from assembly: on 55 mainnet blocks they store and return what the deployed ones do, and with all four system calls run by the Fe ports every root in the header still matches; the mainnet transactions that call them run identically ([more](#ethereums-own-system-contracts-in-fe)) |
-| **Fe-specific** | Effects prove the verdict and the proof verifier offline; `const fn` + `static_assert` check the blob fee against a real block; std units, `core::fixed`, `msg`/`recv` ([Fe highlight](#fe-highlight)) |
+| **Fe-specific** | Effects prove the verdict and the proof verifier offline, so Fe 26.7 compiles that verifier to WebAssembly: [verify a mainnet proof in your browser](https://fevm-replay.vercel.app/verify.html) with the same Fe code; `const fn` + `static_assert` check the blob fee against a real block; std units, `core::fixed`, `msg`/`recv` ([Fe highlight](#fe-highlight)) |
 | **Found** | 4 bugs in the Fe ports (one in our own EIP-7002 port, found by validating a mainnet block on it), 2 node tracer bugs, the transactions the Osaka fork changed, and where Fe's code cost more than solc's ([argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002), since fixed in Fe's std) |
 | **Upstream** | fe#2002 led to `Call::forward_delegatecall` in Fe's std ([argotorg/fe#2004](https://github.com/argotorg/fe/pull/2004), merged); our request in [fevm#26](https://github.com/fe-lang/fevm/issues/26) became the operand stack in `Tracer::step` ([fevm#32](https://github.com/fe-lang/fevm/pull/32)); dRPC is deploying a fix for the tracer bug we reported |
 | **Beside fevm's chain** | fevm now imports blocks itself ([`fevm_chain`](https://github.com/fe-lang/fevm/tree/main/ingots/chain)), on a full world and its conformance fixtures. fevm-replay is the other half: mainnet blocks, a *partial* world from the parent's proofs, the state root computed from that witness, and Fe ports in place of Solidity. It builds on that fevm and runs each block through `fevm_chain` and `fevm::Block` too: both drivers agree with the header on all 51 blocks ([more](#beside-fevms-chain-layer)) |
@@ -355,6 +355,18 @@ and the [explorer](docs/details.md#explorer).
 
 
 ## Fe highlight
+
+**The same proof check, native and in the browser.** The Merkle-Patricia
+walk every stateless block rests on ([`ingots/mpt`](ingots/mpt/src/lib.fe))
+asks for no capability, so it is one ingot for two targets: the native tool
+uses it, and [`web/`](web/src/lib.fe) builds it with Fe 26.7's
+`fe build --backend wasm` into a 72 KB module. The
+[Verify page](https://fevm-replay.vercel.app/verify.html) runs it in the
+browser, with the host from Fe's own `examples/wasm`, on USDT's and USDC's
+real account and storage proofs under block 26,424,804's state root, in a
+few milliseconds, and refuses a tampered value or a wrong root. CI rebuilds
+the module with the release binary, checks it is byte-for-byte the one the
+site serves, and runs it in Node.js (`web/test.mjs`).
 
 **The compiler proves the replay cannot touch the network or the disk.**
 Fe functions declare the capabilities they use, and native I/O is a

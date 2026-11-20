@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Verify in your browser · fevm-replay</title>
+<meta name="description" content="fevm-replay's Merkle-Patricia proof check, compiled from Fe to WebAssembly, verifies mainnet account and storage proofs against a block's state root in your browser.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=2">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='3' fill='%23f2f4f3' stroke='%231f2624' stroke-width='2'/%3E%3Ctext x='16' y='22' font-family='sans-serif' font-weight='700' font-size='14' text-anchor='middle' fill='%231f2624'%3EFe%3C/text%3E%3C/svg%3E">
+<style>
+  .g-head { padding-block: 1.5rem 0.5rem; }
+  .g-head h1 { font-size: clamp(2rem, 4.5vw, 3rem); letter-spacing: -0.03em; line-height: 1.05; margin: 0 0 0.75rem; }
+  .controls { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; margin: 1.25rem 0; }
+  .controls button { font: inherit; font-weight: 600; padding: 0.55rem 1rem; border-radius: 6px; border: 1px solid var(--rule); background: var(--paper); color: var(--ink); cursor: pointer; }
+  .controls button.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  .controls label { display: inline-flex; gap: 0.4rem; align-items: center; color: var(--steel); }
+  pre#out { min-height: 12rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .verdict { font-weight: 700; margin: 0.75rem 0; }
+  .verdict.ok { color: var(--match, #2e8b6f); }
+  .verdict.bad { color: var(--diff, #c9961a); }
+  .why { max-width: var(--measure); }
+</style>
+</head>
+<body>
+<header class="wrap site-head">
+  <a class="mark" href="./" aria-label="fevm-replay home">
+    <span class="tile" aria-hidden="true"><small>26</small><b>Fe</b></span>
+    <span>fevm-replay</span>
+  </a>
+  <nav aria-label="Main">
+    <a href="./">Overview</a>
+    <a href="docs.html">Docs</a>
+    <a href="explorer.html">Explorer</a>
+    <a href="verified.html">Verified</a>
+    <a href="stateless.html">Stateless</a>
+    <a href="verify.html" aria-current="page">Verify</a>
+    <a href="https://github.com/PugarHuda/fevm-replay">GitHub</a>
+  </nav>
+</header>
+
+<main class="wrap">
+  <section class="g-head">
+    <h1>Verify a mainnet proof in your browser</h1>
+    <p class="intro">Every stateless block fevm-replay validates starts from <code>eth_getProof</code> answers checked against the parent's state root. That check is Fe (<a href="https://github.com/PugarHuda/fevm-replay/blob/main/ingots/mpt/src/lib.fe"><code>ingots/mpt</code></a>), with no host capability, so Fe 26.7 compiles the same code to WebAssembly (<a href="https://github.com/PugarHuda/fevm-replay/blob/main/web/src/lib.fe"><code>web/</code></a>, <code>fe build --backend wasm</code>). Below, your browser runs it on the real proofs of USDT's and USDC's accounts and three of their slots, under the state root of mainnet block 26,424,804. Change a value and the proof no longer proves it.</p>
+  </section>
+
+  <div class="controls">
+    <label>Proof <select id="which"><option value="usdt.json">USDT</option><option value="usdc.json">USDC (its proxy)</option></select></label>
+    <label><input type="checkbox" id="tamper"> claim a different value for the first slot</label>
+    <button class="primary" id="run" disabled>Verify with Fe (WebAssembly)</button>
+  </div>
+  <p class="verdict" id="verdict" aria-live="polite"></p>
+  <pre id="out">Loading the module…</pre>
+
+  <section class="why">
+    <h2>What runs</h2>
+    <p>The page loads <code>fevm_replay_web.wasm</code>, checks it against its build manifest (SHA-256, imports, exports) with the host from Fe's own <code>examples/wasm/host.mjs</code>, hands it the proof as a file and calls its one export, <code>verify</code>. The module hashes every node with keccak256, follows the key's nibbles from the state root to the account's leaf, decodes the account, then does the same from the account's storage root for each slot. Nothing here talks to a node: the proof and the root are the data, and the verdict is Fe's.</p>
+    <p class="note">The same check, natively: <code>fevm_replay chain proven/0x19335e5</code> proves 210 accounts and 513 slots of this block's parent this way, then computes the block's own state root from them.</p>
+  </section>
+</main>
+
+<footer class="wrap site-foot">
+  <span>Built for the Fe Builders Challenge 2026. Apache-2.0.</span>
+  <span><a href="./">Overview</a>, <a href="docs.html">docs</a> and <a href="https://github.com/PugarHuda/fevm-replay">source</a></span>
+</footer>
+
+<script type="module">
+import { instantiate } from "./wasm/host.mjs";
+const out = document.getElementById("out");
+const verdict = document.getElementById("verdict");
+const run = document.getElementById("run");
+let bytes, manifest;
+try {
+  [bytes, manifest] = await Promise.all([
+    fetch("wasm/fevm_replay_web.wasm").then((r) => r.arrayBuffer()),
+    fetch("wasm/fevm_replay_web.manifest.json").then((r) => r.json()),
+  ]);
+  out.textContent = `Module loaded: ${bytes.byteLength.toLocaleString("en")} bytes of WebAssembly built from Fe. Press Verify.`;
+  run.disabled = false;
+} catch (e) {
+  out.textContent = "Could not load the module: " + e.message;
+}
+run.addEventListener("click", async () => {
+  run.disabled = true;
+  verdict.textContent = "";
+  verdict.className = "verdict";
+  try {
+    const name = document.getElementById("which").value;
+    let text = await fetch("wasm/" + name).then((r) => r.text());
+    if (document.getElementById("tamper").checked) {
+      const doc = JSON.parse(text);
+      doc.storageProof[0].value = "0x1234";
+      text = JSON.stringify(doc);
+    }
+    const started = performance.now();
+    const guest = await instantiate(new Uint8Array(bytes), { manifest, files: { [name]: text } });
+    const reply = guest.callReply("verify", name);
+    const ms = (performance.now() - started).toFixed(1);
+    out.textContent = guest.host.stdout;
+    if (reply.ok && reply.value === 1) {
+      verdict.textContent = `Every proof holds (${ms} ms in your browser).`;
+      verdict.classList.add("ok");
+    } else if (reply.ok) {
+      verdict.textContent = `A proof does not prove what is claimed (${ms} ms).`;
+      verdict.classList.add("bad");
+    } else {
+      verdict.textContent = "The module could not read the proof: " + JSON.stringify(reply);
+      verdict.classList.add("bad");
+    }
+  } catch (e) {
+    out.textContent = "Error: " + e.message;
+  }
+  run.disabled = false;
+});
+</script>
+</body>
+</html>

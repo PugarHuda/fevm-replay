@@ -102,6 +102,14 @@ jobs:
           ~/fe-ports/bin/fe test .
           ~/fe-ports/bin/fe build -O 2 --out-dir ../../out/dai .
 
+      - name: The proof check on WebAssembly (web/, Fe 26.7's release binary)
+        run: |
+          curl -sSfL -o fe-release https://github.com/argotorg/fe/releases/download/v26.7.0/fe_linux_amd64
+          chmod +x fe-release
+          (cd web && ../fe-release fmt --check && ../fe-release build --backend wasm -O 2 --out-dir ../out/web .)
+          cmp out/web/fevm_replay_web.wasm site/wasm/fevm_replay_web.wasm
+          node web/test.mjs out/web/fevm_replay_web.wasm
+
       - name: Build fevm-replay
         run: fe build --backend native -O 2 --emit executable --out-dir out .
 

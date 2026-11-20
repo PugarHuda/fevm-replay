@@ -1,0 +1,116 @@
+//! fevm-replay's Merkle-Patricia proof check, built for the browser with
+//! `fe build --backend wasm`: the same `mpt` ingot the native tool checks
+//! every stateless block with. The host hands over one `eth_getProof`
+//! answer and the state root of a block's header; `verify` walks the account
+//! proof to that root, then the storage proof to the account's storage
+//! root, and prints what the proofs prove.
+use core::ptr::MemArray
+use core::text::{decimal, hex, parse_hex_uint}
+use std::io::Stdout
+use std::wasm::{HostText, Reply}
+use std::wasm::files::{Files, close, open, read, size}
+use json::{Value, parse}
+
+fn number(_ value: Value) -> u256 {
+    parse_hex_uint(value.text()).unwrap_or(default: 0)
+}
+
+/// Checks the proof file `name` (`{"stateRoot", "address", "accountProof",
+/// "storageProof": [{"key", "value", "proof"}]}`). Replies 1 if every proof
+/// holds and every value is the one claimed, 0 if not, and an error code if
+/// the file cannot be read or parsed.
+#[unsafe(export)]
+pub fn verify(name: HostText) -> Reply uses (files: mut Files, out: mut Stdout) {
+    let handle = match open(name.copy()) {
+        Result::Ok(handle) => handle,
+        Result::Err(error) => {
+            return Reply::error(error.code())
+        },
+    }
+    let length = match size(handle) {
+        Result::Ok(length) => length,
+        Result::Err(error) => {
+            return Reply::error(error.code())
+        },
+    }
+    var data: MemArray<u8> = MemArray::new_zeroed(length as usize)
+    var offset: u32 = 0
+    while offset < length {
+        match read(
+            handle,
+            offset,
+            mut data.as_slice().slice(offset: offset as usize, len: (length - offset) as usize),
+        ) {
+            Result::Ok(count) => {
+                if count == 0 { break }
+                offset += count
+            },
+            Result::Err(error) => {
+                close(handle)
+                return Reply::error(error.code())
+            },
+        }
+    }
+    close(handle)
+    let Result::Ok(doc) = parse(data.as_slice()) else {
+        return Reply::error(100)
+    }
+    let state_root = number(doc["stateRoot"])
+    let address = number(doc["address"])
+    println!("state root  0x", hex(state_root, 32))
+    println!("account     0x", hex(address, 20))
+    let Option::Some(account) = mpt::account(
+        state_root: state_root,
+        address: address,
+        doc["accountProof"],
+    ) else {
+        println!("the account proof does NOT hold under this state root")
+        return Reply::ok(0)
+    }
+    println!(
+        "proven      nonce ",
+        decimal(account.nonce),
+        ", balance ",
+        decimal(account.balance),
+        " wei",
+    )
+    println!(
+        "            storage root 0x",
+        hex(account.storage_root, 32),
+    )
+    println!("            code hash    0x", hex(account.code_hash, 32))
+    var all = true
+    for ref entry in doc["storageProof"].items() {
+        let key = number(entry["key"])
+        match mpt::slot(
+            storage_root: account.storage_root,
+            slot: key,
+            entry["proof"],
+        ) {
+            Option::Some(value) => {
+                let same = value == number(entry["value"])
+                println!(
+                    "slot        0x",
+                    hex(key, 32),
+                    " = 0x",
+                    hex(value, 32),
+                    if same {
+                        "  proven"
+                    } else {
+                        "  NOT the value claimed"
+                    },
+                )
+                all = all && same
+            },
+            Option::None => {
+                println!(
+                    "slot        0x",
+                    hex(key, 32),
+                    ": the storage proof does NOT hold",
+                )
+                all = false
+            },
+        }
+    }
+    Reply::ok(if all { 1 } else { 0 })
+}

@@ -1,0 +1,656 @@
+// A host for WebAssembly modules built from Fe with `--backend wasm`.
+//
+// It supplies the imports of `std::wasm` (the four scalar operations, the
+// standard streams and the files contract) and the revert of `core::rt`, which
+// ends a call with a `GuestRevert` that carries the data of a panic or a
+// revert. It places text in the module's memory
+// before a call, decodes the reply of an export, makes a new instance of the
+// module after a call fails, counts open handles, and checks a module against
+// its build manifest before running it. It checks
+// everything a module hands it before acting on it, and ends the call with a
+// `ContractError` that names the problem when the module breaks the contract.
+// The file is a plain ES module with no dependencies; it needs `WebAssembly`,
+// `BigInt`, `TextEncoder`, `TextDecoder` and `crypto.subtle` (Node.js 20 or
+// later, and current browsers).
+//
+//   import { instantiate } from "./host.mjs";
+//   const manifest = JSON.parse(fs.readFileSync("lines.manifest.json", "utf8"));
+//   const guest = await instantiate(fs.readFileSync("lines.wasm"), {
+//     manifest,
+//     files: { "hello.txt": "Hello" },
+//   });
+//   guest.callReply("lines", "hello.txt");   // { ok: true, value: 1 }
+//   guest.host.assertNoOpenHandles();
+//
+// The contract is described in `ingots/std/src/wasm.fe`,
+// `ingots/std/src/wasm/boundary.fe`, `ingots/std/src/wasm/files.fe` and
+// `ingots/std/src/wasm/streams.fe`, and in `examples/wasm/README.md`; the
+// numbers below repeat it.
+
+/** The version of the host contract that this host implements. */
+export const CONTRACT_VERSION = 3;
+
+/** The version of the manifest format that this host reads. */
+export const MANIFEST_VERSION = 1;
+
+/** The errors of the contract, by number. A number outside this table is a fault. */
+export const FILE_ERRORS = Object.freeze({
+  1: "NotFound",
+  2: "OutOfRange",
+  3: "BadName",
+});
+
+/**
+ * The longest text, in bytes, that the host reads from the module or places in
+ * it, and the most bytes of a stream that it takes or places in one call.
+ */
+export const MAX_TEXT_BYTES = 65536;
+
+/** The streams a module writes, by number. Stream 0 is standard input. */
+export const OUTPUT_STREAMS = Object.freeze({
+  1: "stdout",
+  2: "stderr",
+});
+
+/** The longest file, in bytes: a reply carries its size in 32 bits. */
+export const MAX_FILE_BYTES = 0xffffffff;
+
+/** The module, or the code that drives it, broke the contract. */
+export class ContractError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "ContractError";
+  }
+}
+
+/** The module called `sys_wasm_abort`. `code` is the number it passed (an unsigned 32-bit integer). */
+export class GuestAbort extends Error {
+  constructor(code) {
+    super(`the module aborted with code ${code}`);
+    this.name = "GuestAbort";
+    this.code = code;
+  }
+}
+
+/** What the codes of Solidity `Panic(uint256)` revert data mean, as `fe test` reports them. */
+export const PANIC_CODES = Object.freeze({
+  0x00: "generic panic",
+  0x01: "assertion failed",
+  0x11: "arithmetic overflow",
+  0x12: "division by zero",
+  0x21: "invalid enum value",
+  0x22: "invalid storage encoding",
+  0x31: "pop from an empty array",
+  0x32: "index out of bounds",
+  0x41: "out of memory",
+  0x51: "call to a zero-initialized function",
+});
+
+const PANIC_SELECTOR = 0x4e487b71;
+const ERROR_SELECTOR = 0x08c379a0;
+
+/**
+ * What revert data says: the meaning of the code of `Panic(uint256)` data, the
+ * message of `Error(string)` data, or `null` for any other data.
+ */
+export function revertReason(data) {
+  if (data.length < 4) return null;
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  // The word at `index` after the selector, if it fits 64 bits.
+  const word = (index) => {
+    const at = 4 + 32 * index;
+    if (data.length < at + 32 || data.subarray(at, at + 24).some((byte) => byte !== 0)) return null;
+    return view.getBigUint64(at + 24);
+  };
+  const selector = view.getUint32(0);
+  if (selector === PANIC_SELECTOR && data.length === 36) {
+    const code = word(0);
+    return code === null ? null : (PANIC_CODES[Number(code)] ?? null);
+  }
+  if (selector === ERROR_SELECTOR && word(0) === 32n) {
+    const length = word(1);
+    if (length === null || length > BigInt(data.length - 68)) return null;
+    return new TextDecoder().decode(data.subarray(68, 68 + Number(length)));
+  }
+  return null;
+}
+
+/**
+ * The module panicked with a code or reverted with data: a failed assertion, an
+ * overflow, a division by zero and an index outside an array pass Solidity
+ * `Panic(uint256)` data. `data` is the revert data, or `null` when the module had
+ * no memory left to make it, and `reason` is what the data says (`revertReason`).
+ * A panic without data traps instead.
+ */
+export class GuestRevert extends Error {
+  constructor(data) {
+    const reason = data === null ? "out of memory" : revertReason(data);
+    const hex = data === null ? "" : Array.from(data, (byte) => byte.toString(16).padStart(2, "0")).join("");
+    super(
+      data === null
+        ? "the module panicked and had no memory left for the revert data"
+        : reason === null
+          ? `the module reverted with data 0x${hex}`
+          : `the module reverted: ${reason}`,
+    );
+    this.name = "GuestRevert";
+    this.data = data;
+    this.reason = reason;
+  }
+}
+
+const MASK32 = 0xffffffffn;
+const encoder = new TextEncoder();
+
+/** The reply word of the contract: the tag in the low half, the payload in the high half. */
+export function encodeReply(tag, payload = 0) {
+  if (tag !== 0 && !(tag in FILE_ERRORS)) {
+    throw new ContractError(`unknown error code ${tag}: the contract defines ${Object.keys(FILE_ERRORS).join(", ")}`);
+  }
+  if (tag !== 0 && payload !== 0) {
+    throw new ContractError(`an error reply carries no payload, but error ${tag} has payload ${payload}`);
+  }
+  if (payload >>> 0 !== payload) {
+    throw new ContractError(`a reply payload is an unsigned 32-bit integer, not ${payload}`);
+  }
+  return (BigInt(payload) << 32n) | BigInt(tag >>> 0);
+}
+
+/** `{ ok: true, value }` or `{ ok: false, code, error }` for the word an export returned. */
+export function decodeReply(word) {
+  if (typeof word !== "bigint") {
+    throw new ContractError(`a reply is a 64-bit word, but the export returned ${typeof word}`);
+  }
+  const bits = BigInt.asUintN(64, word);
+  const tag = Number(bits & MASK32);
+  const payload = Number(bits >> 32n);
+  if (tag === 0) return { ok: true, value: payload };
+  if (!(tag in FILE_ERRORS)) {
+    throw new ContractError(`unknown error code ${tag} in a reply: the contract defines ${Object.keys(FILE_ERRORS).join(", ")}`);
+  }
+  if (payload !== 0) {
+    throw new ContractError(`an error reply carries no payload, but error ${tag} has payload ${payload}`);
+  }
+  return { ok: false, code: tag, error: FILE_ERRORS[tag] };
+}
+
+/** The bytes of a file or a name: a string is UTF-8, a Uint8Array is taken as it is. */
+function toBytes(value, what) {
+  if (typeof value === "string") return encoder.encode(value);
+  if (value instanceof Uint8Array) return value;
+  throw new TypeError(`${what} must be a string or a Uint8Array`);
+}
+
+/** A name is compared as bytes, so each byte becomes one character of the key. */
+function keyOf(bytes) {
+  let key = "";
+  for (const byte of bytes) key += String.fromCharCode(byte);
+  return key;
+}
+
+/**
+ * The imports of `std::wasm` (module `env`), over an in-memory set of files.
+ *
+ * `files` maps a name to its contents, of at most `MAX_FILE_BYTES` bytes. Handle
+ * numbers count up from 1 and are never reused, so a closed handle is told from
+ * one that was never issued.
+ * Call `bind` with the instance before the module runs.
+ *
+ * Options:
+ * - `imports`: further imports, as an object of modules; entries of `env`
+ *   replace the standard ones;
+ * - `now`: the clock, a function returning milliseconds since the Unix epoch
+ *   (`Date.now` by default);
+ * - `onLog`: called with `{ type: "i32", value }` or `{ type: "u64", value }`
+ *   for each logged number; the entries are also kept in `host.logs`;
+ * - `stdin`: the standard input, a string or a Uint8Array (empty by default);
+ * - `onWrite`: called with `{ stream: "stdout" | "stderr", bytes }` for each
+ *   write to a stream, `bytes` being a Uint8Array of its own. In Node.js,
+ *   `({ stream, bytes }) => process[stream].write(bytes)` passes the output on.
+ *   The text is also kept in `host.stdout` and `host.stderr`.
+ *
+ * `sys_wasm_abort` throws a `GuestAbort`, and `__fe_revert` and `abort` a
+ * `GuestRevert`.
+ */
+export function createHost(
+  files = {},
+  { imports = {}, now = Date.now, onLog = null, stdin = "", onWrite = null } = {},
+) {
+  const table = new Map();
+  for (const [name, contents] of Object.entries(files)) {
+    const bytes = toBytes(contents, `the contents of ${name}`);
+    if (bytes.length > MAX_FILE_BYTES) {
+      throw new ContractError(`file ${name} of ${bytes.length} bytes is above the limit of ${MAX_FILE_BYTES} bytes`);
+    }
+    table.set(keyOf(toBytes(name, "a file name")), bytes);
+  }
+  const open = new Map(); // handle -> contents
+  const logs = [];
+  const input = toBytes(stdin, "the standard input");
+  let consumed = 0;
+  // A decoder for each stream keeps a character that two writes split.
+  const decoders = { stdout: new TextDecoder(), stderr: new TextDecoder() };
+  const written = { stdout: "", stderr: "" };
+  let issued = 0;
+  let closed = 0;
+  let memory = null;
+  const log = (entry) => {
+    logs.push(entry);
+    if (onLog !== null) onLog(entry);
+  };
+
+  const bytesOfMemory = () => {
+    if (memory === null) throw new ContractError("the host is not bound to an instance");
+    return new Uint8Array(memory.buffer);
+  };
+
+  /** The module's memory, after a check that the `length` bytes at `address` lie inside it. */
+  const memoryHolding = (address, length, what) => {
+    const addr = address >>> 0;
+    const len = length >>> 0;
+    const view = bytesOfMemory();
+    if (addr + len > view.length) {
+      throw new ContractError(`${what}: text at ${addr} of length ${len} lies outside the memory of ${view.length} bytes`);
+    }
+    return view;
+  };
+
+  /** The text at `address` of `length` bytes, copied out of the module's memory. */
+  const readText = (address, length, what) => {
+    const addr = address >>> 0;
+    const len = length >>> 0;
+    if (len > MAX_TEXT_BYTES) {
+      throw new ContractError(`${what}: text length ${len} is above the limit of ${MAX_TEXT_BYTES} bytes`);
+    }
+    return memoryHolding(addr, len, what).slice(addr, addr + len);
+  };
+
+  const lookup = (handle, what) => {
+    const id = handle >>> 0;
+    const contents = open.get(id);
+    if (contents !== undefined) return contents;
+    if (id >= 1 && id <= issued) {
+      throw new ContractError(`${what}: handle ${id} is closed (closed twice, or used after it was closed)`);
+    }
+    throw new ContractError(`${what}: handle ${id} was never issued by this host (forged handle)`);
+  };
+
+  const env = {
+    sys_wasm_files_open(address, length) {
+      const name = readText(address, length, "open");
+      if (name.length === 0) return encodeReply(3);
+      const contents = table.get(keyOf(name));
+      if (contents === undefined) return encodeReply(1);
+      issued += 1;
+      open.set(issued, contents);
+      return encodeReply(0, issued);
+    },
+    sys_wasm_files_size(handle) {
+      return encodeReply(0, lookup(handle, "size").length);
+    },
+    sys_wasm_files_read(handle, offset, address, length) {
+      const contents = lookup(handle, "read");
+      const view = memoryHolding(address, length, "read");
+      const start = Math.min(offset >>> 0, contents.length);
+      const count = Math.min(length >>> 0, contents.length - start);
+      view.set(contents.subarray(start, start + count), address >>> 0);
+      return encodeReply(0, count);
+    },
+    sys_wasm_files_read_byte(handle, index) {
+      const contents = lookup(handle, "read_byte");
+      const at = index >>> 0;
+      if (at >= contents.length) return encodeReply(2);
+      return encodeReply(0, contents[at]);
+    },
+    sys_wasm_files_close(handle) {
+      lookup(handle, "close");
+      open.delete(handle >>> 0);
+      closed += 1;
+    },
+    sys_wasm_stream_write(stream, address, length) {
+      const name = OUTPUT_STREAMS[stream >>> 0];
+      if (name === undefined) {
+        throw new ContractError(`write: stream ${stream >>> 0} is not standard output (1) or standard error (2)`);
+      }
+      const view = memoryHolding(address, length, "write");
+      const addr = address >>> 0;
+      // The module offers the rest of a longer write again.
+      const count = Math.min(length >>> 0, MAX_TEXT_BYTES);
+      const bytes = view.slice(addr, addr + count);
+      written[name] += decoders[name].decode(bytes, { stream: true });
+      if (onWrite !== null) onWrite({ stream: name, bytes });
+      return count;
+    },
+    sys_wasm_stream_read(stream, address, length) {
+      if (stream >>> 0 !== 0) {
+        throw new ContractError(`read: stream ${stream >>> 0} is not standard input (0)`);
+      }
+      const view = memoryHolding(address, length, "read");
+      const count = Math.min(length >>> 0, MAX_TEXT_BYTES, input.length - consumed);
+      view.set(input.subarray(consumed, consumed + count), address >>> 0);
+      consumed += count;
+      return count;
+    },
+    sys_wasm_log_i32(value) {
+      log({ type: "i32", value: value | 0 });
+    },
+    sys_wasm_log_u64(value) {
+      log({ type: "u64", value: BigInt.asUintN(64, value) });
+    },
+    sys_wasm_now_ms() {
+      return BigInt.asIntN(64, BigInt(Math.trunc(now())));
+    },
+    sys_wasm_abort(code) {
+      throw new GuestAbort(code >>> 0);
+    },
+    // `core::rt` passes the data of a panic with a code or of a revert here,
+    // and calls `abort` when it has no memory left for that data.
+    __fe_revert(address, length) {
+      const view = memoryHolding(address, length, "revert");
+      const addr = address >>> 0;
+      throw new GuestRevert(view.slice(addr, addr + (length >>> 0)));
+    },
+    abort() {
+      throw new GuestRevert(null);
+    },
+    ...(imports.env ?? {}),
+  };
+
+  return {
+    imports: { ...imports, env },
+    /** The numbers the module logged, in order. */
+    logs,
+    /** What the module wrote to standard output so far, as text (UTF-8). */
+    get stdout() { return written.stdout; },
+    /** What the module wrote to standard error so far, as text (UTF-8). */
+    get stderr() { return written.stderr; },
+    /** Gives the host the instance whose memory the module's text lives in. */
+    bind(instance) {
+      memory = instance.exports.memory;
+      if (!(memory instanceof WebAssembly.Memory)) {
+        throw new ContractError("the module does not export its memory as `memory`");
+      }
+    },
+    get opened() { return issued; },
+    get closed() { return closed; },
+    /** Handles that were opened and not closed. */
+    get openHandles() { return open.size; },
+    assertNoOpenHandles() {
+      if (open.size !== 0) {
+        throw new ContractError(`${open.size} handle(s) were not closed: ${[...open.keys()].join(", ")}`);
+      }
+    },
+  };
+}
+
+/**
+ * A running module and its host.
+ *
+ * An argument of a call is a number or bigint, passed as it is, or a string or
+ * Uint8Array, which is text: it is placed in the module's memory and passed as
+ * an address and a length. The memory is released after the call. When the
+ * guest was made with a manifest, a call must also match the function that the
+ * manifest describes: its name, the number of arguments, and which of them are
+ * text.
+ *
+ * A call that fails can leave the stack and the heap of the instance in use: a
+ * failed call frees nothing it allocated. So after a call throws, the guest
+ * makes a new instance of the module, with the same host, before the error
+ * reaches the caller. `instance` and `exports` are then those of the new
+ * instance, whose memory holds only the module's initial data. A call that an
+ * import makes back into the module runs inside an outer call, which goes on in
+ * the same instance when the import catches the error, so the guest makes the
+ * new instance when the outermost call ends.
+ */
+export class Guest {
+  /** The calls running now: the outermost and those that imports made in it. */
+  #depth = 0;
+  /** Whether a call failed since the outermost call began. */
+  #failed = false;
+
+  constructor(module, host, manifest = null) {
+    this.module = module;
+    this.host = host;
+    this.manifest = manifest;
+    this.#start();
+  }
+
+  /** Makes a new instance of the module and binds the host to it. */
+  #start() {
+    this.instance = new WebAssembly.Instance(this.module, this.host.imports);
+    this.host.bind(this.instance);
+    this.exports = this.instance.exports;
+  }
+
+  #requireAllocator() {
+    for (const name of ["alloc", "arena_mark", "arena_release"]) {
+      if (typeof this.exports[name] !== "function") {
+        throw new ContractError(`the module does not export \`${name}\`, so it takes no text`);
+      }
+    }
+  }
+
+  #checkAgainstManifest(name, args) {
+    if (this.manifest === null) return;
+    const entry = this.manifest.exports.find((e) => e.name === name && e.kind === "function");
+    if (entry === undefined) {
+      throw new ContractError(`the manifest does not describe a function \`${name}\``);
+    }
+    const params = entry.params ?? [];
+    if (args.length !== params.length) {
+      const list = params.map((p) => `${p.name}: ${p.type}`).join(", ");
+      throw new ContractError(
+        `\`${name}\` takes ${params.length} argument(s)${list ? ` (${list})` : ""}, but ${args.length} were given`,
+      );
+    }
+    params.forEach((param, index) => {
+      const arg = args[index];
+      const isText = typeof arg === "string" || arg instanceof Uint8Array;
+      if ((param.type === "HostText") !== isText) {
+        const wanted = param.type === "HostText" ? "text (a string or a Uint8Array)" : `a number of type ${param.type}`;
+        throw new ContractError(`argument \`${param.name}\` of \`${name}\` must be ${wanted}`);
+      }
+    });
+  }
+
+  /** Calls an export and returns what it returned. */
+  call(name, ...args) {
+    const func = this.exports[name];
+    if (typeof func !== "function") throw new ContractError(`the module does not export a function \`${name}\``);
+    this.#checkAgainstManifest(name, args);
+    if (!args.some((arg) => typeof arg === "string" || arg instanceof Uint8Array)) {
+      return this.#restartingOnFailure(() => func(...args));
+    }
+    this.#requireAllocator();
+    // Copy the text before the first allocation, which may grow the memory and
+    // so detach a Uint8Array over the guest's memory.
+    const texts = args.map((arg) =>
+      typeof arg === "string" || arg instanceof Uint8Array ? toBytes(arg, "a text argument").slice() : null,
+    );
+    return this.#restartingOnFailure(() => {
+      const mark = this.exports.arena_mark();
+      const spread = [];
+      for (const [index, arg] of args.entries()) {
+        const bytes = texts[index];
+        if (bytes !== null) {
+          if (bytes.length > MAX_TEXT_BYTES) {
+            throw new ContractError(`text of ${bytes.length} bytes is above the limit of ${MAX_TEXT_BYTES} bytes`);
+          }
+          const address = this.exports.alloc(bytes.length) >>> 0;
+          const memory = new Uint8Array(this.exports.memory.buffer);
+          if (address + bytes.length > memory.length) {
+            throw new ContractError(`alloc returned ${address}, which cannot hold ${bytes.length} bytes in a memory of ${memory.length}`);
+          }
+          memory.set(bytes, address);
+          spread.push(address, bytes.length);
+        } else {
+          spread.push(arg);
+        }
+      }
+      const result = func(...spread);
+      this.exports.arena_release(mark);
+      return result;
+    });
+  }
+
+  /**
+   * Runs `call`, and makes a new instance when the outermost call ends if it
+   * or a call inside it threw.
+   */
+  #restartingOnFailure(call) {
+    this.#depth += 1;
+    try {
+      return call();
+    } catch (error) {
+      this.#failed = true;
+      throw error;
+    } finally {
+      this.#depth -= 1;
+      if (this.#depth === 0 && this.#failed) {
+        this.#failed = false;
+        this.#start();
+      }
+    }
+  }
+
+  /** Calls an export that returns a reply and decodes it. */
+  callReply(name, ...args) {
+    return decodeReply(this.call(name, ...args));
+  }
+}
+
+/** The SHA-256 of `bytes` as 64 lowercase hexadecimal digits. */
+export async function sha256Hex(bytes) {
+  const digest = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", bytes));
+  return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/** The manifest in `text` (JSON), after a check of its version and shape. */
+export function parseManifest(text) {
+  let manifest;
+  try {
+    manifest = JSON.parse(text);
+  } catch (error) {
+    throw new ContractError(`the manifest is not valid JSON: ${error.message}`);
+  }
+  return checkManifestShape(manifest);
+}
+
+/** Throws a `ContractError` unless `manifest` is a manifest this host reads. */
+export function checkManifestShape(manifest) {
+  if (typeof manifest !== "object" || manifest === null) {
+    throw new ContractError("the manifest is not an object");
+  }
+  if (manifest.manifest_version !== MANIFEST_VERSION) {
+    throw new ContractError(
+      `the manifest has format version ${manifest.manifest_version}; this host reads version ${MANIFEST_VERSION}`,
+    );
+  }
+  if (manifest.contract_version !== CONTRACT_VERSION) {
+    throw new ContractError(
+      `the module was built for host contract version ${manifest.contract_version}; this host implements version ${CONTRACT_VERSION}`,
+    );
+  }
+  if (typeof manifest.module?.sha256 !== "string" || !Array.isArray(manifest.imports) || !Array.isArray(manifest.exports)) {
+    throw new ContractError("the manifest lacks the module hash, the imports or the exports");
+  }
+  return manifest;
+}
+
+/** `module.name` of an import or export entry. */
+const qualified = (entry) => `${entry.module}.${entry.name}`;
+
+/** The own property `key` of `object`, not one it inherits, such as `toString`. */
+const own = (object, key) => (object != null && Object.hasOwn(object, key) ? object[key] : undefined);
+
+/**
+ * Throws a `ContractError` that names every import in `wanted` (entries with
+ * `module` and `name`) which `imports` does not provide as a function.
+ */
+function requireImports(wanted, imports, what) {
+  const missing = wanted.filter((entry) => typeof own(own(imports, entry.module), entry.name) !== "function");
+  if (missing.length === 0) return;
+  const names = missing.map(qualified).join(", ");
+  throw new ContractError(
+    missing.length === 1
+      ? `${what} imports ${names}, which the host does not provide`
+      : `${what} imports ${missing.length} functions that the host does not provide: ${names}`,
+  );
+}
+
+/**
+ * Compiles a module and refuses it unless the host can run it. The host must
+ * provide every import of the module, and, with a manifest, the module must be
+ * the one the manifest describes (same SHA-256, same imports, same exports).
+ * Returns the compiled module.
+ */
+export async function checkModule(bytes, imports, manifest = null) {
+  // Hash and compile one copy, which the caller cannot change in between.
+  const view = ArrayBuffer.isView(bytes) ? new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength) : new Uint8Array(bytes);
+  bytes = view.slice();
+  if (manifest !== null) {
+    checkManifestShape(manifest);
+    const hash = await sha256Hex(bytes);
+    if (hash !== manifest.module.sha256) {
+      throw new ContractError(
+        `the module has SHA-256 ${hash}, but the manifest describes ${manifest.module.sha256}`,
+      );
+    }
+    // Name what is missing from the manifest before the module is compiled.
+    requireImports(manifest.imports, imports, "the manifest");
+  }
+  const module = await WebAssembly.compile(bytes);
+  const actual = WebAssembly.Module.imports(module);
+  requireImports(
+    actual.filter((entry) => entry.kind === "function"),
+    imports,
+    "the module",
+  );
+  const unsupported = actual.find((entry) => entry.kind !== "function");
+  if (unsupported !== undefined) {
+    throw new ContractError(`the module imports ${qualified(unsupported)}, a ${unsupported.kind}; the host supplies functions only`);
+  }
+  if (manifest !== null) {
+    const key = (entry) => `${entry.module}\u0000${entry.name}`;
+    const listed = new Set(manifest.imports.map(key));
+    const present = new Set(actual.map(key));
+    for (const entry of actual) {
+      if (!listed.has(key(entry))) {
+        throw new ContractError(`the module imports ${qualified(entry)}, which the manifest does not list`);
+      }
+    }
+    for (const entry of manifest.imports) {
+      if (!present.has(key(entry))) {
+        throw new ContractError(`the manifest lists the import ${qualified(entry)}, which the module does not have`);
+      }
+    }
+    const exported = WebAssembly.Module.exports(module);
+    const kinds = new Map(exported.map((entry) => [entry.name, entry.kind]));
+    for (const entry of manifest.exports) {
+      if (kinds.get(entry.name) !== entry.kind) {
+        throw new ContractError(`the manifest lists the ${entry.kind} export \`${entry.name}\`, which the module does not have`);
+      }
+    }
+    const listedExports = new Set(manifest.exports.map((entry) => entry.name));
+    for (const entry of exported) {
+      if (!listedExports.has(entry.name)) {
+        throw new ContractError(`the module exports \`${entry.name}\`, which the manifest does not list`);
+      }
+    }
+  }
+  return module;
+}
+
+/**
+ * Instantiates a module with the standard imports and returns it with its host.
+ *
+ * Options: `manifest` (the parsed manifest; the module is then checked against
+ * it), `files` (the files the module can open) and the options of `createHost`,
+ * such as `stdin` and `onWrite`.
+ * The host refuses a module whose imports it does not provide, before it runs.
+ */
+export async function instantiate(bytes, { manifest = null, files = {}, ...options } = {}) {
+  const host = createHost(files, options);
+  const module = await checkModule(bytes, host.imports, manifest);
+  return new Guest(module, host, manifest);
+}
