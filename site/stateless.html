@@ -252,7 +252,14 @@ fetch("data/stateless.json").then((r) => r.json()).then((rows) => {
       const part = (i, j) => k.reduce((a, r) => a + r.gas4762_short_by_kind[i][j], 0);
       const n = (i) => k.reduce((a, r) => a + r.by_kind[i][0], 0);
       return `<div><b>${pct(part(0, 0) / n(0))} → ${(100 * part(0, 1) / n(0)).toFixed(1)}%</b><span>of ETH transfers short of gas, charged and with the coinbase exempt</span></div>` +
-        `<div><b>${pct(part(1, 0) / n(1))} → ${pct(part(1, 1) / n(1))}</b><span>of contract calls: the exemption barely helps; their shortfall is code and storage</span></div>`;
+        `<div><b>${pct(part(1, 0) / n(1))} → ${pct(part(1, 1) / n(1))}</b><span>of contract calls: the exemption barely helps; their shortfall is code and storage</span></div>` + whatIf();
+    }
+    function whatIf() {
+      const k = g.filter((r) => r.gas4762_short_code_free != null);
+      if (!k.length) return "";
+      const t = k.reduce((a, r) => a + r.transactions, 0);
+      const s = (f) => (100 * k.reduce((a, r) => a + r[f], 0) / t).toFixed(1) + "%";
+      return `<div><b>${s("gas4762_short")} → ${s("gas4762_short_exempt")} → ${s("gas4762_short_code_half")} → ${s("gas4762_short_code_free")}</b><span>short of gas: the draft; the coinbase exempt; and code at half price; and code free</span></div>`;
     }
   }
   const hb = document.getElementById("heavy");

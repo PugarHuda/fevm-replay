@@ -31,6 +31,8 @@ For each block, `chain` takes the parent's Merkle proofs (EIP-1186) of every acc
 
 15. **The coinbase exemption would save transfers, not contract calls.** Of 4,504 ETH transfers, 2,293 (51%) would run out of gas under the draft (1,903 transfers were sent with a gas limit of exactly the gas they used); exempt the coinbase and 60 (1.3%) still would. Of 6,903 contract calls, 1,765 (26%) would, and with the coinbase exempt still 1,466 (21%): their shortfall is code chunks and storage, and only 103 were sent with no margin, so the margin wallets add when they estimate gas today would not cover it. Blob transactions: 64 of 109, 0 with the coinbase exempt. Over 51 blocks.
 
+16. **After the coinbase, the price of code decides who runs out of gas.** The same 11,751 transactions, sent with the gas limit they had, under four versions of the charges: the draft as it stands, 35.3% short of gas and +23% gas; the coinbase exempt, 13.2% short of gas and +19% gas; and code chunks at half price, 5.7% short of gas and +4% gas; and code chunks free, 1.4% short of gas and -11% gas. Code chunks are charged per transaction, so a contract call pays again for code the block already ran.
+
 ## Reproduce
 
 ```sh

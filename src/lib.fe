@@ -1776,6 +1776,10 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
             var short_kind: [u64; 5] = [0; 5]
             var short_exempt_kind: [u64; 5] = [0; 5]
             var exact_kind: [u64; 5] = [0; 5]
+            // What-ifs, with the coinbase exempt: code chunks at half price,
+            // and free.
+            var short_code_half: u64 = 0
+            var short_code_free: u64 = 0
             for t in 0 .. count {
                 let tx = ref txs[t]
                 let kind: usize = if field(tx, "type") == 3 {
@@ -1816,6 +1820,13 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                     if limit == tx_gas[t] as u256 {
                         exact_kind[kind] = exact_kind[kind] + 1
                     }
+                    let exempt = used - charges[t].coinbase as u256
+                    if exempt - (charges[t].code / 2) as u256 > limit + charges[t].today as u256 {
+                        short_code_half += 1
+                    }
+                    if exempt - charges[t].code as u256 > limit + charges[t].today as u256 {
+                        short_code_free += 1
+                    }
                 }
             }
             if charged {
@@ -1854,6 +1865,16 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                     mut stateless_summary,
                     "gas_limit",
                     field(header, "gasLimit").downcast_unchecked(),
+                )
+                json_num(
+                    mut stateless_summary,
+                    "gas4762_short_code_half",
+                    short_code_half,
+                )
+                json_num(
+                    mut stateless_summary,
+                    "gas4762_short_code_free",
+                    short_code_free,
                 )
                 // Per kind: short of gas, short with the coinbase exempt,
                 // sent with no margin.

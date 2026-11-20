@@ -237,6 +237,24 @@ if bk:
       f"({100 * cx / cn:.0f}%): their shortfall is code chunks and storage, and only {num(ce)} were sent with no margin, so "
       f"the margin wallets add when they estimate gas today would not cover it. Blob transactions: {num(bs)} of {num(bn)}, "
       f"{num(bx)} with the coinbase exempt. Over {len(bk)} blocks.\n")
+wi = [r for r in kd if "gas4762_short_code_free" in r]
+if wi:
+    wtx = sum(r["transactions"] for r in wi)
+    ww = sum(sum(k[0] for k in r["gas4762"]) for r in wi)
+    wt = sum(sum(k[1] for k in r["gas4762"]) for r in wi)
+    wg = sum(r["gas_used"] for r in wi)
+    wcb = sum(r["gas4762_coinbase"] for r in wi)
+    wcode = sum(r["gas4762_code"] for r in wi)
+    steps = [
+        ("the draft as it stands", sum(r["gas4762_short"] for r in wi), ww - wt),
+        ("the coinbase exempt", sum(r["gas4762_short_exempt"] for r in wi), ww - wcb - wt),
+        ("and code chunks at half price", sum(r["gas4762_short_code_half"] for r in wi), ww - wcb - wcode / 2 - wt),
+        ("and code chunks free", sum(r["gas4762_short_code_free"] for r in wi), ww - wcb - wcode - wt),
+    ]
+    w(f"16. **After the coinbase, the price of code decides who runs out of gas.** The same {num(wtx)} transactions, "
+      "sent with the gas limit they had, under four versions of the charges: "
+      + "; ".join(f"{name}, {100 * s / wtx:.1f}% short of gas and {100 * g / wg:+.0f}% gas" for name, s, g in steps)
+      + ". Code chunks are charged per transaction, so a contract call pays again for code the block already ran.\n")
 w("## Reproduce\n")
 w("```sh\n./out/fevm_replay follow blocks stateless.json 3     # takes, proves and validates 3 head blocks\n"
   "mkdir proven && tar xzf fixtures/proven/0x19335e5.tar.gz -C proven\n"
