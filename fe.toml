@@ -1,6 +1,6 @@
 [ingot]
 name = "fevm_replay"
-version = "0.6.0"
+version = "0.7.0"
 
 [dependencies]
 fevm = { source = "https://github.com/fe-lang/fevm", rev = "9c5fa9199d2760fc9651debca89279ecab4b75f2", path = "ingots/evm", allow_unsafe = true }

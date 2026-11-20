@@ -129,6 +129,8 @@ jobs:
           echo "$out" | grep -q "hash to the header's requestsHash"
           echo "$out" | grep -q "hashes to the header's stateRoot"
           echo "$out" | grep -q "binary tree (EIP-7864), estimated for the same keys: 564 stems, 947 values"
+          echo "$out" | grep -q "block access list (EIP-7928): 26523 bytes for 210 accounts"
+          echo "$out" | grep -q "the longest chain of dependent transactions is 13 of 71"
           python3 - <<'PY'
           import json
           s = json.load(open("proven/0x19335e5/summary.json"))

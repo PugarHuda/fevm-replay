@@ -35,6 +35,8 @@ For each block, `chain` takes the parent's Merkle proofs (EIP-1186) of every acc
 
 17. **A third of the calls that would still run out of gas go to USDC and USDT.** With the coinbase exempt, 1,466 contract calls over 51 blocks would still run out of gas, sent to 354 contracts. USDC and USDT alone take 463 (32%): calls to them, sent with a tight limit, now pay for the code chunks they run (USDC's proxy and its implementation, USDT's large contract), which cost nothing before. Most calls: USDC 236, USDT 227, 0x278d…f8d2 66, 0xfeee…7ffc 65, 0x51c7…2a7f 49, Uniswap's SwapRouter02 47.
 
+18. **A block access list is 44 times smaller than the witness, and the blocks are about a third serial.** EIP-7928's list, built from each transaction's traces (`src/bal.fe`): 82 KiB a block (median; 13 to 190 KiB), 391 bytes a transaction, RLP uncompressed. With it a client knows each transaction's reads and writes before it runs; the longest chain of transactions each touching what an earlier one wrote is 29% of a block's transactions (median; 18% to 57%), so unlimited cores would need about a third as many steps, and 32% of transactions touch nothing an earlier one wrote. The coinbase, which every transaction credits, is left out, as parallel clients settle fees after the block; the end-of-block index (withdrawals, request bookkeeping) is left out of the size. Over 51 blocks.
+
 ## Reproduce
 
 ```sh

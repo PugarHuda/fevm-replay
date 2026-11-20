@@ -209,6 +209,12 @@ transactions would run out of gas, with code free 1.4%. A third of the calls
 that stay short go to USDC and USDT: the draft charges for the code chunks
 they run, which today's rules do not.
 
+**Block access lists.** EIP-7928's list for the same blocks, built from
+each transaction's traces ([`src/bal.fe`](src/bal.fe)), is 82 KiB a block
+(median), 44 times smaller than the witness; with it the longest chain of
+transactions each touching what an earlier one wrote is 29% of a block's
+transactions, so unlimited cores would need about a third as many steps.
+
 **Who makes the witness big.** Storage is 59% of it; XEN Crypto's trie is
 the deepest (8.2 nodes a slot), a USDT or USDC slot needs 7.4 nodes, about
 2 KiB. A binary tree shrinks such tries but can grow a small one, whose
@@ -478,8 +484,8 @@ Each release carries the executable for x86-64 Linux (or WSL), the ports'
 bytecode and the fixtures:
 
 ```sh
-curl -sL https://github.com/PugarHuda/fevm-replay/releases/latest/download/fevm-replay-v0.6.0-x86_64-linux.tar.gz | tar xz
-cd fevm-replay-v0.6.0-x86_64-linux
+curl -sL https://github.com/PugarHuda/fevm-replay/releases/latest/download/fevm-replay-v0.7.0-x86_64-linux.tar.gz | tar xz
+cd fevm-replay-v0.7.0-x86_64-linux
 ./fevm_replay fixtures/mainnet/*.json            # 7 real transactions, all MATCH
 mkdir proven && tar xzf fixtures/proven/0x19335e5.tar.gz -C proven
 ./fevm_replay chain proven/0x19335e5             # a mainnet block, every root in its header

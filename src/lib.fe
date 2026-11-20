@@ -1954,6 +1954,39 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                 field(header, "blobGasUsed").downcast_unchecked(),
             )
             json_num(mut stateless_summary, "tx_witness_sum", alone_sum)
+            // EIP-7928's block access list, and the block's dependency depth.
+            let bal = ingot::bal::measure(
+                prestates["result"],
+                diffs["result"],
+                header,
+                coinbase: field(header, "miner"),
+            )
+            println!(
+                "block access list (EIP-7928): ",
+                bal.bytes,
+                " bytes for ",
+                bal.accounts,
+                " accounts, ",
+                bal.writes,
+                " storage writes, ",
+                bal.reads,
+                " slots only read, ",
+                bal.account_changes,
+                " balance, nonce and code changes; the longest chain of dependent transactions is ",
+                bal.depth,
+                " of ",
+                count,
+                ", and ",
+                bal.free,
+                " depend on no earlier one",
+            )
+            json_num(mut stateless_summary, "bal_bytes", bal.bytes)
+            json_num(mut stateless_summary, "bal_accounts", bal.accounts)
+            json_num(mut stateless_summary, "bal_writes", bal.writes)
+            json_num(mut stateless_summary, "bal_reads", bal.reads)
+            json_num(mut stateless_summary, "bal_changes", bal.account_changes)
+            json_num(mut stateless_summary, "bal_depth", bal.depth)
+            json_num(mut stateless_summary, "bal_free", bal.free)
             ",\"by_kind\":[".fmt(mut stateless_summary)
             for k in 0 .. 5 {
                 if k > 0 {

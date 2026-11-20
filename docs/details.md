@@ -974,6 +974,7 @@ deployed code, and an ordinary swap. Its data comes from `trace`:
 | `src/follow.fe` | `follow`: the chain head validated as it grows, by running `fetch-block`, `fetch-proofs` and `chain`; the stateless page's data |
 | `src/binary.fe` | the binary tree (EIP-7864) witness estimated for the same keys and the code chunks run. No host capabilities |
 | `src/chunks.fe` | `CodeWatch`, a tracer that notes the 31-byte code chunks a block runs (EIP-7864) |
+| `src/bal.fe` | EIP-7928's block access list built from the traces, its RLP size, and the block's longest chain of dependent transactions. No host capabilities |
 | `src/gas4762.fe` | what EIP-4762 would charge for a transaction's witness, against today's charges for the same accesses |
 | `src/crosscheck.fe` | the block a second time through `fevm_chain` and `fevm::Block`, against the header |
 | `src/compat.fe` | fevm's `transact` as the replay, fuzz and shadow call sites use it |

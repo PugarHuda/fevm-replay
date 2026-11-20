@@ -1,0 +1,373 @@
+//! EIP-7928's block access list for a mainnet block, built from the node's
+//! traces, and what it says about running the block in parallel.
+//!
+//! The list (RLP, as the EIP encodes it): for every account the block
+//! touched, its address, the storage slots each transaction wrote with the
+//! value it left (by block access index: 1 for the first transaction), the
+//! slots only read, and each transaction's balance, nonce and code changes.
+//! Index 0 is the first system calls (EIP-4788, EIP-2935), whose writes the
+//! header implies. Left out: the end-of-block index (withdrawals' balances
+//! and the request contracts' bookkeeping slots, a few dozen entries).
+//! Integers take as few bytes as RLP lets them.
+//!
+//! Parallelism: with the list a client knows each transaction's reads and
+//! writes before running it. A transaction depends on an earlier one that
+//! wrote an account or slot it touches; `depth` is the longest such chain,
+//! the number of rounds a client with unlimited cores would need. The
+//! coinbase, credited by every transaction, is left out, as parallel
+//! clients settle its fees after the block.
+use core::text::parse_hex_uint
+use core::ptr::MemSpan
+use core::MemVec
+use fevm::WorldState
+use json::Value
+use ingot::load::hex_word
+use ingot::proof
+
+pub struct Access {
+    /// The list's RLP size in bytes.
+    pub bytes: u64,
+    /// Accounts in it, storage writes (slot and transaction), slots only
+    /// read, and balance, nonce and code changes.
+    pub accounts: u64,
+    pub writes: u64,
+    pub reads: u64,
+    pub account_changes: u64,
+    /// The longest chain of dependent transactions, and how many depend on
+    /// none.
+    pub depth: u64,
+    pub free: u64,
+}
+
+impl Copy for Access {}
+
+const STORAGE: u8 = 0
+const READ: u8 = 1
+const BALANCE: u8 = 2
+const NONCE: u8 = 3
+const CODE: u8 = 4
+
+struct Entry { address: u256, kind: u8, slot: u256, index: u64, value: u256 }
+
+impl Copy for Entry {}
+
+// RLP sizes: an integer, a header of `len` payload bytes, a list of it.
+fn int_len(_ value: u256) -> u64 {
+    if value < 0x80 { return 1 }
+    var n: u64 = 0
+    var rest = value
+    while rest > 0 {
+        n += 1
+        rest = rest >> 8
+    }
+    1 + n
+}
+
+fn header(_ len: u64) -> u64 {
+    if len < 56 { return 1 }
+    var n: u64 = 0
+    var rest = len
+    while rest > 0 {
+        n += 1
+        rest = rest >> 8
+    }
+    1 + n
+}
+
+fn list(_ payload: u64) -> u64 {
+    header(payload) + payload
+}
+
+fn address_of(_ key: MemSpan) -> u256 {
+    parse_hex_uint(key).unwrap_or(default: 0)
+}
+
+fn code_len(_ code: Value) -> u256 {
+    let n = code.text().len()
+    if n <= 2 { 0 } else { ((n - 2) / 2) as u256 }
+}
+
+/// The block's access list and its dependency depth, from each
+/// transaction's prestate (`prestates`, the tracer's results in order) and
+/// diff (`diffs`), and the header (`header`).
+pub fn measure(_ prestates: Value, _ diffs: Value, _ header: Value, coinbase: u256) -> Access {
+    var entries: MemVec<Entry> = MemVec::new()
+    var accounts: MemVec<u256> = MemVec::new()
+    // Index 0: what the first system calls write.
+    let system = proof::system_writes(header)
+    for w in 0 .. system.len() {
+        entries
+            .push(
+                Entry {
+                    address: system[w].address,
+                    kind: STORAGE,
+                    slot: system[w].slot,
+                    index: 0,
+                    value: system[w].value,
+                },
+            )
+        add_account(mut accounts, system[w].address)
+    }
+    // Writes: what each transaction left; `written` marks every slot
+    // written in the block.
+    var written = WorldState::empty()
+    var t: u64 = 0
+    for ref d in diffs.items() {
+        let index = t + 1
+        let pre = ref d["result"]["pre"]
+        let post = ref d["result"]["post"]
+        for ref member in post.members() {
+            let address = address_of(member.key.span())
+            add_account(mut accounts, address)
+            let account = ref member.value
+            if account.has("balance") {
+                entries
+                    .push(
+                        Entry {
+                            address,
+                            kind: BALANCE,
+                            slot: 0,
+                            index,
+                            value: hex_word(account["balance"]),
+                        },
+                    )
+            }
+            if account.has("nonce") {
+                entries
+                    .push(
+                        Entry {
+                            address,
+                            kind: NONCE,
+                            slot: 0,
+                            index,
+                            value: hex_word(account["nonce"]),
+                        },
+                    )
+            }
+            if account.has("code") {
+                entries
+                    .push(
+                        Entry {
+                            address,
+                            kind: CODE,
+                            slot: 0,
+                            index,
+                            value: code_len(account["code"]),
+                        },
+                    )
+            }
+            if account.has("storage") {
+                for ref slot in account["storage"].members() {
+                    let key = address_of(slot.key.span())
+                    entries
+                        .push(
+                            Entry {
+                                address,
+                                kind: STORAGE,
+                                slot: key,
+                                index,
+                                value: hex_word(slot.value),
+                            },
+                        )
+                    mark(mut written, address, key)
+                }
+            }
+        }
+        // A slot the diff clears is in `pre` and not in `post`.
+        for ref member in pre.members() {
+            if !member.value.has("storage") {
+                continue
+            }
+            let address = address_of(member.key.span())
+            for ref slot in member.value["storage"].members() {
+                let cleared = match post.get(member.key.span()) {
+                    Option::Some(ref after) => match after.get("storage") {
+                        Option::Some(ref s) => !s.has(slot.key.span()),
+                        Option::None => true,
+                    },
+                    Option::None => true,
+                }
+                if cleared {
+                    let key = address_of(slot.key.span())
+                    entries.push(
+                            Entry { address, kind: STORAGE, slot: key, index, value: 0 },
+                        )
+                    mark(mut written, address, key)
+                }
+            }
+        }
+        t += 1
+    }
+    // Reads: every account touched, and each slot read that no
+    // transaction wrote, once.
+    var read = WorldState::empty()
+    for ref p in prestates.items() {
+        for ref member in p["result"].members() {
+            let address = address_of(member.key.span())
+            add_account(mut accounts, address)
+            if member.value.has("storage") {
+                for ref slot in member.value["storage"].members() {
+                    let key = address_of(slot.key.span())
+                    if written.storage_load(address, key) == 0
+                        && read.storage_load(address, key) == 0 {
+                        mark(mut read, address, key)
+                        entries.push(
+                                Entry { address, kind: READ, slot: key, index: 0, value: 0 },
+                            )
+                    }
+                }
+            }
+        }
+    }
+    var access = Access {
+        bytes: 0,
+        accounts: accounts.len().downcast_unchecked(),
+        writes: 0,
+        reads: 0,
+        account_changes: 0,
+        depth: 0,
+        free: 0,
+    }
+    var total: u64 = 0
+    for a in 0 .. accounts.len() {
+        total += account_size(entries, accounts[a], mut access)
+    }
+    access.bytes = list(total)
+    let (depth, free) = dependency_depth(prestates, diffs, coinbase)
+    access.depth = depth
+    access.free = free
+    access
+}
+
+fn add_account(_ accounts: mut MemVec<u256>, _ address: u256) {
+    for i in 0 .. accounts.len() {
+        if accounts[i] == address {
+            return
+        }
+    }
+    accounts.push(address)
+}
+
+fn mark(_ set: mut WorldState, _ address: u256, _ key: u256) {
+    let _ = set.ensure_account(address)
+    let _ = set.storage_store(address, key, 1)
+}
+
+// One account's RLP size: address, slot changes, reads, balance, nonce and
+// code changes.
+fn account_size(_ entries: MemVec<Entry>, _ address: u256, _ access: mut Access) -> u64 {
+    var slots: u64 = 0
+    var reads: u64 = 0
+    var balances: u64 = 0
+    var nonces: u64 = 0
+    var codes: u64 = 0
+    // Distinct slots written, each with its changes.
+    var seen: MemVec<u256> = MemVec::new()
+    for e in 0 .. entries.len() {
+        let entry = entries[e]
+        if entry.address != address {
+            continue
+        }
+        if entry.kind == STORAGE {
+            var known = false
+            for s in 0 .. seen.len() {
+                if seen[s] == entry.slot {
+                    known = true
+                }
+            }
+            if known { continue }
+            seen.push(entry.slot)
+            var changes: u64 = 0
+            for f in e .. entries.len() {
+                let other = entries[f]
+                if other.address == address && other.kind == STORAGE && other.slot == entry.slot {
+                    changes += list(int_len(other.index as u256) + int_len(other.value))
+                    access.writes += 1
+                }
+            }
+            slots += list(int_len(entry.slot) + list(changes))
+        } else if entry.kind == READ {
+            reads += int_len(entry.slot)
+            access.reads += 1
+        } else if entry.kind == BALANCE {
+            balances += list(int_len(entry.index as u256) + int_len(entry.value))
+            access.account_changes += 1
+        } else if entry.kind == NONCE {
+            nonces += list(int_len(entry.index as u256) + int_len(entry.value))
+            access.account_changes += 1
+        } else {
+            let n: u64 = entry.value.downcast_unchecked()
+            codes += list(int_len(entry.index as u256) + header(n) + n)
+            access.account_changes += 1
+        }
+    }
+    list(
+        21 + list(slots) + list(reads) + list(balances) + list(nonces) + list(codes),
+    )
+}
+
+// The longest chain of transactions each touching what an earlier one
+// wrote, and how many touch nothing an earlier one wrote. Accounts count
+// as one key, slots each as their own.
+fn dependency_depth(_ prestates: Value, _ diffs: Value, _ coinbase: u256) -> (u64, u64) {
+    var last_account = WorldState::empty()
+    var last_slot = WorldState::empty()
+    var deepest: u64 = 0
+    var free: u64 = 0
+    var t: usize = 0
+    for ref p in prestates.items() {
+        let accessed = ref p["result"]
+        var depth: u64 = 0
+        for ref member in accessed.members() {
+            let address = address_of(member.key.span())
+            if address != coinbase {
+                let d: u64 = last_account.storage_load(address, 0).downcast_unchecked()
+                if d > depth { depth = d }
+            }
+            if member.value.has("storage") {
+                for ref slot in member.value["storage"].members() {
+                    let d: u64 = last_slot
+                        .storage_load(address, address_of(slot.key.span()))
+                        .downcast_unchecked()
+                    if d > depth { depth = d }
+                }
+            }
+        }
+        if depth == 0 { free += 1 }
+        let mine = depth + 1
+        if mine > deepest {
+            deepest = mine
+        }
+        // What it wrote now waits for it.
+        let post = ref diffs[t]["result"]["post"]
+        for ref member in post.members() {
+            let address = address_of(member.key.span())
+            if address != coinbase {
+                raise(mut last_account, address, 0, mine)
+            }
+            if member.value.has("storage") {
+                for ref slot in member.value["storage"].members() {
+                    raise(mut last_slot, address, address_of(slot.key.span()), mine)
+                }
+            }
+        }
+        let pre = ref diffs[t]["result"]["pre"]
+        for ref member in pre.members() {
+            let address = address_of(member.key.span())
+            if member.value.has("storage") {
+                for ref slot in member.value["storage"].members() {
+                    raise(mut last_slot, address, address_of(slot.key.span()), mine)
+                }
+            }
+        }
+        t += 1
+    }
+    (deepest, free)
+}
+
+fn raise(_ map: mut WorldState, _ address: u256, _ key: u256, _ depth: u64) {
+    let _ = map.ensure_account(address)
+    if map.storage_load(address, key) < depth as u256 {
+        let _ = map.storage_store(address, key, depth as u256)
+    }
+}

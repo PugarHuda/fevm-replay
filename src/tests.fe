@@ -512,3 +512,31 @@ fn eip_4762_charges_the_witness_a_call_needs() {
     assert!(k.witness == 14100)
     assert!(k.coinbase == 12000)
 }
+
+// Two transactions: the first writes slot 1 of 0xaa, the second reads it,
+// so the second waits for the first; the header's first system calls add
+// three writes (EIP-4788's two slots, EIP-2935's one).
+#[test]
+fn a_block_access_list_and_its_dependencies() {
+    let prestates = parse(
+        "[{\"result\":{\"0xaa\":{\"storage\":{\"0x01\":\"0x00\"}}}},{\"result\":{\"0xaa\":{\"storage\":{\"0x01\":\"0x05\"}},\"0xbb\":{\"storage\":{\"0x02\":\"0x07\"}}}}]"
+            .span(),
+    )
+        .unwrap()
+    let diffs = parse(
+        "[{\"result\":{\"pre\":{\"0xaa\":{\"storage\":{\"0x01\":\"0x00\"}}},\"post\":{\"0xaa\":{\"storage\":{\"0x01\":\"0x05\"}}}}},{\"result\":{\"pre\":{},\"post\":{}}}]"
+            .span(),
+    )
+        .unwrap()
+    let header = parse(
+        "{\"timestamp\":\"0x10\",\"number\":\"0x20\",\"parentBeaconBlockRoot\":\"0x01\",\"parentHash\":\"0x02\"}"
+            .span(),
+    )
+        .unwrap()
+    let access = ingot::bal::measure(prestates, diffs, header, coinbase: 0xfee)
+    assert!(access.writes == 4)
+    assert!(access.reads == 1)
+    assert!(access.depth == 2)
+    assert!(access.free == 1)
+    assert!(access.bytes > 0)
+}

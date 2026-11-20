@@ -111,6 +111,12 @@
     <div class="facts" id="facts4762"></div>
   </section>
 
+  <section id="bal">
+    <h2>Block access lists (EIP-7928)</h2>
+    <p class="intro">The list each block would carry, built from its transactions' traces: every account it touched, each storage write and balance, nonce and code change by transaction, and the slots only read (<a href="https://github.com/PugarHuda/fevm-replay/blob/main/src/bal.fe"><code>src/bal.fe</code></a>, RLP, uncompressed). With it a client knows each transaction's reads and writes before it runs; the <strong>longest chain</strong> is the most transactions that each touch what an earlier one wrote, the steps unlimited cores would need. The coinbase, which every transaction credits, is left out.</p>
+    <div class="facts" id="factsbal"></div>
+  </section>
+
   <p class="note">What the blocks say, in findings computed from this data: <a href="https://github.com/PugarHuda/fevm-replay/blob/main/docs/stateless-findings.md">what mainnet blocks say about stateless Ethereum</a>.</p>
 
   <section class="why">
@@ -260,6 +266,17 @@ fetch("data/stateless.json").then((r) => r.json()).then((rows) => {
       const t = k.reduce((a, r) => a + r.transactions, 0);
       const s = (f) => (100 * k.reduce((a, r) => a + r[f], 0) / t).toFixed(1) + "%";
       return `<div><b>${s("gas4762_short")} → ${s("gas4762_short_exempt")} → ${s("gas4762_short_code_half")} → ${s("gas4762_short_code_free")}</b><span>short of gas: the draft; the coinbase exempt; and code at half price; and code free</span></div>`;
+    }
+  }
+  {
+    const b = ok.filter((r) => r.bal_bytes);
+    if (b.length) {
+      const med = (xs) => { const s = xs.slice().sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
+      document.getElementById("factsbal").innerHTML =
+        `<div><b>${size(med(b.map((r) => r.bal_bytes)))}</b><span>a block's access list (median of ${b.length} blocks)</span></div>` +
+        `<div><b>${Math.round(med(b.map((r) => wit(r) / r.bal_bytes)))}×</b><span>smaller than the Merkle-Patricia witness of the same block</span></div>` +
+        `<div><b>${Math.round(100 * med(b.map((r) => r.bal_depth / r.transactions)))}%</b><span>of a block's transactions in its longest chain of dependent ones</span></div>` +
+        `<div><b>${Math.round(100 * med(b.map((r) => r.bal_free / r.transactions)))}%</b><span>of transactions touch nothing an earlier one wrote</span></div>`;
     }
   }
   const hb = document.getElementById("heavy");
