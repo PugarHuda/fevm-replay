@@ -20,7 +20,7 @@ th,td{text-align:left;padding:.45rem .6rem .45rem 0;border-bottom:1px solid var(
 <main>
 <div class="kicker">Fe port certificate</div>
 <h1>Dai</h1>
-<p>Port source <code>ports/dai</code>, runtime code hash <code>0x2ac45b43d07de9b28abc49869c7bbe0847b5b97901a34dbd4a2f545c751d51f0</code> (2847 bytes), in place of the deployed code with hash <code>0x4e36f96ee1667a663dfaac57c4d185a0e369a3a217e0079d49620f34f85d1ac7</code> (7904 bytes). Blocks <code>/root/v2blocks/0x192d500</code> to <code>/root/v2blocks/0x192d5c7</code>.</p>
+<p>Port source <code>ports/dai</code>, runtime code hash <code>0xc80b0af5741d28a214d65ca0d820e794b641dcc60d9884bbf2675535b85d9f65</code> (2772 bytes), in place of the deployed code with hash <code>0x4e36f96ee1667a663dfaac57c4d185a0e369a3a217e0079d49620f34f85d1ac7</code> (7904 bytes). Blocks <code>/root/v2blocks/0x192d500</code> to <code>/root/v2blocks/0x192d5c7</code>.</p>
 <p class="verdict">No behavior difference: every transaction that ran the port, every mutation of them and every random call behaved as on the deployed code.</p>
 <table>
 <tr><th>Mainnet, as it happened</th><td class="n">passed</td></tr>
@@ -52,7 +52,7 @@ th,td{text-align:left;padding:.45rem .6rem .45rem 0;border-bottom:1px solid var(
 <tr><td><code>Approve</code></td><td><code>src/lib.fe:247</code></td><td class="n">93</td><td class="n">18697</td><td class="n">18459</td><td class="n">-1.2%</td></tr>
 <tr><td><code>Decimals</code></td><td><code>src/lib.fe:180</code></td><td class="n">6</td><td class="n">240</td><td class="n">172</td><td class="n">-28.3%</td></tr>
 <tr><td><code>Allowance</code></td><td><code>src/lib.fe:192</code></td><td class="n">38</td><td class="n">2308</td><td class="n">2134</td><td class="n">-7.5%</td></tr>
-<tr><td><code>Burn</code></td><td><code>src/lib.fe:232</code></td><td class="n">29</td><td class="n">9421</td><td class="n">9051</td><td class="n">-3.9%</td></tr>
+<tr><td><code>Burn</code></td><td><code>src/lib.fe:232</code></td><td class="n">29</td><td class="n">9421</td><td class="n">9050</td><td class="n">-3.9%</td></tr>
 </table></div>
 <h2>Mainnet, mutated</h2>
 <p>Each transaction that touched the deployed code ran again with its calldata changed, or with one call into the contract changed in flight, on both codes, gas free.</p>
@@ -68,7 +68,7 @@ th,td{text-align:left;padding:.45rem .6rem .45rem 0;border-bottom:1px solid var(
 <tr><th>Differ after the calldata was cut short</th><td class="n">0</td></tr>
 <tr><th><strong>Differ</strong></th><td class="n">0</td></tr>
 </table>
-<p>The port ran 1050 of its 1675 instructions (62.6%) in these runs.</p>
+<p>The port ran 1045 of its 1574 instructions (66.3%) in these runs.</p>
 <h2>Random calls</h2>
 <p>1,000 sessions of up to 60 random calls each, against both codes in step.</p>
 <table>
@@ -78,7 +78,7 @@ th,td{text-align:left;padding:.45rem .6rem .45rem 0;border-bottom:1px solid var(
 <tr><th>Calls with dirty addresses that differ</th><td class="n">0</td></tr>
 <tr><th>Invariants broken</th><td class="n">0</td></tr>
 </table>
-<p>The port ran 1596 of its 1675 instructions (95.2%).</p>
+<p>The port ran 1529 of its 1574 instructions (97.1%).</p>
 <h2>How sharp the checks are</h2>
 <p>Mutants of the port's source, one operator changed each, built with <code>fe</code> and put through random calls and then mutations of the first ten blocks. The unchanged port passed the same checks first.</p>
 <table>

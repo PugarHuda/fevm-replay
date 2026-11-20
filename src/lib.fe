@@ -99,6 +99,9 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         )
         println!("       fevm-replay mutants-system <port-dir> <dir>...")
         println!(
+            "       fevm-replay fuzz-geth <geth-evm> <dir> <runs> <seed>",
+        )
+        println!(
             "       fevm-replay certify-system <out-dir> <certificate.html> <dir>...",
         )
         println!(
@@ -138,6 +141,13 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     // "chain"
     if is_word(args.get(1), [0x63, 0x68, 0x61, 0x69, 0x6e]) {
         return chain_command()
+    }
+    // "fuzz-geth"
+    if is_word(
+        args.get(1),
+        [0x66, 0x75, 0x7a, 0x7a, 0x2d, 0x67, 0x65, 0x74, 0x68],
+    ) {
+        return geth::fuzz_geth_command()
     }
     // "certify-system"
     if is_word(

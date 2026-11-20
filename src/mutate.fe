@@ -411,10 +411,14 @@ impl Mutations {
 }
 
 // xorshift64*, as in `fuzz`.
-struct Rng { state: u64 }
+pub struct Rng { state: u64 }
 
 impl Rng {
-    fn next(mut self) -> u64 {
+    pub fn seeded(_ seed: u64) -> Rng {
+        Rng { state: seed.wrapping_mul(0x9e3779b97f4a7c15) | 1 }
+    }
+
+    pub fn next(mut self) -> u64 {
         var x = self.state
         x ^= x >> 12
         x ^= x << 25
@@ -423,12 +427,12 @@ impl Rng {
         x.wrapping_mul(0x2545f4914f6cdd1d)
     }
 
-    fn below(mut self, _ n: u64) -> u64 {
+    pub fn below(mut self, _ n: u64) -> u64 {
         self.next() % n
     }
 
     // A position below `n`, for indexing.
-    fn index(mut self, _ n: usize) -> usize {
+    pub fn index(mut self, _ n: usize) -> usize {
         let m: u64 = n.downcast_unchecked()
         (self.next() % m).downcast_unchecked()
     }
@@ -961,7 +965,7 @@ fn push_bytes(_ code: mut MemBuffer, _ value: u256, _ n: usize) {
 // One change to calldata past its selector: an argument word set to an edge
 // value or nudged, a byte flipped, or the calldata cut short. True if it
 // gave upper bits to a word shaped like an address.
-fn mutate(_ rng: mut Rng, _ data: mut MemBuffer) -> bool {
+pub fn mutate(_ rng: mut Rng, _ data: mut MemBuffer) -> bool {
     if data.len() < 4 {
         data.push((rng.next() & 0xff).downcast_truncate())
         return false

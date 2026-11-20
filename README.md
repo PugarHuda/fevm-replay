@@ -24,11 +24,12 @@ Replaying is fast: those 5,129 transactions take 5.9 seconds once fetched.
 
 | | |
 | --- | --- |
-| **What** | fevm-replay replays real mainnet history in fevm, validates whole blocks statelessly against every root in their headers, and checks Fe ports of Solidity contracts against real traffic. All Fe, from the HTTP call to the verdict. |
-| **fevm on mainnet** | 115,213 transactions replayed, 290 blocks as chains, no fevm bug |
+| **What** | fevm-replay replays real mainnet history in fevm, validates whole blocks statelessly against every root in their headers (what a stateless light client checks, from nothing but the parent's proofs), and checks Fe ports of Solidity contracts against real traffic. All Fe, from the HTTP call to the verdict. |
+| **fevm on mainnet** | 115,213 transactions replayed, 290 blocks as chains, no fevm bug; against geth itself (`evm t8n` 1.17.10), 3,100 of 3,100 mutated mainnet calls end the same ([more](#fevm-against-geth)) |
 | **Stateless** | With the parent's proofs as a witness, fevm runs a block's system calls and transactions and *computes* its `stateRoot`; `transactionsRoot`, `receiptsRoot`, `withdrawalsRoot`, `requestsHash`, `logsBloom` and `gasUsed` come out of fevm too. every block validated so far matched every root (the badge above counts them; 3 consecutive ones as one chain), and `follow` keeps taking more from the chain head; one is checked in CI on every push. A MATCH rests on the block hash, not the node ([details](#every-root-in-the-header)) |
 | **For EIP authors** | Measured on 51 mainnet blocks over 4 days ([findings](docs/stateless-findings.md)): code is 43% of a stateless witness; EIP-4762 (Draft) would cost 23% more gas, and 35% of transactions, sent with the same gas limit, would run out of gas. Exempting the coinbase, as the draft exempts the sender and target, brings that to 13%: it saves ETH transfers (51% short, 1.3% exempt) but not contract calls (26%, still 21%: code and storage). Code at half price would bring it to 5.7%, free code to 1.4% |
 | **Fe ports** | 5 ports (USDT, every Uniswap V2 pair, WETH9, DAI, USDC's proxy) certified by mainnet replay, mainnet mutations, fuzzing and mutation testing ([verified page](https://fevm-replay.vercel.app/verified.html)). Also all four of Ethereum's system contracts (EIP-4788, EIP-2935, EIP-7002, EIP-7251), ported from assembly: on 55 mainnet blocks they store and return what the deployed ones do, and with all four system calls run by the Fe ports every root in the header still matches; the mainnet transactions that call them run identically ([more](#ethereums-own-system-contracts-in-fe)) |
+| **Gas vs Solidity** | On 57,034 mainnet calls in identical transactions, the five Fe ports used 3.3% less gas than the deployed solc bytecode; 59 of 61 functions are cheaper (USDT −4.4%, WETH9 −4.0%, DAI −1.6%, pair −1.1%, USDC proxy −1.0%). The system contracts go the other way: hand-written assembly beats them by 24 to 2,026 gas a call ([per function](docs/gas.md)) |
 | **Fe-specific** | Effects prove the verdict and the proof verifier offline, so Fe 26.7 compiles that verifier to WebAssembly: [verify a mainnet proof in your browser](https://fevm-replay.vercel.app/verify.html) with the same Fe code; `const fn` + `static_assert` check the blob fee against a real block; std units, `core::fixed`, `msg`/`recv` ([Fe highlight](#fe-highlight)) |
 | **Found** | 4 bugs in the Fe ports (one in our own EIP-7002 port, found by validating a mainnet block on it), 2 node tracer bugs, the transactions the Osaka fork changed, and where Fe's code cost more than solc's ([argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002), since fixed in Fe's std) |
 | **Upstream** | fe#2002 led to `Call::forward_delegatecall` in Fe's std ([argotorg/fe#2004](https://github.com/argotorg/fe/pull/2004), merged); our request in [fevm#26](https://github.com/fe-lang/fevm/issues/26) became the operand stack in `Tracer::step` ([fevm#32](https://github.com/fe-lang/fevm/pull/32)); dRPC is deploying a fix for the tracer bug we reported |
@@ -113,6 +114,24 @@ are not a list, code that is not a string, and so on). Each one is reported
 as `ERROR <file>: <what is wrong>`, not a crash. In a block, a transaction
 whose trace the node failed (`execution timeout` on a heavy block) is
 reported, and the rest still replay.
+
+### fevm against geth
+
+The node's traces say what geth did with the transaction as it was sent.
+`fevm_replay fuzz-geth <geth-evm> <dir> <runs> <seed>` asks geth about
+transactions nobody sent: it takes a contract call of a saved block, changes
+its calldata with the same mutator as `fuzz-block` (one run in four keeps
+it), and sends it from a test account whose key geth's `evm t8n` signs with,
+on the transaction's own mainnet pre-state and the block's header, under
+Osaka. fevm runs the same transaction on the same world ([`src/geth.fe`](src/geth.fe)).
+Status, gas used, every log, and every account's balance, nonce and
+storage must agree.
+
+On 31 proven blocks, 100 runs each, with geth 1.17.10: **3,100 of 3,100 runs
+end the same in both** (2,638 reverted, 462 succeeded). The one difference
+the first pass found was the harness's: geth was given the parent block's
+hash and fevm was not, and a bot that checks it (step 42) reverted at once
+in fevm and ran 18,000 steps in geth.
 
 ## Every root in the header
 
@@ -520,19 +539,18 @@ Native Fe programs build on x86-64 Linux and AArch64 macOS (on Windows, use
 WSL). fevm-replay builds on fevm's main branch (its `fevm_chain` layer)
 with Fe [v26.7.0](https://github.com/argotorg/fe/releases/tag/v26.7.0)
 ([`e6e6342b2`](https://github.com/argotorg/fe/commit/e6e6342b252082f3fd8af5b9f763cb13296bf0a1)),
-which also carries `Call::forward_delegatecall` for the proxy port (the
-proxy's bytecode is the same as with the master commit it was certified
-with, `913403388`). The WETH9,
-Uniswap V2 pair, USDT and DAI ports build with the Fe they were certified
-with, [`4608e5fdf`](https://github.com/argotorg/fe/commit/4608e5fdfa3783ec78347f297ad0fced8928fcc7),
-so their bytecode is the certified one. WETH9 and USDT also build with 26.7.
-The pair and DAI do not: 26.7 names each effect by its type, so a helper can
-no longer take three `u256` storage fields as three effects, and it no
-longer lets `Call` or `Evm` sit beside a `mut` storage effect in one call
-([effects](https://github.com/argotorg/fe/blob/master/docs/language/effects.md)):
-the pair's helpers do the first, DAI's transfer helpers the second (`evm`
-beside `mut balance_of`). Porting them means restructuring those helpers
-and certifying the new bytecode again.
+which also carries `Call::forward_delegatecall` for the proxy port. Every
+port builds with it, and every certificate is of a 26.7 build. Moving the
+pair and DAI to 26.7 took restructuring: 26.7 names each effect by its type,
+so a helper can no longer take three `u256` storage fields as three effects,
+and it no longer lets `Call` or `Evm` sit beside a `mut` storage effect in
+one call ([effects](https://github.com/argotorg/fe/blob/master/docs/language/effects.md)).
+The pair's `update` now takes its reserves and price accumulators as `mut`
+parameters, and `mint_fee` reads the factory's `feeTo` before it touches
+storage; DAI's and the pair's failures revert through
+`std::evm::revert_bytes`, which needs no capability. Both were certified
+again on the same 200 mainnet blocks, with no behavior difference and the
+same mutants caught (61 of 74, 21 of 21).
 
 ```sh
 # Fe at the pinned commit (needs rustup, a C compiler and the tree-sitter CLI)

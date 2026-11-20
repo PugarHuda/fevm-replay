@@ -1,0 +1,569 @@
+//! `fuzz-geth <geth-evm> <dir> <runs> <seed>`: fevm against geth on
+//! mainnet-seeded transactions. Each run takes a contract call of the saved
+//! block, changes its calldata (`mutate::mutate`; run 0 of each call keeps
+//! it), and sends it from a test account whose key geth's `evm t8n` signs
+//! with, on the transaction's own mainnet pre-state (the prestate tracer's
+//! accounts and slots) and the block's header, under Osaka. fevm runs the
+//! same transaction on the same world. Status, gas used, every log, and
+//! every account's balance, nonce and non-zero storage after must agree.
+//! The system contracts, which `t8n` calls around the transaction and fevm
+//! does not, are left out of the comparison.
+use core::{MemBuffer, MemSpan}
+use core::text::{decimal, hex, parse_hex_uint}
+use std::fs::Fs
+use std::io::{Display, Stdout}
+use std::process::{Command, Redirect, Spawn}
+use json::{Value, parse}
+use fevm::{Buffers, Config, LogBuffer, WorldState}
+use fevm::status::VALID
+use ingot::compat::transact
+use ingot::fetch::{header_blob_fee, join}
+use ingot::load::{field, hex_bytes, load_block, load_tx_with, load_world}
+use ingot::mutate::{Rng, mutate}
+use ingot::proof
+
+/// The test account (the key execution-spec-tests use).
+const SENDER: u256 = 0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b
+const SECRET: u256 = 0x45a915e4d060149eb4365960e6a7a45f334393093061116b197e3240065ff2d8
+const FUNDS: u256 = 1_000_000_000_000_000_000_000_000
+
+pub struct Tally {
+    pub runs: u64,
+    pub same: u64,
+    pub differ: u64,
+    pub rejected: u64,
+    pub reverted: u64,
+    pub skipped: u64,
+}
+
+impl Copy for Tally {}
+
+fn quoted(_ out: mut MemBuffer, _ text: MemSpan) {
+    "\"".fmt(mut out)
+    text.fmt(mut out)
+    "\"".fmt(mut out)
+}
+
+fn word_text(_ out: mut MemBuffer, _ value: u256) {
+    var bytes: usize = 1
+    var rest = value >> 8
+    while rest > 0 {
+        bytes += 1
+        rest = rest >> 8
+    }
+    // A JSON-RPC quantity: no leading zero digits.
+    var digits = MemBuffer::empty()
+    hex(value, bytes).fmt(mut digits)
+    let text = digits.span()
+    var at: usize = 0
+    while at + 1 < text.len() && text[at] == 0x30 {
+        at += 1
+    }
+    "\"0x".fmt(mut out)
+    for i in at .. text.len() {
+        out.push(text[i])
+    }
+    "\"".fmt(mut out)
+}
+
+fn bytes_text(_ out: mut MemBuffer, _ bytes: MemSpan) {
+    "\"0x".fmt(mut out)
+    for i in 0 .. bytes.len() {
+        hex(bytes[i] as u256, 1).fmt(mut out)
+    }
+    "\"".fmt(mut out)
+}
+
+// The prestate's accounts as `t8n` reads an allocation, with the test
+// account and the system contracts' code (from `proofs`) added.
+fn alloc_json(_ prestate: Value, _ proofs: Value) -> MemBuffer {
+    var out = MemBuffer::empty()
+    "{".fmt(mut out)
+    var first = true
+    for ref member in prestate.members() {
+        if !first { ",".fmt(mut out) }
+        first = false
+        quoted(mut out, member.key.span())
+        ":{".fmt(mut out)
+        var inner = false
+        for name in 0 .. 3 {
+            let key = if name == 0 {
+                "balance"
+            } else if name == 1 { "nonce" } else { "code" }
+            if member.value.has(key) {
+                if inner { ",".fmt(mut out) }
+                inner = true
+                quoted(mut out, key.span())
+                ":".fmt(mut out)
+                // The tracer gives the nonce as a number, the rest as text.
+                if name == 2 {
+                    quoted(mut out, member.value[key].text())
+                } else {
+                    word_text(mut out, field(member.value, key))
+                }
+            }
+        }
+        if member.value.has("storage") {
+            if inner { ",".fmt(mut out) }
+            "\"storage\":{".fmt(mut out)
+            var s = true
+            for ref slot in member.value["storage"].members() {
+                if !s { ",".fmt(mut out) }
+                s = false
+                quoted(mut out, slot.key.span())
+                ":".fmt(mut out)
+                quoted(mut out, slot.value.text())
+            }
+            "}".fmt(mut out)
+        }
+        "}".fmt(mut out)
+    }
+    ",".fmt(mut out)
+    word_text(mut out, SENDER)
+    ":{\"balance\":".fmt(mut out)
+    word_text(mut out, FUNDS)
+    ",\"nonce\":\"0x0\"}".fmt(mut out)
+    if proofs.has("code") {
+        for ref member in proofs["code"].members() {
+            if prestate.has(member.key.span()) {
+                continue
+            }
+            ",".fmt(mut out)
+            quoted(mut out, member.key.span())
+            ":{\"balance\":\"0x0\",\"nonce\":\"0x1\",\"code\":".fmt(mut out)
+            quoted(mut out, member.value.text())
+            "}".fmt(mut out)
+        }
+    }
+    "}".fmt(mut out)
+    out
+}
+
+fn env_json(_ header: Value) -> MemBuffer {
+    var out = MemBuffer::empty()
+    "{\"currentCoinbase\":".fmt(mut out)
+    quoted(mut out, header["miner"].text())
+    for k in 0 .. 7 {
+        let (name, key) = match k {
+            0 => ("currentGasLimit", "gasLimit"),
+            1 => ("currentNumber", "number"),
+            2 => ("currentTimestamp", "timestamp"),
+            3 => ("currentRandom", "mixHash"),
+            4 => ("currentBaseFee", "baseFeePerGas"),
+            5 => ("currentExcessBlobGas", "excessBlobGas"),
+            _ => ("parentBeaconBlockRoot", "parentBeaconBlockRoot"),
+        }
+        ",".fmt(mut out)
+        quoted(mut out, name.span())
+        ":".fmt(mut out)
+        quoted(mut out, header[key].text())
+    }
+    ",\"currentBlobGasUsed\":\"0x0\",\"withdrawals\":[],\"blockHashes\":{\"".fmt(mut out)
+    decimal(field(header, "number") - 1).fmt(mut out)
+    "\":".fmt(mut out)
+    quoted(mut out, header["parentHash"].text())
+    "}}".fmt(mut out)
+    out
+}
+
+// The transaction, from the test account, as `t8n` signs it and as fevm
+// loads it: an EIP-1559 call with the original's fees, gas, target and
+// value, and `input` for calldata.
+fn tx_json(_ tx: Value, _ input: MemSpan, signed: bool) -> MemBuffer {
+    var out = MemBuffer::empty()
+    "{\"type\":\"0x2\",\"chainId\":\"0x1\",\"nonce\":\"0x0\",\"from\":".fmt(mut out)
+    word_text(mut out, SENDER)
+    let kind = field(tx, "type")
+    let max_fee = if kind == 0 || kind == 1 {
+        field(tx, "gasPrice")
+    } else {
+        field(tx, "maxFeePerGas")
+    }
+    let tip = if kind == 0 || kind == 1 {
+        field(tx, "gasPrice")
+    } else {
+        field(tx, "maxPriorityFeePerGas")
+    }
+    ",\"maxFeePerGas\":".fmt(mut out)
+    word_text(mut out, max_fee)
+    ",\"maxPriorityFeePerGas\":".fmt(mut out)
+    word_text(mut out, tip)
+    ",\"gas\":".fmt(mut out)
+    word_text(mut out, field(tx, "gas"))
+    ",\"to\":".fmt(mut out)
+    quoted(mut out, tx["to"].text())
+    ",\"value\":".fmt(mut out)
+    word_text(mut out, field(tx, "value"))
+    ",\"input\":".fmt(mut out)
+    bytes_text(mut out, input)
+    ",\"accessList\":[]".fmt(mut out)
+    if signed {
+        ",\"v\":\"0x0\",\"r\":\"0x0\",\"s\":\"0x0\",\"secretKey\":".fmt(mut out)
+        word_text(mut out, SECRET)
+    }
+    "}".fmt(mut out)
+    out
+}
+
+fn mentions(_ text: MemSpan, _ needle: MemSpan) -> bool {
+    var i: usize = 0
+    while i + needle.len() <= text.len() {
+        var k: usize = 0
+        while k < needle.len() && text[i + k] == needle[k] {
+            k += 1
+        }
+        if k == needle.len() {
+            return true
+        }
+        i += 1
+    }
+    false
+}
+
+fn is_system(_ address: u256) -> bool {
+    address == proof::BEACON_ROOTS
+        || address == proof::HISTORY
+        || address == proof::WITHDRAWAL_REQUESTS
+        || address == proof::CONSOLIDATION_REQUESTS
+}
+
+// What differs between geth's receipt and allocation and fevm's; empty if
+// nothing.
+fn differences(
+    _ receipt: Value,
+    _ alloc: Value,
+    _ status_ok: bool,
+    _ gas: u64,
+    _ logs: LogBuffer,
+    _ world: WorldState,
+) -> MemBuffer {
+    var why = MemBuffer::empty()
+    if (field(receipt, "status") == 1) != status_ok {
+        "status; ".fmt(mut why)
+    }
+    if field(receipt, "gasUsed") != gas as u256 {
+        "gas used: geth ".fmt(mut why)
+        decimal(field(receipt, "gasUsed")).fmt(mut why)
+        ", fevm ".fmt(mut why)
+        decimal(gas as u256).fmt(mut why)
+        "; ".fmt(mut why)
+    }
+    let geth_logs = receipt["logs"].items()
+    if geth_logs.len() != logs.len().downcast_unchecked() {
+        "log count; ".fmt(mut why)
+    } else {
+        for i in 0 .. geth_logs.len() {
+            let entry = logs.entry(i.downcast_unchecked())
+            let g = ref geth_logs[i]
+            var same = field(g, "address") == entry.address
+                && g["topics"].items().len() == entry.topic_count.downcast_unchecked()
+            if same {
+                for t in 0 .. g["topics"].items().len() {
+                    same = same
+                        && parse_hex_uint(g["topics"][t].text()).unwrap_or(default: 0)
+                            == entry.topics[t]
+                }
+                let data = hex_bytes(g["data"].text())
+                let mine = logs.payload(i.downcast_unchecked())
+                same = same && ingot::fuzz::same_bytes(data.span(), mine)
+            }
+            if !same {
+                "log ".fmt(mut why)
+                decimal(i as u256).fmt(mut why)
+                "; ".fmt(mut why)
+            }
+        }
+    }
+    for ref member in alloc.members() {
+        let address = parse_hex_uint(member.key.span()).unwrap_or(default: 0)
+        if is_system(address) {
+            continue
+        }
+        let account = ref member.value
+        if field(account, "balance") != world.balance(address)
+            || field(account, "nonce") != world.nonce(address) {
+            "account 0x".fmt(mut why)
+            hex(address, 20).fmt(mut why)
+            "; ".fmt(mut why)
+        }
+        if account.has("storage") {
+            for ref slot in account["storage"].members() {
+                let key = parse_hex_uint(slot.key.span()).unwrap_or(default: 0)
+                if parse_hex_uint(slot.value.text()).unwrap_or(default: 0)
+                    != world.storage_load(address, key) {
+                    "slot of 0x".fmt(mut why)
+                    hex(address, 20).fmt(mut why)
+                    "; ".fmt(mut why)
+                }
+            }
+        }
+    }
+    // fevm's non-zero slots that geth's allocation lacks.
+    for i in 0 .. world.storage_slots() {
+        let e = world.storage_at(i)
+        if !e.occupied || e.value == 0 || is_system(e.address) {
+            continue
+        }
+        var key = MemBuffer::empty()
+        "0x".fmt(mut key)
+        hex(e.address, 20).fmt(mut key)
+        let listed = match alloc.get(key.span()) {
+            Option::Some(ref account) => account.has("storage")
+                && slot_listed(account["storage"], e.slot),
+            Option::None => false,
+        }
+        if !listed {
+            "fevm-only slot of 0x".fmt(mut why)
+            hex(e.address, 20).fmt(mut why)
+            "; ".fmt(mut why)
+        }
+    }
+    why
+}
+
+fn slot_listed(_ storage: Value, _ slot: u256) -> bool {
+    for ref entry in storage.members() {
+        if parse_hex_uint(entry.key.span()).unwrap_or(default: 0) == slot {
+            return true
+        }
+    }
+    false
+}
+
+#[cfg(target_family = "unix")]
+pub fn fuzz_geth_command() -> i32
+uses (args: std::env::Args, fs: mut Fs, proc: mut Spawn, out: mut Stdout)
+{
+    if args.count() != 6 {
+        println!(
+            "usage: fevm-replay fuzz-geth <geth-evm> <dir> <runs> <seed>",
+        )
+        return 2
+    }
+    let geth = args.get(2)
+    let dir = args.get(3)
+    let runs: u64 = core::text::parse_uint(args.get(4).span())
+        .unwrap_or(default: 20)
+        .downcast_unchecked()
+    let seed: u64 = core::text::parse_uint(args.get(5).span())
+        .unwrap_or(default: 1)
+        .downcast_unchecked()
+    let Result::Ok(block_bytes) = fs.read(join(dir, "block.json")) else {
+        return 1
+    }
+    let Result::Ok(pre_bytes) = fs.read(join(dir, "prestate.json")) else {
+        return 1
+    }
+    let Result::Ok(proof_bytes) = fs.read(join(dir, "proofs.json")) else {
+        println!(
+            "ERROR ",
+            dir,
+            ": fuzz-geth needs the system contracts' code (fetch-proofs)",
+        )
+        return 1
+    }
+    let Result::Ok(chain_bytes) = fs.read(join(dir, "chain.json")) else {
+        return 1
+    }
+    let Result::Ok(block) = parse(block_bytes.span()) else {
+        return 1
+    }
+    let Result::Ok(prestates) = parse(pre_bytes.span()) else {
+        return 1
+    }
+    let Result::Ok(proofs) = parse(proof_bytes.span()) else {
+        return 1
+    }
+    let Result::Ok(chain) = parse(chain_bytes.span()) else {
+        return 1
+    }
+    let header = ref block["result"]
+    let env = load_block(
+        header,
+        chain_id: field(chain, "result"),
+        blobbasefee: header_blob_fee(header).as_wei(),
+    )
+    // The calls: transactions with a target and calldata.
+    var calls: core::MemVec<usize> = core::MemVec::new()
+    let txs = header["transactions"].items()
+    for t in 0 .. txs.len() {
+        let tx = ref txs[t]
+        if tx.has("to")
+            && !tx["to"].is_null()
+            && tx["input"].text().len() > 10
+            && field(tx, "type") <= 2 {
+            calls.push(t)
+        }
+    }
+    if calls.len() == 0 {
+        println!("ERROR ", dir, ": no contract calls to fuzz")
+        return 1
+    }
+    let work = "/tmp/fevm-replay-geth"
+    let _ = fs.create_dir_all(work)
+    var rng = Rng::seeded(seed)
+    var tally = Tally { runs: 0, same: 0, differ: 0, rejected: 0, reverted: 0, skipped: 0 }
+    var r: u64 = 0
+    while r < runs {
+        r += 1
+        let t = calls[rng.index(calls.len())]
+        let tx = ref txs[t]
+        let prestate = ref prestates["result"][t]["result"]
+        var input = hex_bytes(tx["input"].text())
+        if r % 4 != 1 {
+            let _ = mutate(mut rng, mut input)
+        }
+        let Result::Ok(_) = fs
+            .write(
+                join(work, "alloc.json"),
+                alloc_json(prestate, proofs).span(),
+            ) else {
+            return 1
+        }
+        let Result::Ok(_) = fs.write(join(work, "env.json"), env_json(header).span()) else {
+            return 1
+        }
+        var txs_text = MemBuffer::empty()
+        "[".fmt(mut txs_text)
+        tx_json(tx, input.span(), signed: true).span().fmt(mut txs_text)
+        "]".fmt(mut txs_text)
+        let Result::Ok(_) = fs.write(join(work, "txs.json"), txs_text.span()) else {
+            return 1
+        }
+        let command = Command::new(geth)
+            .arg("t8n")
+            .arg("--input.alloc")
+            .arg("/tmp/fevm-replay-geth/alloc.json")
+            .arg("--input.env")
+            .arg("/tmp/fevm-replay-geth/env.json")
+            .arg("--input.txs")
+            .arg("/tmp/fevm-replay-geth/txs.json")
+            .arg("--output.basedir")
+            .arg("/tmp/fevm-replay-geth/out")
+            .arg("--output.result")
+            .arg("result.json")
+            .arg("--output.alloc")
+            .arg("alloc.json")
+            .arg("--state.fork")
+            .arg("Osaka")
+            .arg("--state.chainid")
+            .arg("1")
+            .stdout(Redirect::Capture)
+            .stderr(Redirect::Capture)
+        let (ok, block_hash) = match proc.output(command) {
+            Result::Ok(output) => (
+                output.status.success(),
+                mentions(output.stderr.span(), "getHash".span()),
+            ),
+            Result::Err(_) => (false, false),
+        }
+        if !ok {
+            if block_hash {
+                // The mutated call read the hash of a block older than the
+                // parent, which neither engine is given.
+                tally.skipped += 1
+                continue
+            }
+            println!("ERROR geth's t8n failed on run ", r)
+            return 1
+        }
+        let Result::Ok(result_bytes) = fs.read("/tmp/fevm-replay-geth/out/result.json") else {
+            return 1
+        }
+        let Result::Ok(alloc_bytes) = fs.read("/tmp/fevm-replay-geth/out/alloc.json") else {
+            return 1
+        }
+        let Result::Ok(result) = parse(result_bytes.span()) else {
+            return 1
+        }
+        let Result::Ok(geth_alloc) = parse(alloc_bytes.span()) else {
+            return 1
+        }
+        // fevm, on the same world.
+        var world = load_world(prestate)
+        let _ = world.set_balance(SENDER, FUNDS)
+        let _ = world.set_nonce(SENDER, 0)
+        // The parent's hash, which geth gets from the environment.
+        let _ = world.set_block_hash(field(header, "number") - 1, field(header, "parentHash"))
+        let tx_text = tx_json(tx, input.span(), signed: false)
+        let Result::Ok(request_doc) = parse(tx_text.span()) else {
+            return 1
+        }
+        let request = load_tx_with(request_doc, input: input.span(), priced: true)
+        var buffers = Buffers::new()
+        var nothing = ()
+        let applied = transact(
+            world,
+            request,
+            env,
+            Config::osaka(),
+            mut buffers,
+            mut nothing,
+        )
+        tally.runs += 1
+        let geth_rejected = result.has("rejected") && result["rejected"].items().len() > 0
+        let fevm_rejected = applied.receipt.invalid != VALID
+        if geth_rejected || fevm_rejected {
+            if geth_rejected && fevm_rejected {
+                tally.rejected += 1
+                tally.same += 1
+            } else {
+                tally.differ += 1
+                println!(
+                    "DIFF run ",
+                    r,
+                    " (tx ",
+                    t,
+                    "): one engine rejected the transaction",
+                )
+            }
+            continue
+        }
+        let receipt = ref result["receipts"][0]
+        let why = differences(
+            receipt,
+            geth_alloc,
+            status_ok: applied.receipt.status == fevm::OK,
+            gas: applied.receipt.gas_used,
+            applied.receipt.logs,
+            applied.state,
+        )
+        if applied.receipt.status != fevm::OK {
+            tally.reverted += 1
+        }
+        if why.len() == 0 {
+            tally.same += 1
+        } else {
+            tally.differ += 1
+            println!(
+                "DIFF run ",
+                r,
+                " (tx ",
+                t,
+                " ",
+                tx["hash"].text(),
+                "): ",
+                why.span(),
+            )
+        }
+    }
+    println!(
+        "fuzz-geth ",
+        dir,
+        ": ",
+        tally.same,
+        "/",
+        tally.runs,
+        " runs agree with geth ",
+        "(",
+        tally.reverted,
+        " reverted, ",
+        tally.rejected,
+        " rejected by both), ",
+        tally.differ,
+        " differ; ",
+        tally.skipped,
+        " skipped (read an older block's hash)",
+    )
+    if tally.differ == 0 { 0 } else { 1 }
+}

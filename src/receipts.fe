@@ -279,3 +279,162 @@ pub fn hex_prefix(_ out: mut MemBuffer, _ nibbles: MemSpan, from: usize, leaf: b
         at += 2
     }
 }
+
+// RLP and the trie, against the Yellow Paper's encodings written out by
+// hand: where a short form ends and a long one starts.
+fn bytes_of(_ buf: MemBuffer) -> u256 {
+    var out: u256 = 0
+    for i in 0 .. buf.len() {
+        out = (out << 8) | (buf.span()[i] as u256)
+    }
+    out
+}
+
+fn filled(_ len: usize) -> MemBuffer {
+    var buf = MemBuffer::empty()
+    for _ in 0 .. len {
+        buf.push(0x61)
+    }
+    buf
+}
+
+#[test]
+fn a_byte_under_0x80_is_its_own_encoding() {
+    var low = MemBuffer::empty()
+    put_word(mut low, 0x7f, width: 0)
+    assert!(low.len() == 1 && bytes_of(low) == 0x7f)
+    var high = MemBuffer::empty()
+    put_word(mut high, 0x80, width: 0)
+    assert!(high.len() == 2 && bytes_of(high) == 0x8180)
+    // Zero is the empty string, not a zero byte.
+    var zero = MemBuffer::empty()
+    put_word(mut zero, 0, width: 0)
+    assert!(zero.len() == 1 && bytes_of(zero) == 0x80)
+}
+
+#[test]
+fn the_long_form_starts_at_56_bytes() {
+    var short = MemBuffer::empty()
+    put_string(mut short, filled(55).span())
+    assert!(short.len() == 56 && short.span()[0] == 0xb7)
+    var long = MemBuffer::empty()
+    put_string(mut long, filled(56).span())
+    assert!(
+        long.len() == 58 && long.span()[0] == 0xb8 && long.span()[1] == 56,
+    )
+    var list = MemBuffer::empty()
+    put_list(mut list, filled(56).span())
+    assert!(list.span()[0] == 0xf8 && list.span()[1] == 56)
+    var two = MemBuffer::empty()
+    put_header(mut two, 0x80, 256)
+    assert!(two.len() == 3 && bytes_of(two) == 0xb90100)
+}
+
+#[test]
+fn hex_prefix_flags_leaves_extensions_and_odd_paths() {
+    var nibbles = MemBuffer::empty()
+    nibbles.push(1)
+    nibbles.push(2)
+    nibbles.push(3)
+    var odd_leaf = MemBuffer::empty()
+    hex_prefix(mut odd_leaf, nibbles.span(), from: 0, leaf: true)
+    assert!(bytes_of(odd_leaf) == 0x3123)
+    var even_leaf = MemBuffer::empty()
+    hex_prefix(mut even_leaf, nibbles.span(), from: 1, leaf: true)
+    assert!(bytes_of(even_leaf) == 0x2023)
+    var odd_extension = MemBuffer::empty()
+    hex_prefix(mut odd_extension, nibbles.span(), from: 2, leaf: false)
+    assert!(bytes_of(odd_extension) == 0x13)
+    var even_extension = MemBuffer::empty()
+    hex_prefix(mut even_extension, nibbles.span(), from: 1, leaf: false)
+    assert!(bytes_of(even_extension) == 0x0023)
+}
+
+#[test]
+fn a_trie_of_nothing_is_the_empty_root() {
+    let none: MemVec<MemBuffer> = MemVec::new()
+    assert!(
+        trie_root(none) == 0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421,
+    )
+}
+
+#[test]
+fn a_trie_of_one_value_is_its_leaf() {
+    // "abc" under rlp(0) = 0x80: the leaf [0x2080, "abc"], encoded as
+    // c7 82 2080 83 616263, and the root is its hash.
+    var values: MemVec<MemBuffer> = MemVec::new()
+    var abc = MemBuffer::empty()
+    abc.push(0x61)
+    abc.push(0x62)
+    abc.push(0x63)
+    values.push(abc)
+    var leaf = MemBuffer::empty()
+    let bytes: [u8; 8] = [0xc7, 0x82, 0x20, 0x80, 0x83, 0x61, 0x62, 0x63]
+    for i in 0 .. 8 {
+        leaf.push(bytes[i])
+    }
+    assert!(trie_root(values) == keccak256_word(leaf.span()))
+}
+
+fn same_bytes(_ a: MemSpan, _ b: MemSpan) -> bool {
+    if a.len() != b.len() {
+        return false
+    }
+    for i in 0 .. a.len() {
+        if a[i] != b[i] {
+            return false
+        }
+    }
+    true
+}
+
+fn as_std(_ value: u256) -> bool {
+    var ours = MemBuffer::empty()
+    put_word(mut ours, value, width: 0)
+    same_bytes(ours.span(), std::evm::rlp::encode_uint(value).span())
+}
+
+// Our encoder against Fe's own `std::evm::rlp`, byte for byte. We keep
+// ours because the tries build variable-length lists into one buffer, and
+// std's `encode_list` takes a fixed-size array of items.
+#[test]
+fn integers_encode_as_std_rlp_does() {
+    var value: u256 = 0
+    while value < 600 {
+        assert!(as_std(value))
+        value += 1
+    }
+    var shift: u256 = 0
+    while shift < 256 {
+        let edge: u256 = 1 << shift
+        assert!(as_std(edge - 1) && as_std(edge) && as_std(edge + 1))
+        shift += 1
+    }
+}
+
+#[test]
+fn strings_encode_as_std_rlp_does() {
+    var len: usize = 0
+    while len < 300 {
+        let data = filled(len)
+        var ours = MemBuffer::empty()
+        put_string(mut ours, data.span())
+        assert!(
+            same_bytes(
+                ours.span(),
+                std::evm::rlp::encode_bytes(data.span()).span(),
+            ),
+        )
+        len += 1
+    }
+    var one = MemBuffer::empty()
+    one.push(0x05)
+    var ours = MemBuffer::empty()
+    put_string(mut ours, one.span())
+    assert!(
+        same_bytes(
+            ours.span(),
+            std::evm::rlp::encode_bytes(one.span()).span(),
+        ),
+    )
+}

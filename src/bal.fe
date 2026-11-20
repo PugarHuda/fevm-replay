@@ -371,3 +371,97 @@ fn raise(_ map: mut WorldState, _ address: u256, _ key: u256, _ depth: u64) {
         let _ = map.storage_store(address, key, depth as u256)
     }
 }
+
+// Three transactions: the first writes 0xaa's slot 1 and pays the
+// coinbase 0xc0, the second reads that slot, the third touches only 0xbb
+// and the coinbase.
+fn three() -> (Value, Value) {
+    let prestates = json::parse(
+        "[{\"result\":{\"0xaa\":{\"storage\":{\"0x01\":\"0x00\"}},\"0xc0\":{}}},{\"result\":{\"0xaa\":{\"storage\":{\"0x01\":\"0x05\"}},\"0xc0\":{}}},{\"result\":{\"0xbb\":{},\"0xc0\":{}}}]"
+            .span(),
+    )
+        .unwrap()
+    let diffs = json::parse(
+        "[{\"result\":{\"pre\":{},\"post\":{\"0xaa\":{\"storage\":{\"0x01\":\"0x05\"}},\"0xc0\":{\"balance\":\"0x1\"}}}},{\"result\":{\"pre\":{},\"post\":{\"0xc0\":{\"balance\":\"0x2\"}}}},{\"result\":{\"pre\":{},\"post\":{\"0xc0\":{\"balance\":\"0x3\"}}}}]"
+            .span(),
+    )
+        .unwrap()
+    (prestates, diffs)
+}
+
+#[test]
+fn a_read_of_an_earlier_write_waits_for_it() {
+    let (prestates, diffs) = three()
+    let (depth, free) = dependency_depth(prestates, diffs, coinbase: 0xc0)
+    // The second waits for the first; the third waits for no one.
+    assert!(depth == 2 && free == 2)
+}
+
+#[test]
+fn the_coinbase_alone_would_chain_every_transaction() {
+    // Counted like any account, the coinbase every transaction pays makes
+    // the block one chain: why parallel clients settle it afterwards.
+    let (prestates, diffs) = three()
+    let (depth, free) = dependency_depth(prestates, diffs, coinbase: 0)
+    assert!(depth == 3 && free == 1)
+}
+
+#[test]
+fn a_slot_cleared_by_an_earlier_transaction_is_a_dependency() {
+    // The first clears 0xaa's slot 2 (in its diff's pre, not its post) and
+    // writes nothing else of 0xaa; the second reads slot 2.
+    let prestates = json::parse(
+        "[{\"result\":{\"0xaa\":{\"storage\":{\"0x02\":\"0x09\"}}}},{\"result\":{\"0xaa\":{\"storage\":{\"0x02\":\"0x00\"}}}}]"
+            .span(),
+    )
+        .unwrap()
+    let diffs = json::parse(
+        "[{\"result\":{\"pre\":{\"0xaa\":{\"storage\":{\"0x02\":\"0x09\"}}},\"post\":{}}},{\"result\":{\"pre\":{},\"post\":{}}}]"
+            .span(),
+    )
+        .unwrap()
+    let (depth, free) = dependency_depth(prestates, diffs, coinbase: 0)
+    assert!(depth == 2 && free == 1)
+}
+
+#[test]
+fn rlp_integer_sizes_change_at_0x80_and_each_byte() {
+    assert!(int_len(0) == 1 && int_len(0x7f) == 1)
+    assert!(int_len(0x80) == 2 && int_len(0xff) == 2)
+    assert!(int_len(0x100) == 3)
+    assert!(header(55) == 1 && header(56) == 2)
+    assert!(header(255) == 2 && header(256) == 3)
+    assert!(list(55) == 56 && list(56) == 58)
+}
+
+#[test]
+fn the_list_counts_each_write_and_each_read_once() {
+    // Block 16, its first system calls' three writes, then two
+    // transactions: the first reads 0xaa's slots 1 and 2 and writes slot 1,
+    // the second reads slot 2 again.
+    let header = json::parse(
+        "{\"number\":\"0x10\",\"timestamp\":\"0x64\",\"parentHash\":\"0x01\",\"parentBeaconBlockRoot\":\"0x02\"}"
+            .span(),
+    )
+        .unwrap()
+    let prestates = json::parse(
+        "[{\"result\":{\"0xaa\":{\"storage\":{\"0x01\":\"0x00\",\"0x02\":\"0x07\"}}}},{\"result\":{\"0xaa\":{\"storage\":{\"0x02\":\"0x07\"}}}}]"
+            .span(),
+    )
+        .unwrap()
+    let diffs = json::parse(
+        "[{\"result\":{\"pre\":{},\"post\":{\"0xaa\":{\"storage\":{\"0x01\":\"0x05\"}}}}},{\"result\":{\"pre\":{},\"post\":{}}}]"
+            .span(),
+    )
+        .unwrap()
+    let access = measure(prestates, diffs, header, coinbase: 0xc0)
+    // EIP-4788's and EIP-2935's contracts and 0xaa.
+    assert!(access.accounts == 3)
+    // Three system writes and slot 1; slot 2 read once, slot 1 not as a
+    // read since it was written.
+    assert!(access.writes == 4 && access.reads == 1)
+    assert!(access.account_changes == 0)
+    // The second touches 0xaa, which the first wrote.
+    assert!(access.depth == 2 && access.free == 1)
+    assert!(access.bytes > 0)
+}

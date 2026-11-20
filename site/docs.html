@@ -56,7 +56,7 @@
     <p class="intro">fevm-replay is a command-line tool written in Fe. It needs a Linux x86-64 or macOS AArch64 host (on Windows, use WSL), a C compiler, and <code>curl</code> for fetching.</p>
 
     <h2 id="quickstart">Quickstart</h2>
-    <p>fevm-replay builds on fevm's main branch and its <code>fevm_chain</code> layer, which need Fe's <code>master</code> past the 26.6.0 release, so the project pins Fe master at the commit that added <code>Call::forward_delegatecall</code>. The WETH9, pair, USDT and DAI ports build with Fe <code>4608e5f</code>, the one they were certified with. Building Fe from source needs Rust 1.99, Node.js and the tree-sitter CLI; <code>cranelift</code> is the native backend.</p>
+    <p>fevm-replay builds on fevm's main branch and its <code>fevm_chain</code> layer, which need Fe 26.7, so the project pins Fe <a href="https://github.com/argotorg/fe/releases/tag/v26.7.0">v26.7.0</a> (<code>e6e6342</code>), the release that also carries <code>Call::forward_delegatecall</code>. All six ports build with it, and every certificate is of a 26.7 build. Building Fe from source needs Rust 1.99, Node.js and the tree-sitter CLI; <code>cranelift</code> is the native backend.</p>
 <pre><code>npm install -g tree-sitter-cli@0.24.7
 rustup toolchain install 1.99.0 --profile minimal
 cargo +1.99.0 install --locked --root ~/fe \

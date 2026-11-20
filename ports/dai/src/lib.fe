@@ -317,7 +317,6 @@ pub contract Dai uses (ctx: Ctx, evm: Evm, log: mut Log) {
 // `transferFrom`, which `transfer`, `push`, `pull` and `move` all call.
 fn transfer_from(_ src: Address, _ dst: Address, _ wad: u256)
 uses (
-    evm: Evm,
     ctx: Ctx,
     balance_of: mut StorageMap<Address, u256>,
     allowance: mut StorageMap<Address, StorageMap<Address, u256>>,
@@ -336,7 +335,6 @@ uses (
 // `burn`'s checks: the balance, then the allowance as in `transferFrom`.
 fn spend(_ usr: Address, _ wad: u256)
 uses (
-    evm: Evm,
     ctx: Ctx,
     balance_of: StorageMap<Address, u256>,
     allowance: mut StorageMap<Address, StorageMap<Address, u256>>,
@@ -351,7 +349,7 @@ uses (
 // Someone spending another's tokens uses up their allowance, unless it is
 // unlimited.
 fn spend_checked(_ owner: Address, _ wad: u256)
-uses (evm: Evm, ctx: Ctx, allowance: mut StorageMap<Address, StorageMap<Address, u256>>)
+uses (ctx: Ctx, allowance: mut StorageMap<Address, StorageMap<Address, u256>>)
 {
     let spender = ctx.caller()
     if owner != spender && allowance[owner][spender] != MAX {
@@ -433,27 +431,27 @@ const INVALID_NONCE: Reason = Reason {
 }
 
 // `Error(string)` written straight to memory, as solc does.
-fn fail(_ reason: Reason) -> ! uses (evm: Evm) {
+fn fail(_ reason: Reason) -> ! {
     var data = MemBuffer::with_capacity(100)
     data.write_word(offset: 0, value: 0x08c379a0 << 224)
     data.write_word(offset: 4, value: 32)
     data.write_word(offset: 36, value: reason.len)
     data.write_word(offset: 68, value: reason.text)
-    evm.revert(data: data.span())
+    std::evm::revert_bytes(data.span())
 }
 
 // DAI's own `add` and `sub`: `require` with no reason.
-fn add(_ x: u256, _ y: u256) -> u256 uses (evm: Evm) {
+fn add(_ x: u256, _ y: u256) -> u256 {
     let z = x.wrapping_add(y)
     if z < x {
-        evm.revert(data: MemBuffer::empty().span())
+        std::evm::revert_empty()
     }
     z
 }
 
-fn sub(_ x: u256, _ y: u256) -> u256 uses (evm: Evm) {
+fn sub(_ x: u256, _ y: u256) -> u256 {
     if y > x {
-        evm.revert(data: MemBuffer::empty().span())
+        std::evm::revert_empty()
     }
     x - y
 }

@@ -307,3 +307,28 @@ pub fn charge(
         coinbase: events.on_coinbase,
     }
 }
+
+// EIP-4762's tree layout: the first 64 slots share the account's header
+// stem with its first 128 code chunks; later ones go to stems of 256.
+#[test]
+fn the_first_64_slots_live_beside_the_header() {
+    assert!(slot_stem(0) == 0 && slot_stem(63) == 0)
+    assert!(slot_stem(64) == MAIN_STORAGE_STEMS)
+    assert!(slot_stem(255) == MAIN_STORAGE_STEMS)
+    assert!(slot_stem(256) == MAIN_STORAGE_STEMS + 1)
+}
+
+#[test]
+fn the_first_128_code_chunks_live_beside_the_header() {
+    assert!(chunk_stem(0) == 0 && chunk_stem(127) == 0)
+    assert!(chunk_stem(128) == 1 && chunk_stem(383) == 1)
+    assert!(chunk_stem(384) == 2)
+}
+
+#[test]
+fn a_key_is_new_only_once() {
+    var set = WorldState::empty()
+    assert!(mark(mut set, 0xaa, 5))
+    assert!(!mark(mut set, 0xaa, 5))
+    assert!(mark(mut set, 0xaa, 6) && mark(mut set, 0xbb, 5))
+}

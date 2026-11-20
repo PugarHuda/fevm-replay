@@ -383,18 +383,23 @@ pub contract UniswapV2Pair uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Lo
             mut unlocked,
         ) {
             let to = address(to)
-            lock()
+            lock(mut unlocked)
             let reserve0 = reserve0_of(reserves)
             let reserve1 = reserve1_of(reserves)
             let balance0 = balance_of_token(token0)
             let balance1 = balance_of_token(token1)
             let amount0 = sub(balance0, reserve0)
             let amount1 = sub(balance1, reserve1)
-            let fee_on = mint_fee(reserve0, reserve1)
+            let fee_to = fee_to_of(factory)
+            let fee_on = with (u256 = total_supply) {
+                mint_fee(fee_to, reserve0, reserve1, k_last: mut k_last)
+            }
             let supply = total_supply
             let liquidity = if supply == 0 {
                 let minted = sub(sqrt(mul(amount0, amount1)), MINIMUM_LIQUIDITY)
-                mint(to: Address::zero(), value: MINIMUM_LIQUIDITY)
+                with (u256 = total_supply) {
+                    mint(to: Address::zero(), value: MINIMUM_LIQUIDITY)
+                }
                 minted
             } else {
                 min(
@@ -405,8 +410,18 @@ pub contract UniswapV2Pair uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Lo
             if liquidity == 0 {
                 fail(INSUFFICIENT_LIQUIDITY_MINTED)
             }
-            mint(to, value: liquidity)
-            update(balance0, balance1, reserve0, reserve1)
+            with (u256 = total_supply) {
+                mint(to, value: liquidity)
+            }
+            update(
+                balance0,
+                balance1,
+                reserve0,
+                reserve1,
+                reserves: mut reserves,
+                price0_cumulative_last: mut price0_cumulative_last,
+                price1_cumulative_last: mut price1_cumulative_last,
+            )
             if fee_on {
                 k_last = mul(reserve0_of(reserves), reserve1_of(reserves))
             }
@@ -432,7 +447,7 @@ pub contract UniswapV2Pair uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Lo
             mut unlocked,
         ) {
             let to = address(to)
-            lock()
+            lock(mut unlocked)
             let reserve0 = reserve0_of(reserves)
             let reserve1 = reserve1_of(reserves)
             let first = token0
@@ -440,14 +455,19 @@ pub contract UniswapV2Pair uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Lo
             let balance0 = balance_of_token(first)
             let balance1 = balance_of_token(second)
             let liquidity = balance_of.get(key: ctx.address())
-            let fee_on = mint_fee(reserve0, reserve1)
+            let fee_to = fee_to_of(factory)
+            let fee_on = with (u256 = total_supply) {
+                mint_fee(fee_to, reserve0, reserve1, k_last: mut k_last)
+            }
             let supply = total_supply
             let amount0 = div(mul(liquidity, balance0), supply)
             let amount1 = div(mul(liquidity, balance1), supply)
             if amount0 == 0 || amount1 == 0 {
                 fail(INSUFFICIENT_LIQUIDITY_BURNED)
             }
-            burn(from: ctx.address(), value: liquidity)
+            with (u256 = total_supply) {
+                burn(from: ctx.address(), value: liquidity)
+            }
             safe_transfer(token: first, to, value: amount0)
             safe_transfer(token: second, to, value: amount1)
             update(
@@ -455,6 +475,9 @@ pub contract UniswapV2Pair uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Lo
                 balance_of_token(second),
                 reserve0,
                 reserve1,
+                reserves: mut reserves,
+                price0_cumulative_last: mut price0_cumulative_last,
+                price1_cumulative_last: mut price1_cumulative_last,
             )
             if fee_on {
                 k_last = mul(reserve0_of(reserves), reserve1_of(reserves))
@@ -479,7 +502,7 @@ pub contract UniswapV2Pair uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Lo
         )
         {
             let to = address(to)
-            lock()
+            lock(mut unlocked)
             if amount0_out == 0 && amount1_out == 0 {
                 fail(INSUFFICIENT_OUTPUT_AMOUNT)
             }
@@ -522,7 +545,15 @@ pub contract UniswapV2Pair uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Lo
             if mul(adjusted0, adjusted1) < mul(mul(reserve0, reserve1), 1_000_000) {
                 fail(K)
             }
-            update(balance0, balance1, reserve0, reserve1)
+            update(
+                balance0,
+                balance1,
+                reserve0,
+                reserve1,
+                reserves: mut reserves,
+                price0_cumulative_last: mut price0_cumulative_last,
+                price1_cumulative_last: mut price1_cumulative_last,
+            )
             log.emit(
                 Swap { sender: ctx.caller(), amount0_in, amount1_in, amount0_out, amount1_out, to },
             )
@@ -531,7 +562,7 @@ pub contract UniswapV2Pair uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Lo
 
         Skim { to } uses (evm, ctx, mut call, mut log, token0, token1, reserves, mut unlocked) {
             let to = address(to)
-            lock()
+            lock(mut unlocked)
             let first = token0
             let second = token1
             safe_transfer(
@@ -559,7 +590,7 @@ pub contract UniswapV2Pair uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Lo
             mut price1_cumulative_last,
             mut unlocked,
         ) {
-            lock()
+            lock(mut unlocked)
             let balance0 = balance_of_token(token0)
             let balance1 = balance_of_token(token1)
             update(
@@ -567,6 +598,9 @@ pub contract UniswapV2Pair uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Lo
                 balance1,
                 reserve0_of(reserves),
                 reserve1_of(reserves),
+                reserves: mut reserves,
+                price0_cumulative_last: mut price0_cumulative_last,
+                price1_cumulative_last: mut price1_cumulative_last,
             )
             unlocked = 1
         }
@@ -574,7 +608,7 @@ pub contract UniswapV2Pair uses (ctx: Ctx, evm: Evm, call: mut Call, log: mut Lo
 }
 
 // The `lock` modifier's entry. Its exit, `unlocked = 1`, ends each function.
-fn lock() uses (evm: Evm, unlocked: mut u256) {
+fn lock(_ unlocked: mut u256) {
     if unlocked != 1 {
         fail(LOCKED)
     }
@@ -671,7 +705,7 @@ const TRANSFER_FAILED: Reason = Reason {
 // `Error(string)` written straight to memory and reverted with, as solc
 // does: a reason can be all a pair has gas left for, after a token call
 // took 63/64 of it.
-fn fail(_ reason: Reason) -> ! uses (evm: Evm) {
+fn fail(_ reason: Reason) -> ! {
     let size: usize = (if reason.len > 32 { 132 } else { 100 })
     var data = MemBuffer::with_capacity(size)
     data.write_word(offset: 0, value: 0x08c379a0 << 224)
@@ -681,7 +715,7 @@ fn fail(_ reason: Reason) -> ! uses (evm: Evm) {
     if reason.len > 32 {
         data.write_word(offset: 100, value: reason.lo)
     }
-    evm.revert(data: data.span())
+    std::evm::revert_bytes(data.span())
 }
 
 fn reserve0_of(_ reserves: u256) -> u256 {
@@ -693,7 +727,7 @@ fn reserve1_of(_ reserves: u256) -> u256 {
 }
 
 // SafeMath as UniswapV2 uses it: checked, with ds-math reasons.
-fn add(_ x: u256, _ y: u256) -> u256 uses (evm: Evm) {
+fn add(_ x: u256, _ y: u256) -> u256 {
     let z = x.wrapping_add(y)
     if z < x {
         fail(DS_MATH_ADD_OVERFLOW)
@@ -701,14 +735,14 @@ fn add(_ x: u256, _ y: u256) -> u256 uses (evm: Evm) {
     z
 }
 
-fn sub(_ x: u256, _ y: u256) -> u256 uses (evm: Evm) {
+fn sub(_ x: u256, _ y: u256) -> u256 {
     if y > x {
         fail(DS_MATH_SUB_UNDERFLOW)
     }
     x - y
 }
 
-fn mul(_ x: u256, _ y: u256) -> u256 uses (evm: Evm) {
+fn mul(_ x: u256, _ y: u256) -> u256 {
     if y == 0 { return 0 }
     let z = x.wrapping_mul(y)
     if z / y != x {
@@ -759,7 +793,7 @@ fn amount_in(_ balance: u256, reserve: u256, out: u256) -> u256 {
 }
 
 fn mint(to: Address, value: u256)
-uses (evm: Evm, total_supply: mut u256, balance_of: mut StorageMap<Address, u256>, log: mut Log)
+uses (total_supply: mut u256, balance_of: mut StorageMap<Address, u256>, log: mut Log)
 {
     total_supply = add(total_supply, value)
     balance_of.set(key: to, value: add(balance_of.get(key: to), value))
@@ -767,7 +801,7 @@ uses (evm: Evm, total_supply: mut u256, balance_of: mut StorageMap<Address, u256
 }
 
 fn burn(from: Address, value: u256)
-uses (evm: Evm, total_supply: mut u256, balance_of: mut StorageMap<Address, u256>, log: mut Log)
+uses (total_supply: mut u256, balance_of: mut StorageMap<Address, u256>, log: mut Log)
 {
     balance_of.set(key: from, value: sub(balance_of.get(key: from), value))
     total_supply = sub(total_supply, value)
@@ -775,14 +809,14 @@ uses (evm: Evm, total_supply: mut u256, balance_of: mut StorageMap<Address, u256
 }
 
 fn approve(owner: Address, spender: Address, value: u256)
-uses (evm: Evm, allowance: mut StorageMap<Address, StorageMap<Address, u256>>, log: mut Log)
+uses (allowance: mut StorageMap<Address, StorageMap<Address, u256>>, log: mut Log)
 {
     allowance[owner][spender] = value
     log.emit(Approval { owner, spender, value })
 }
 
 fn transfer(from: Address, to: Address, value: u256)
-uses (evm: Evm, balance_of: mut StorageMap<Address, u256>, log: mut Log)
+uses (balance_of: mut StorageMap<Address, u256>, log: mut Log)
 {
     balance_of.set(key: from, value: sub(balance_of.get(key: from), value))
     balance_of.set(key: to, value: add(balance_of.get(key: to), value))
@@ -791,15 +825,16 @@ uses (evm: Evm, balance_of: mut StorageMap<Address, u256>, log: mut Log)
 
 // `_update`: store the balances as reserves, advance the price
 // accumulators (overflow intended) and log `Sync`.
-fn update(_ balance0: u256, _ balance1: u256, _ reserve0: u256, _ reserve1: u256)
-uses (
-    evm: Evm,
-    ctx: Ctx,
-    log: mut Log,
+fn update(
+    _ balance0: u256,
+    _ balance1: u256,
+    _ reserve0: u256,
+    _ reserve1: u256,
     reserves: mut u256,
     price0_cumulative_last: mut u256,
     price1_cumulative_last: mut u256,
 )
+uses (ctx: Ctx, log: mut Log)
 {
     if balance0 > UINT112_MAX || balance1 > UINT112_MAX {
         fail(OVERFLOW)
@@ -819,25 +854,24 @@ uses (
 
 // `_mintFee`: with the factory's `feeTo` set, mint it a sixth of the growth
 // in sqrt(k) since the last liquidity event.
-fn mint_fee(_ reserve0: u256, _ reserve1: u256) -> bool
-uses (
-    evm: Evm,
-    ctx: Ctx,
-    call: mut Call,
-    log: mut Log,
-    factory: Address,
-    total_supply: mut u256,
-    balance_of: mut StorageMap<Address, u256>,
-    k_last: mut u256,
-)
+// The factory's `feeTo`, which `_mintFee` reads first.
+fn fee_to_of(_ factory: Address) -> Address
+uses (evm: Evm, ctx: Ctx, call: mut Call)
 {
-    let fee_to = Address::new(
+    Address::new(
         view_word(
                 factory,
                 args: encode_msg_calldata(FactoryMsg::FeeTo {}).span(),
             )
             & 0xffffffffffffffffffffffffffffffffffffffff,
     )
+}
+
+// The rest of `_mintFee`, given the factory's `feeTo`: Fe 26.7 keeps the
+// call to the factory out of a function that writes storage.
+fn mint_fee(_ fee_to: Address, _ reserve0: u256, _ reserve1: u256, k_last: mut u256) -> bool
+uses (log: mut Log, total_supply: mut u256, balance_of: mut StorageMap<Address, u256>)
+{
     let fee_on = fee_to != Address::zero()
     let last = k_last
     if fee_on {
