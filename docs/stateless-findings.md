@@ -33,6 +33,8 @@ For each block, `chain` takes the parent's Merkle proofs (EIP-1186) of every acc
 
 16. **After the coinbase, the price of code decides who runs out of gas.** The same 11,751 transactions, sent with the gas limit they had, under four versions of the charges: the draft as it stands, 35.3% short of gas and +23% gas; the coinbase exempt, 13.2% short of gas and +19% gas; and code chunks at half price, 5.7% short of gas and +4% gas; and code chunks free, 1.4% short of gas and -11% gas. Code chunks are charged per transaction, so a contract call pays again for code the block already ran.
 
+17. **A third of the calls that would still run out of gas go to USDC and USDT.** With the coinbase exempt, 1,466 contract calls over 51 blocks would still run out of gas, sent to 354 contracts. USDC and USDT alone take 463 (32%): calls to them, sent with a tight limit, now pay for the code chunks they run (USDC's proxy and its implementation, USDT's large contract), which cost nothing before. Most calls: USDC 236, USDT 227, 0x278d…f8d2 66, 0xfeee…7ffc 65, 0x51c7…2a7f 49, Uniswap's SwapRouter02 47.
+
 ## Reproduce
 
 ```sh

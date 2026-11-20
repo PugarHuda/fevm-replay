@@ -205,7 +205,9 @@ gas limit of exactly 21,000; contract calls stay short (26%, 21% exempt),
 from code chunks and storage, though only 103 of 6,903 were sent with no
 margin. Six of 51 blocks would not fit their gas limit as built. After the
 coinbase, the price of code decides: with code chunks at half price 5.7% of
-transactions would run out of gas, with code free 1.4%.
+transactions would run out of gas, with code free 1.4%. A third of the calls
+that stay short go to USDC and USDT: the draft charges for the code chunks
+they run, which today's rules do not.
 
 **Who makes the witness big.** Storage is 59% of it; XEN Crypto's trie is
 the deepest (8.2 nodes a slot), a USDT or USDC slot needs 7.4 nodes, about

@@ -1779,6 +1779,9 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
             // What-ifs, with the coinbase exempt: code chunks at half price,
             // and free.
             var short_code_half: u64 = 0
+            // The contracts that contract calls short of gas even with the
+            // coinbase exempt were sent to.
+            var short_targets = MemBuffer::empty()
             var short_code_free: u64 = 0
             for t in 0 .. count {
                 let tx = ref txs[t]
@@ -1816,6 +1819,14 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                     if used - charges[t].coinbase as u256 > limit + charges[t].today as u256 {
                         short_exempt += 1
                         short_exempt_kind[kind] = short_exempt_kind[kind] + 1
+                        if kind == 1 {
+                            if short_targets.len() > 0 {
+                                ",".fmt(mut short_targets)
+                            }
+                            "\"0x".fmt(mut short_targets)
+                            core::text::hex(field(tx, "to"), 20).fmt(mut short_targets)
+                            "\"".fmt(mut short_targets)
+                        }
                     }
                     if limit == tx_gas[t] as u256 {
                         exact_kind[kind] = exact_kind[kind] + 1
@@ -1876,6 +1887,9 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                     "gas4762_short_code_free",
                     short_code_free,
                 )
+                ",\"gas4762_short_targets\":[".fmt(mut stateless_summary)
+                short_targets.span().fmt(mut stateless_summary)
+                "]".fmt(mut stateless_summary)
                 // Per kind: short of gas, short with the coinbase exempt,
                 // sent with no margin.
                 ",\"gas4762_short_by_kind\":[".fmt(mut stateless_summary)

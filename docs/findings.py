@@ -54,6 +54,8 @@ NAMES = {
     "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": "USDC",
     "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2": "WETH",
     "0x000000000004444c5dc75cb358380d2e3de08a90": "Uniswap v4's PoolManager",
+    "0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45": "Uniswap's SwapRouter02",
+    "0x66a9893cc07d91d95644aedd05d03f95e1dba8af": "Uniswap's Universal Router",
 }
 top = sorted(heavy.items(), key=lambda x: -x[1]["storage"])
 top3 = top[:3]
@@ -255,6 +257,18 @@ if wi:
       "sent with the gas limit they had, under four versions of the charges: "
       + "; ".join(f"{name}, {100 * s / wtx:.1f}% short of gas and {100 * g / wg:+.0f}% gas" for name, s, g in steps)
       + ". Code chunks are charged per transaction, so a contract call pays again for code the block already ran.\n")
+import collections
+st = [r for r in kd if "gas4762_short_targets" in r]
+if st:
+    calls = collections.Counter(a for r in st for a in r["gas4762_short_targets"])
+    total = sum(calls.values())
+    usd = calls["0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"] + calls["0xdac17f958d2ee523a2206206994597c13d831ec7"]
+    first = ", ".join(f"{named(a)} {n}" for a, n in calls.most_common(6))
+    w(f"17. **A third of the calls that would still run out of gas go to USDC and USDT.** With the coinbase "
+      f"exempt, {num(total)} contract calls over {len(st)} blocks would still run out of gas, sent to {num(len(calls))} "
+      f"contracts. USDC and USDT alone take {num(usd)} ({100 * usd / total:.0f}%): calls to them, sent with a tight "
+      f"limit, now pay for the code chunks they run (USDC's proxy and its implementation, USDT's large contract), "
+      f"which cost nothing before. Most calls: {first}.\n")
 w("## Reproduce\n")
 w("```sh\n./out/fevm_replay follow blocks stateless.json 3     # takes, proves and validates 3 head blocks\n"
   "mkdir proven && tar xzf fixtures/proven/0x19335e5.tar.gz -C proven\n"
