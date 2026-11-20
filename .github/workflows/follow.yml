@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  FE_REVISION: 913403388b0219183a26986b13bb4110a9ff4c1f
+  FE_REVISION: e6e6342b252082f3fd8af5b9f763cb13296bf0a1
   RUST_VERSION: 1.99.0
 
 jobs:

@@ -8,10 +8,9 @@ permissions:
   contents: read
 
 env:
-  # fevm main (its chain layer) needs Fe master past 26.6.0, and
-  # `Call::forward_delegatecall` (argotorg/fe#2004) landed at this commit.
-  # The contest allows pinning a master commit.
-  FE_REVISION: 913403388b0219183a26986b13bb4110a9ff4c1f
+  # Fe v26.7.0, the release that carries what fevm main (its chain layer)
+  # needs and `Call::forward_delegatecall` (argotorg/fe#2004).
+  FE_REVISION: e6e6342b252082f3fd8af5b9f763cb13296bf0a1
   # The ports keep the Fe they were certified with, so their bytecode is the
   # certified one (later Fe also refuses the pair's and DAI's two effects of
   # one type). The USDC proxy moved on: it forwards with forward_delegatecall.

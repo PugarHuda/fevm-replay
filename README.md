@@ -323,15 +323,16 @@ the port in place of the deployed one.
 | --- | ---: | --- | ---: | ---: | --- |
 | EIP-4788 beacon roots | 55 | same slots, every block | 8 of 8, every block | 15 of 15 identical | call +25 (10,076), read +24 |
 | EIP-2935 history | 55 | same slots, every block | 8 of 8, every block | none in these blocks | call +55 (5,098) |
-| EIP-7002 withdrawal requests | 55 | same output and storage (empty queue every block; 16 dequeued from the synthetic queue) | 5 of 5, every block | 2 of 2 identical | call +133, request +263 |
-| EIP-7251 consolidation requests | 55 | same output and storage; 12 blocks dequeued 2 from real queues (6 to 93 deep) | 5 of 5, every block, fees 1 to 1,230 wei | none in these blocks | call +133, 2 dequeued +2,050 |
+| EIP-7002 withdrawal requests | 55 | same output and storage (empty queue every block; 16 dequeued from the synthetic queue) | 5 of 5, every block | 2 of 2 identical | call +133, request +173 |
+| EIP-7251 consolidation requests | 55 | same output and storage; 12 blocks dequeued 2 from real queues (6 to 93 deep) | 5 of 5, every block, fees 1 to 1,230 wei | none in these blocks | call +133, 2 dequeued +2,026 |
 
 CI runs the check on a proven block. The ports cost more gas than
 hand-written assembly: a few dozen a call at the start of the block, more
 for the request contracts, which build their outputs in Fe's `MemBuffer`
-(the log is one `CALLDATACOPY`, which took a request from +712 to +263). The
-two small ports are about the deployed size (96 bytes against 97, 128
-against 83); the request ports are 808 and 747 bytes against 504 and 414.
+(the log is one `CALLDATACOPY`; with it and Fe 26.7 a request went from +712
+to +173). The two small ports are about the deployed size (96 bytes against
+97, 128 against 83); the request ports are 803 and 748 bytes against 504 and
+414.
 
 The full account is in [docs/details.md](docs/details.md): shadow fuzzing,
 [every Uniswap V2 pair at once](docs/details.md#every-uniswap-v2-pair-at-once),
@@ -498,11 +499,12 @@ B=$(printf '0x%x' $(( $(curl -s -H 'content-type: application/json' --data '{"js
 ## Build and test
 
 Native Fe programs build on x86-64 Linux and AArch64 macOS (on Windows, use
-WSL). fevm-replay builds on fevm's main branch (its `fevm_chain` layer),
-which needs Fe master past 26.6.0, so this project pins Fe master
-[`913403388`](https://github.com/argotorg/fe/commit/913403388b0219183a26986b13bb4110a9ff4c1f),
-the commit that added `Call::forward_delegatecall` for the proxy port. The
-Fe team confirmed that pinning master is fine for the contest. The WETH9,
+WSL). fevm-replay builds on fevm's main branch (its `fevm_chain` layer)
+with Fe [v26.7.0](https://github.com/argotorg/fe/releases/tag/v26.7.0)
+([`e6e6342b2`](https://github.com/argotorg/fe/commit/e6e6342b252082f3fd8af5b9f763cb13296bf0a1)),
+which also carries `Call::forward_delegatecall` for the proxy port (the
+proxy's bytecode is the same as with the master commit it was certified
+with, `913403388`). The WETH9,
 Uniswap V2 pair, USDT and DAI ports build with the Fe they were certified
 with, [`4608e5fdf`](https://github.com/argotorg/fe/commit/4608e5fdfa3783ec78347f297ad0fced8928fcc7),
 so their bytecode is the certified one (later Fe also refuses the pair's and
@@ -512,7 +514,7 @@ DAI's two effects of one type, which is how they hold their storage fields).
 # Fe at the pinned commit (needs rustup, a C compiler and the tree-sitter CLI)
 rustup toolchain install 1.99.0 --profile minimal
 cargo +1.99.0 install --locked --root ~/fe \
-  --git https://github.com/argotorg/fe --rev 913403388b0219183a26986b13bb4110a9ff4c1f --features cranelift fe
+  --git https://github.com/argotorg/fe --rev e6e6342b252082f3fd8af5b9f763cb13296bf0a1 --features cranelift fe
 export PATH="$HOME/fe/bin:$PATH"
 
 fe --version
