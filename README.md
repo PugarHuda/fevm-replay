@@ -28,9 +28,9 @@ Replaying is fast: those 5,129 transactions take 5.9 seconds once fetched.
 | **fevm on mainnet** | 115,213 transactions replayed, 290 blocks as chains, no fevm bug |
 | **Stateless** | With the parent's proofs as a witness, fevm runs a block's system calls and transactions and *computes* its `stateRoot`; `transactionsRoot`, `receiptsRoot`, `withdrawalsRoot`, `requestsHash`, `logsBloom` and `gasUsed` come out of fevm too. every block validated so far matched every root (the badge above counts them; 3 consecutive ones as one chain), and `follow` keeps taking more from the chain head; one is checked in CI on every push. A MATCH rests on the block hash, not the node ([details](#every-root-in-the-header)) |
 | **For EIP authors** | Measured on 47 mainnet blocks over 3 days ([findings](docs/stateless-findings.md)): code is 43% of a stateless witness; EIP-4762 (Draft) would cost 23% more gas, and 35% of transactions, sent with the same gas limit, would run out of gas. Exempting the coinbase, as the draft exempts the sender and target, brings that to 13%: it saves ETH transfers (48% short, 1.3% exempt) but not contract calls (26%, still 22%: code and storage) |
-| **Fe ports** | 5 ports (USDT, every Uniswap V2 pair, WETH9, DAI, USDC's proxy) certified by mainnet replay, mainnet mutations, fuzzing and mutation testing ([verified page](https://fevm-replay.vercel.app/verified.html)). Also all four of Ethereum's system contracts (EIP-4788, EIP-2935, EIP-7002, EIP-7251), ported from assembly: on 51 mainnet blocks they store and return what the deployed ones do, dequeued consolidation requests included, and the mainnet transactions that call them run identically ([more](#ethereums-own-system-contracts-in-fe)) |
+| **Fe ports** | 5 ports (USDT, every Uniswap V2 pair, WETH9, DAI, USDC's proxy) certified by mainnet replay, mainnet mutations, fuzzing and mutation testing ([verified page](https://fevm-replay.vercel.app/verified.html)). Also all four of Ethereum's system contracts (EIP-4788, EIP-2935, EIP-7002, EIP-7251), ported from assembly: on 51 mainnet blocks they store and return what the deployed ones do, and with all four system calls run by the Fe ports every root in the header still matches; the mainnet transactions that call them run identically ([more](#ethereums-own-system-contracts-in-fe)) |
 | **Fe-specific** | Effects prove the verdict and the proof verifier offline; `const fn` + `static_assert` check the blob fee against a real block; std units, `core::fixed`, `msg`/`recv` ([Fe highlight](#fe-highlight)) |
-| **Found** | 3 bugs in the Fe ports, 2 node tracer bugs, the transactions the Osaka fork changed, and where Fe's code cost more than solc's ([argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002), since fixed in Fe's std) |
+| **Found** | 4 bugs in the Fe ports (one in our own EIP-7002 port, found by validating a mainnet block on it), 2 node tracer bugs, the transactions the Osaka fork changed, and where Fe's code cost more than solc's ([argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002), since fixed in Fe's std) |
 | **Upstream** | fe#2002 led to `Call::forward_delegatecall` in Fe's std ([argotorg/fe#2004](https://github.com/argotorg/fe/pull/2004), merged); our request in [fevm#26](https://github.com/fe-lang/fevm/issues/26) became the operand stack in `Tracer::step` ([fevm#32](https://github.com/fe-lang/fevm/pull/32)); dRPC is deploying a fix for the tracer bug we reported |
 | **Beside fevm's chain** | fevm now imports blocks itself ([`fevm_chain`](https://github.com/fe-lang/fevm/tree/main/ingots/chain)), on a full world and its conformance fixtures. fevm-replay is the other half: mainnet blocks, a *partial* world from the parent's proofs, the state root computed from that witness, and Fe ports in place of Solidity. It builds on that fevm and runs each block through `fevm_chain` and `fevm::Block` too: both drivers agree with the header on all 47 blocks ([more](#beside-fevms-chain-layer)) |
 | **Watch** | [3-minute tour](demo/tour-v3.mp4): the site and real terminal runs, driven like a user, with captions, highlights and a neural voice |
@@ -286,14 +286,32 @@ contracts on a block's proven state:
   the queue. Every answer, log and storage slot must be the deployed
   contract's.
 
-`fevm_replay mutants-system ports/system <dir>...` plants each of the 66
+**Whole blocks on Fe system code.** `fevm_replay chain <dir> --system
+<out-dir>` validates a block with all four system calls run by the Fe ports
+(built into `out-dir`); the deployed code goes back before the roots are
+hashed, since a system call writes storage, never code. On 51 of 51 mainnet
+blocks every root still matches the header: the parent beacon root and hash
+the ports stored, and the withdrawal and consolidation requests they
+returned (12 blocks with consolidations, 2 with withdrawals), hashed into
+`requestsHash`. With EIP-2935's code in EIP-4788's place, the state root
+fails.
+
+This found a bug that comparing calls had missed: the withdrawal port
+returned a request's amount in the byte order it was paid in, where the
+deployed contract returns it little-endian, as the consensus layer reads
+it. The calls `system` compared used amounts whose bytes read the same both
+ways; the first block with a real withdrawal request failed its
+`requestsHash`. The port is fixed, and `system`'s calls now use bytes that
+differ from position to position, so the old port fails them too.
+
+`fevm_replay mutants-system ports/system <dir>...` plants each of the 72
 operator changes in the ports' source, builds each mutant with `fe`, and runs
-`system`: on the CI block and two blocks with real consolidation queues, 62
-of 66 are caught. Of the 4 that survive, three mean the same as the
-original (a byte written past the end and cut off, a bound where `>` and
-`>=` agree); one writes a zero over the next queue slot, which the deployed
-contract would have left as an old request, and the proven state does not
-hold that slot.
+`system`: on the CI block and three blocks with real requests, 68 of 72 are
+caught (65 on the CI block alone, checked in CI). Of the 4 that survive,
+three mean the same as the original (a byte written past the end and cut
+off, a bound where `>` and `>=` agree); one writes a zero over the next
+queue slot, which the deployed contract would have left as an old request,
+and the proven state does not hold that slot.
 
 Shadow replay runs the mainnet transactions that call these contracts with
 the port in place of the deployed one.

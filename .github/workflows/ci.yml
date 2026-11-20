@@ -153,7 +153,15 @@ jobs:
         run: |
           out=$(./out/fevm_replay mutants-system ports/system proven/0x19335e5)
           echo "$out"
-          echo "$out" | grep -q "66 mutants built: 59 killed"
+          echo "$out" | grep -q "72 mutants built: 65 killed"
+
+      - name: A mainnet block validated with its four system calls run by the Fe ports
+        run: |
+          out=$(./out/fevm_replay chain proven/0x19335e5 --system out/system)
+          echo "$out" | grep -E "system calls|requests|stateRoot"
+          echo "$out" | grep -q "both as the Fe ports"
+          echo "$out" | grep -q "both request lists from the Fe ports"
+          echo "$out" | grep -q "hashes to the header's stateRoot"
 
       - name: Two consecutive mainnet blocks validated as one chain, and refused in the wrong order
         run: |

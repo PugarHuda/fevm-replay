@@ -187,11 +187,18 @@ uses (evm: mut Evm)
         out.write_word(offset: offset, value: unsafe { evm.sload(at) } << 96)
         var w: u256 = 1
         while w < words {
+            var word = unsafe {
+                evm.sload(at + w)
+            }
+            // A withdrawal's amount (its last slot's bytes 16 to 24) goes
+            // out little-endian, as the consensus layer reads it.
+            if input == 56 && w == 2 {
+                word = (word >> 128 << 128)
+                    | (reverse_bytes8((word >> 64) & 0xffffffffffffffff) << 64)
+            }
             out.write_word(
                 offset: offset + 20 + ((w - 1) * 32).downcast_unchecked(),
-                value: unsafe {
-                    evm.sload(at + w)
-                },
+                value: word,
             )
             w += 1
         }
@@ -239,6 +246,17 @@ fn fee() -> u256 uses (evm: Evm) {
         i += 1
     }
     output / FEE_UPDATE_FRACTION
+}
+
+// The 8 low bytes of `value` in the opposite order.
+fn reverse_bytes8(_ value: u256) -> u256 {
+    var out: u256 = 0
+    var i: u256 = 0
+    while i < 8 {
+        out = (out << 8) | ((value >> (i * 8)) & 0xff)
+        i += 1
+    }
+    out
 }
 
 fn return_word(_ value: u256) -> ! uses (evm: Evm) {

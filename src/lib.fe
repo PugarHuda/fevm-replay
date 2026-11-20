@@ -1004,13 +1004,25 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
 {
     if args.count() < 3 {
         println!(
-            "usage: fevm-replay chain <dir> [rpc-url] | chain <dir> <dir>...",
+            "usage: fevm-replay chain <dir> [rpc-url] | chain <dir> --system <out-dir> | chain <dir> <dir>...",
         )
         return 2
     }
     let rpc = args.count() == 4 && is_url(args.get(3))
     if args.count() == 3 || rpc {
-        return chain_block(args.get(2), rpc: rpc)
+        return chain_block(args.get(2), rpc: rpc, ports: SystemPorts::none())
+    }
+    // `chain <dir> --system <out-dir>`: the block's four system calls run
+    // the Fe ports in `out-dir` (ports/system built) instead of the
+    // deployed code.
+    if args.count() == 5 && is_word(
+            args.get(3),
+            [0x2d, 0x2d, 0x73, 0x79, 0x73, 0x74, 0x65, 0x6d],
+        ) {
+        let Option::Some(ports) = read_system_ports(args.get(4)) else {
+            return 1
+        }
+        return chain_block(args.get(2), rpc: false, ports)
     }
     // Consecutive blocks: each validated, then linked. A block's parent
     // must be the block before it, and the state root its pre-state was
@@ -1021,7 +1033,7 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
     var previous_root: u256 = 0
     for i in 2 .. args.count() {
         println!("== ", args.get(i))
-        if chain_block(args.get(i), rpc: false) != 0 {
+        if chain_block(args.get(i), rpc: false, ports: SystemPorts::none()) != 0 {
             failed += 1
         }
         let Option::Some(block) = load_response(args.get(i), "block.json") else {
@@ -1071,7 +1083,7 @@ fn is_url(_ arg: Arg) -> bool {
 }
 
 #[cfg(target_family = "unix")]
-fn chain_block(_ dir: Arg, rpc: bool) -> i32
+fn chain_block(_ dir: Arg, rpc: bool, ports: SystemPorts) -> i32
 uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut Stdout)
 {
     let Option::Some(chain) = load_response(dir, "chain.json") else {
@@ -1235,8 +1247,10 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                 }
                 var bytes = MemBuffer::with_capacity(32)
                 bytes.write_word(offset: 0, value: input)
+                ports.install(mut world, target)
                 let (after, result) = requests::system_call(world, target, input: bytes.span(), env)
                 world = after
+                ports.restore(mut world, proofs, target)
                 if result.status == fevm::OK {
                     ran += 1
                 }
@@ -1244,6 +1258,11 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
             if ran == 2 {
                 println!(
                     "system calls: fevm ran EIP-4788 (beacon root) and EIP-2935 (parent hash) before the first transaction",
+                    if ports.on {
+                        ", both as the Fe ports"
+                    } else {
+                        ""
+                    },
                 )
             } else {
                 unproven += 1
@@ -1511,6 +1530,7 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                 )
                 continue
             }
+            ports.install(mut world, target)
             let (after, result) = requests::system_call(
                 world,
                 target,
@@ -1518,6 +1538,7 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                 env,
             )
             world = after
+            ports.restore(mut world, proofs, target)
             if result.status != fevm::OK {
                 println!(
                     "SYSTEM 0x",
@@ -1550,6 +1571,11 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
                 " withdrawal and ",
                 consolidation_requests.len() / 116,
                 " consolidation requests hash to the header's requestsHash",
+                if ports.on {
+                    ", both request lists from the Fe ports"
+                } else {
+                    ""
+                },
             )
         } else {
             unproven += 1
@@ -4382,7 +4408,11 @@ uses (out: mut Stdout)
         var data = MemBuffer::with_capacity(input + 32)
         var w: usize = 0
         while w * 32 < input {
-            data.write_word(offset: w * 32, value: 0xfe11 + (r + w) as u256)
+            data.write_word(
+                offset: w * 32,
+                value: 0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20
+                    + (((r + w) as u256) << 248),
+            )
             w += 1
         }
         data.truncate(length)
@@ -4450,11 +4480,17 @@ uses (out: mut Stdout)
     var wp = start_p
     wp.set_code(address: address, code: port)
     var steps_same: u64 = 0
+    var out_bytes: usize = 0
+    var added: u64 = 0
     for step in 0 .. most + 3 {
         var data = MemBuffer::with_capacity(input + 32)
         var w: usize = 0
         while w * 32 < input {
-            data.write_word(offset: w * 32, value: 0xabc0 + (step * 8 + w) as u256)
+            data.write_word(
+                offset: w * 32,
+                value: 0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20
+                    + (((step * 8 + w) as u256) << 248),
+            )
             w += 1
         }
         let system = step > most
@@ -4477,6 +4513,11 @@ uses (out: mut Stdout)
         )
         wd = nd
         wp = np
+        if system {
+            out_bytes += dr.output.len()
+        } else if dr.status == fevm::OK {
+            added += 1
+        }
         if dr.status == pr.status
             && fuzz::same_bytes(dr.output.span(), pr.output.span())
             && requests::same_logs(dl, pl)
@@ -4501,7 +4542,11 @@ uses (out: mut Stdout)
         steps_same,
         "/",
         most + 3,
-        " steps as deployed",
+        " steps as deployed (",
+        added,
+        " requests queued, ",
+        out_bytes,
+        " bytes of requests out)",
     )
     (differ, 6 + (most + 3).downcast_unchecked())
 }
@@ -4645,4 +4690,82 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         "% killed",
     )
     0
+}
+
+/// The Fe ports of the four system contracts (ports/system), which `chain
+/// <dir> --system <out-dir>` runs in place of the deployed code; `on` is
+/// false when the block runs the deployed code.
+pub struct SystemPorts {
+    on: bool,
+    beacon: MemBuffer,
+    history: MemBuffer,
+    withdrawals: MemBuffer,
+    consolidations: MemBuffer,
+}
+
+impl SystemPorts {
+    fn none() -> Self {
+        SystemPorts {
+            on: false,
+            beacon: MemBuffer::empty(),
+            history: MemBuffer::empty(),
+            withdrawals: MemBuffer::empty(),
+            consolidations: MemBuffer::empty(),
+        }
+    }
+
+    // Puts the port of system contract `address` in its place.
+    fn install(self, _ world: mut fevm::WorldState, _ address: u256) {
+        if !self.on { return }
+        if address == proof::BEACON_ROOTS {
+            world.set_code(address: address, code: self.beacon.span())
+        } else if address == proof::HISTORY {
+            world.set_code(address: address, code: self.history.span())
+        } else if address == proof::WITHDRAWAL_REQUESTS {
+            world.set_code(address: address, code: self.withdrawals.span())
+        } else {
+            world.set_code(address: address, code: self.consolidations.span())
+        }
+    }
+
+    // Puts the deployed code, as the parent's proofs prove it, back: a
+    // system call writes storage, never code, so the roots see the code
+    // the chain holds and the storage the port wrote.
+    fn restore(self, _ world: mut fevm::WorldState, _ proofs: Value, _ address: u256) {
+        if self.on {
+            world.set_code(
+                    address: address,
+                    code: proof::code_of(proofs, address).span(),
+                )
+        }
+    }
+}
+
+#[cfg(target_family = "unix")]
+fn read_system_ports(_ dir: Arg) -> Option<SystemPorts>
+uses (fs: std::fs::Fs, out: mut Stdout)
+{
+    let beacon = read_port(dir, "BeaconRoots")?
+    let history = read_port(dir, "HistoryStorage")?
+    let withdrawals = read_port(dir, "WithdrawalRequests")?
+    let consolidations = read_port(dir, "ConsolidationRequests")?
+    Option::Some(
+        SystemPorts { on: true, beacon, history, withdrawals, consolidations },
+    )
+}
+
+#[cfg(target_family = "unix")]
+fn read_port(_ dir: Arg, _ name: String<24>) -> Option<MemBuffer>
+uses (fs: std::fs::Fs, out: mut Stdout)
+{
+    var path = MemBuffer::empty()
+    dir.fmt(mut path)
+    "/".fmt(mut path)
+    name.fmt(mut path)
+    ".runtime.bin".fmt(mut path)
+    let Result::Ok(hex) = fs.read(path) else {
+        println!("ERROR ", path, ": cannot read")
+        return Option::None
+    }
+    Option::Some(hex_bytes(hex.span()))
 }
