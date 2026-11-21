@@ -585,5 +585,39 @@
    "223 of 223": 4.170166,
    "from a finalized checkpoint": 11.712166
   }
+ },
+ "glamcheck": {
+  "audio": 20.976,
+  "captions": [
+   {
+    "start": 0.084041,
+    "end": 2.783625,
+    "text": "Any recent transaction can be checked in the browser."
+   },
+   {
+    "start": 2.783625,
+    "end": 6.722708,
+    "text": "This plain transfer to a new account was sent with 21,000 gas."
+   },
+   {
+    "start": 6.722708,
+    "end": 9.201666,
+    "text": "Under Glamsterdam it runs out of gas:"
+   },
+   {
+    "start": 9.201666,
+    "end": 14.590333,
+    "text": "it would need 204,600, and 183,600 of that is state gas."
+   },
+   {
+    "start": 14.590333,
+    "end": 20.972248999999998,
+    "text": "geth's own Amsterdam rules agree with fevm's on all 3,398 transactions compared."
+   }
+  ],
+  "cues": {
+   "sent with 21,000": 4.537833,
+   "it would need 204,600": 9.201666
+  }
  }
 }

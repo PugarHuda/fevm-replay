@@ -155,6 +155,19 @@ export const scenes: Scene[] = [
     ],
   },
   {
+    id: 'glamcheck',
+    kind: 'page',
+    url: 'glamsterdam.html#0xd1163b9a4766267495dd7f4989552f22108fc05d1fcfb4b436ce7ecf656999aa',
+    start: { sel: '.controls' },
+    narration:
+      "Any recent transaction can be checked in the browser. This plain transfer to a new account was sent with 21,000 gas. Under Glamsterdam it runs out of gas: it would need 204,600, and 183,600 of that is state gas. geth's own Amsterdam rules agree with fevm's on all 3,398 transactions compared.",
+    source: 'glamsterdam.html (live: debug_traceTransaction, then fevm in WebAssembly); README Glamsterdam section (geth-amsterdam 3,398/3,398)',
+    cues: [
+      { at: 'sent with 21,000', target: { sel: '#out' } },
+      { at: 'it would need 204,600', target: { sel: '#verdict' } },
+    ],
+  },
+  {
     id: 'effects',
     kind: 'page',
     url: 'index.html',
@@ -245,7 +258,7 @@ export const scenes: Scene[] = [
         '85 mainnet blocks validated statelessly, every root; fevm_chain and geth agree',
         'The same Fe in your browser, the hash checked by a light client (BLS in fevm)',
         "5 Fe ports certified, and all four of Ethereum's system contracts in Fe",
-        'EIP-4762: +25% gas, 39% short (ethereumjs agrees); Glamsterdam: 35% would fail',
+        'EIP-4762: +25% gas (ethereumjs agrees); Glamsterdam: 35% fail as sent (geth agrees)',
       ],
     },
     narration:
