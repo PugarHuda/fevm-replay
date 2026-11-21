@@ -352,3 +352,132 @@ uses (files: mut Files, out: mut Stdout)
     println!("]")
     Reply::ok(1)
 }
+
+struct Ran {
+    valid: bool,
+    ok: bool,
+    status: i32,
+    invalid: i32,
+    gas: u64,
+    state: u64,
+}
+
+impl Copy for Ran {}
+
+// One transaction on its traced pre-state under `config`, with gas limit
+// `limit`; unpriced (and the base fee check off) to try limits its sender
+// could not pay for.
+fn run_one(
+    _ prestate: Value,
+    _ env: fevm::BlockEnv,
+    _ parent: u256,
+    _ tx: Value,
+    _ base: fevm::Config,
+    _ limit: u64,
+    _ priced: bool,
+) -> Ran {
+    let none = core::MemBuffer::empty()
+    var tracer = ()
+    var buffers = fevm::Buffers::new()
+    let input = load::hex_bytes(tx["input"].text())
+    var request = load::load_tx_with(tx, input: input.span(), priced)
+    request.env.gas_limit = limit
+    var config = base
+    if !priced {
+        config.check_base_fee = false
+    }
+    let r = replay_core::compat::transact(
+        replay_core::replay::build_world(prestate, env, parent, Value::object(), core::MemVec::new(), none.span()),
+        request,
+        env,
+        config,
+        mut buffers,
+        mut tracer,
+    )
+    let valid = r.receipt.invalid == fevm::status::VALID
+    Ran {
+        valid,
+        ok: valid && r.receipt.status == fevm::OK,
+        status: r.receipt.status,
+        invalid: r.receipt.invalid,
+        gas: r.receipt.gas_used,
+        state: r.receipt.state_gas_used,
+    }
+}
+
+fn ran_json(_ r: Ran) uses (out: mut Stdout) {
+    print!(
+        "{\"valid\":",
+        if r.valid { "true" } else { "false" },
+        ",\"ok\":",
+        if r.ok { "true" } else { "false" },
+        ",\"status\":",
+        decimal(r.status.downcast_unchecked()),
+        ",\"invalid\":",
+        decimal(r.invalid.downcast_unchecked()),
+        ",\"gas\":",
+        decimal(r.gas as u256),
+        ",\"state\":",
+        decimal(r.state as u256),
+        "}",
+    )
+}
+
+/// One mainnet transaction under Osaka and under Glamsterdam's execution
+/// rules (`Config::amsterdam()`): `name` holds `{chain, block, tx, prestate}`
+/// (the chain id, the block's header, the transaction and its prestate
+/// trace). Prints both outcomes and, if it would no longer succeed, the
+/// least gas limit under which it would.
+#[unsafe(export)]
+pub fn amsterdam_tx(name: HostText) -> Reply
+uses (files: mut Files, out: mut Stdout)
+{
+    let data = match read_all(name) {
+        Result::Ok(data) => data,
+        Result::Err(code) => {
+            return Reply::error(code)
+        },
+    }
+    let Result::Ok(doc) = parse(data.as_slice()) else {
+        return Reply::error(100)
+    }
+    let header = ref doc["block"]
+    let env = load::load_block(
+        header,
+        chain_id: load::field(doc, "chain"),
+        blobbasefee: replay_core::blob::header_blob_fee(header).as_wei(),
+    )
+    let tx = ref doc["tx"]
+    let prestate = ref doc["prestate"]
+    let parent = load::field(header, "parentHash")
+    let limit: u64 = load::field(tx, "gas").downcast_truncate()
+    let osaka = run_one(prestate, env, parent, tx, fevm::Config::osaka(), limit, true)
+    let next = run_one(prestate, env, parent, tx, fevm::Config::amsterdam(), limit, true)
+    var least: u64 = 0
+    var at = next
+    if osaka.ok && !next.ok {
+        let cap: u64 = 16777216
+        if run_one(prestate, env, parent, tx, fevm::Config::amsterdam(), cap, false).ok {
+            var lo = limit
+            var hi = cap
+            while hi - lo > 1 {
+                let mid = lo + (hi - lo) / 2
+                if run_one(prestate, env, parent, tx, fevm::Config::amsterdam(), mid, false).ok {
+                    hi = mid
+                } else {
+                    lo = mid
+                }
+            }
+            least = hi
+            at = run_one(prestate, env, parent, tx, fevm::Config::amsterdam(), hi, false)
+        }
+    }
+    print!("{\"limit\":", decimal(limit as u256), ",\"osaka\":")
+    ran_json(osaka)
+    print!(",\"amsterdam\":")
+    ran_json(next)
+    print!(",\"least\":", decimal(least as u256), ",\"at_least\":")
+    ran_json(at)
+    println!("}")
+    Reply::ok(1)
+}

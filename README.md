@@ -305,6 +305,13 @@ a third for the repricing of execution (cold access at 3,000, a value
 transfer at 11,300). The 178 that fail at any limit change behavior, not
 only cost.
 
+Any recent mainnet transaction can be checked the same way in the browser:
+[glamsterdam.html](https://fevm-replay.vercel.app/glamsterdam.html) asks a
+node for its prestate trace and runs it in the WebAssembly module (the
+`amsterdam_tx` export) under both forks, then searches the least gas limit
+that would do. A plain transfer to a new account, sent with 21,000, would
+need 204,600, of which 183,600 is state gas.
+
 geth agrees. `fevm_replay geth-amsterdam <geth-evm> <dir> <runs> <seed>`
 gives the same signed mainnet transactions, on the same pre-state, to
 geth's `evm t8n --state.fork Amsterdam` (go-ethereum 1.17.10, with the

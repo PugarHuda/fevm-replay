@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Glamsterdam check · fevm-replay</title>
+<meta name="description" content="Paste a mainnet transaction: fevm, the EVM written in Fe, runs it in your browser under Osaka and under Glamsterdam's execution rules, on its traced pre-state, and says whether it would still succeed with the gas limit it was sent with, and what limit it would need.">
+<meta property="og:title" content="Glamsterdam check · fevm-replay">
+<meta property="og:description" content="Paste a mainnet transaction: fevm, the EVM written in Fe, runs it in your browser under Osaka and under Glamsterdam's execution rules, on its traced pre-state, and says whether it would still succeed with the gas limit it was sent with, and what limit it would need.">
+<meta property="og:image" content="https://fevm-replay.vercel.app/tour.jpg">
+<meta property="og:url" content="https://fevm-replay.vercel.app/glamsterdam.html">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=6">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='3' fill='%23f2f4f3' stroke='%231f2624' stroke-width='2'/%3E%3Ctext x='16' y='22' font-family='sans-serif' font-weight='700' font-size='14' text-anchor='middle' fill='%231f2624'%3EFe%3C/text%3E%3C/svg%3E">
+<style>
+  .g-head { padding-block: 1.5rem 0.5rem; }
+  .g-head h1 { font-size: clamp(2rem, 4.5vw, 3rem); letter-spacing: -0.03em; line-height: 1.05; margin: 0 0 0.75rem; }
+  .controls { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; margin: 1.25rem 0; }
+  .controls button { font: inherit; font-weight: 600; padding: 0.55rem 1rem; border-radius: 6px; border: 1px solid var(--rule); background: var(--paper); color: var(--ink); cursor: pointer; }
+  .controls button.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  .controls label { display: inline-flex; gap: 0.4rem; align-items: center; color: var(--steel); }
+  pre#out, pre#bout { min-height: 12rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .verdict { font-weight: 700; margin: 0.75rem 0; }
+  #bdiff { display: block; overflow-x: auto; border-collapse: collapse; margin: 0 0 1rem; font-family: "JetBrains Mono", monospace; font-size: 0.85rem; }
+  #bdiff th, #bdiff td { text-align: left; padding: 0.4rem 0.9rem 0.4rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  .verdict.ok { color: var(--match, #2e8b6f); }
+  .verdict.bad { color: var(--diff, #c9961a); }
+  .why { max-width: var(--measure); }
+</style>
+</head>
+<body>
+<header class="wrap site-head">
+  <a class="mark" href="./" aria-label="26 Fe fevm-replay home">
+    <span class="tile" aria-hidden="true"><small>26</small><b>Fe</b></span>
+    <span>fevm-replay</span>
+  </a>
+  <nav aria-label="Main">
+    <a href="./">Overview</a>
+    <a href="docs.html">Docs</a>
+    <a href="explorer.html">Explorer</a>
+    <a href="verified.html">Verified</a>
+    <a href="stateless.html">Stateless</a>
+    <a href="verify.html">Verify</a>
+    <a href="https://github.com/PugarHuda/fevm-replay">GitHub</a>
+  </nav>
+</header>
+
+<main class="wrap">
+  <section class="g-head">
+    <h1>Would this transaction survive Glamsterdam?</h1>
+    <p class="intro">Paste a mainnet transaction hash. Your browser asks a public node for the transaction, its block's header and the pre-state it ran on (<code>debug_traceTransaction</code> with the prestate tracer), then runs it in fevm, the EVM written in Fe, compiled to WebAssembly: under Osaka, as it ran, and under Glamsterdam's execution rules (<code>Config::amsterdam()</code>: EIP-8037 and EIP-8038 state gas, EIP-2780, EIP-7976 and EIP-7981 repricing), with the gas limit it was sent with. If it would fail, fevm searches for the least gas limit that would do. On 85 mainnet blocks, 35% of transactions would fail as sent, and geth's Amsterdam rules agree with fevm's on all 3,398 compared (<a href="stateless.html#glamsterdam">the numbers</a>).</p>
+  </section>
+  <div class="controls">
+    <label for="hash">Transaction</label>
+    <input id="hash" size="70" spellcheck="false" placeholder="0x…" style="font:inherit;font-family:'JetBrains Mono',monospace;padding:0.45rem;max-width:100%">
+    <button class="primary" id="go">Check</button>
+  </div>
+  <p class="note">Examples from block 26,424,805: <a href="#0xd1163b9a4766267495dd7f4989552f22108fc05d1fcfb4b436ce7ecf656999aa" class="ex">a transfer to a new account, sent with 21,000 gas</a>, <a href="#0x821f49c7fd909e8e511e3de1a3371a9e6f23944973eed0b73c19799da644b575" class="ex">a contract call</a>.</p>
+  <p class="verdict" id="verdict" aria-live="polite"></p>
+  <pre id="out">fevm runs in your browser; only the node's questions leave it.</pre>
+</main>
+
+<footer class="wrap site-foot">
+  <span>Built for the Fe Builders Challenge 2026. Apache-2.0.</span>
+  <span><a href="./">Overview</a>, <a href="docs.html">docs</a> and <a href="https://github.com/PugarHuda/fevm-replay">source</a></span>
+</footer>
+
+<script type="module">
+import { instantiate } from "./wasm/host.mjs";
+const NODES = ["https://eth.drpc.org", "https://ethereum-rpc.publicnode.com"];
+const out = document.getElementById("out"), verdict = document.getElementById("verdict"), go = document.getElementById("go"), input = document.getElementById("hash");
+async function rpc(method, params, nodes = NODES) {
+  let last;
+  for (let t = 0; t < 6; t++) {
+    const url = nodes[t % nodes.length];
+    try {
+      const r = await (await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) })).json();
+      if (r.result !== undefined && r.result !== null) return r.result;
+      last = new URL(url).host + ": " + JSON.stringify(r.error ?? "no result").slice(0, 120);
+    } catch (e) { last = new URL(url).host + ": " + e.message; }
+    await new Promise((ok) => setTimeout(ok, 500 * (t + 1)));
+  }
+  throw new Error(last);
+}
+const n = (v) => Number(v).toLocaleString("en");
+async function check(hash) {
+  go.disabled = true; verdict.textContent = ""; verdict.className = "verdict";
+  try {
+    if (!/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error("a transaction hash is 0x and 64 hex digits");
+    out.textContent = "Asking a node for the transaction and its block…";
+    const [bytes, manifest, tx, chain] = await Promise.all([
+      fetch("wasm/fevm_replay_web.wasm").then((r) => r.arrayBuffer()),
+      fetch("wasm/fevm_replay_web.manifest.json").then((r) => r.json()),
+      rpc("eth_getTransactionByHash", [hash]),
+      rpc("eth_chainId", []),
+    ]);
+    if (!tx.blockNumber) throw new Error("the transaction is not in a block yet");
+    const block = await rpc("eth_getBlockByNumber", [tx.blockNumber, false]);
+    out.textContent = "Tracing the pre-state it ran on (debug_traceTransaction, eth.drpc.org)…";
+    const prestate = await rpc("debug_traceTransaction", [hash, { tracer: "prestateTracer" }], [NODES[0]]);
+    out.textContent = "Running it in fevm (WebAssembly) under Osaka and under Glamsterdam…";
+    const doc = JSON.stringify({ chain, block: { ...block, transactions: [] }, tx, prestate });
+    const guest = await instantiate(new Uint8Array(bytes), { manifest, files: { "tx.json": doc } });
+    const reply = guest.callReply("amsterdam_tx", "tx.json");
+    if (!reply.ok || reply.value !== 1) throw new Error("the module could not run it: " + JSON.stringify(reply));
+    const r = JSON.parse(guest.host.stdout);
+    const outcome = (x) => x.ok ? "succeeds" : x.valid ? "fails (status " + x.status + (x.status === 15 ? ", out of gas" : "") + ")" : "is not valid (code " + x.invalid + (x.invalid === 1 ? ", intrinsic gas" : "") + ")";
+    const lines = [
+      "Block " + n(tx.blockNumber) + ", sent with a gas limit of " + n(r.limit) + ".",
+      "Osaka, as it ran: " + outcome(r.osaka) + ", " + n(r.osaka.gas) + " gas.",
+      "Glamsterdam: " + outcome(r.amsterdam) + ", " + n(r.amsterdam.gas) + " gas" + (r.amsterdam.state ? ", " + n(r.amsterdam.state) + " of it state gas" : "") + ".",
+    ];
+    if (r.least) lines.push("With a gas limit of " + n(r.least) + " (" + n(r.least - r.limit) + " more) it would succeed: " + n(r.at_least.gas) + " gas, " + n(r.at_least.state) + " of it state gas (EIP-8037).");
+    else if (r.osaka.ok && !r.amsterdam.ok) lines.push("No gas limit up to 16,777,216 makes it succeed: it would behave differently, not only cost more.");
+    out.textContent = lines.join("\n");
+    if (!r.osaka.ok) verdict.textContent = "It did not succeed under Osaka either.";
+    else if (r.amsterdam.ok) { verdict.textContent = "Survives Glamsterdam as sent (" + n(r.amsterdam.gas) + " gas against " + n(r.osaka.gas) + ")."; verdict.classList.add("ok"); }
+    else { verdict.textContent = r.least ? "Would fail under Glamsterdam as sent: it needs a gas limit of " + n(r.least) + ", not " + n(r.limit) + "." : "Would fail under Glamsterdam at any gas limit."; verdict.classList.add("bad"); }
+  } catch (e) { out.textContent = "Could not check it: " + e.message; }
+  go.disabled = false;
+}
+go.addEventListener("click", () => { location.hash = input.value.trim(); check(input.value.trim()); });
+for (const a of document.querySelectorAll("a.ex")) a.addEventListener("click", (e) => { e.preventDefault(); input.value = a.hash.slice(1); location.hash = a.hash; check(input.value); });
+if (location.hash.length === 67) { input.value = location.hash.slice(1); check(input.value); }
+</script>
+</body>
+</html>
