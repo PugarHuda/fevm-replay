@@ -11,6 +11,7 @@ use std::wasm::{HostText, Reply}
 use std::wasm::files::{Files, close, open, read, size}
 use json::{Value, parse}
 use replay_core::validate::{SystemPorts, validate}
+use replay_core::{load, proof}
 
 fn number(_ value: Value) -> u256 {
     parse_hex_uint(value.text()).unwrap_or(default: 0)
@@ -168,4 +169,77 @@ uses (files: mut Files, out: mut Stdout)
         && found.unproven == 0
         && found.stateless_ok
     Reply::ok(if clean { 1 } else { 0 })
+}
+
+/// What to prove for a block, as `fetch-proofs` decides it natively: `name`
+/// holds the node's `block`, `prestate` and `diff` answers and `queues`, the
+/// head and tail of the two request queues at the parent (EIP-7002, then
+/// EIP-7251). Prints `{"accounts": [[address, [slot...]]...], "delegates":
+/// [address...]}`: every account and slot the block touches, the system
+/// contracts' slots and the queue entries their calls read, and the EIP-7702
+/// delegation targets the traces leave out. The browser asks a node for
+/// exactly these proofs.
+#[unsafe(export)]
+pub fn witness_keys(name: HostText) -> Reply
+uses (files: mut Files, out: mut Stdout)
+{
+    let data = match read_all(name) {
+        Result::Ok(data) => data,
+        Result::Err(code) => {
+            return Reply::error(code)
+        },
+    }
+    let Result::Ok(doc) = parse(data.as_slice()) else {
+        return Reply::error(100)
+    }
+    let header = ref doc["block"]["result"]
+    var keys = proof::touched(
+        doc["prestate"]["result"],
+        doc["diff"]["result"],
+        header,
+        recipients: true,
+    )
+    proof::add_request_keys(mut keys)
+    proof::add_system_keys(mut keys, header)
+    let queues = doc["queues"].items()
+    proof::add_queue_keys(
+        mut keys,
+        address: proof::WITHDRAWAL_REQUESTS,
+        head: number(queues[0]),
+        tail: number(queues[1]),
+    )
+    proof::add_queue_keys(
+        mut keys,
+        address: proof::CONSOLIDATION_REQUESTS,
+        head: number(queues[2]),
+        tail: number(queues[3]),
+    )
+    print!("{\"accounts\":[")
+    for a in 0 .. keys.account_count() {
+        let address = keys.account_at(a).address
+        if a > 0 { print!(",") }
+        print!("[\"0x", hex(address, 20), "\",[")
+        let slots = proof::slots_of(keys, address)
+        for s in 0 .. slots.len() {
+            if s > 0 { print!(",") }
+            print!("\"0x", hex(slots[s], 32), "\"")
+        }
+        print!("]]")
+    }
+    print!("],\"delegates\":[")
+    var targets: core::MemVec<u256> = core::MemVec::new()
+    let txs = header["transactions"].items()
+    for index in 0 .. txs.len() {
+        load::collect_delegates(
+            txs[index],
+            doc["prestate"]["result"][index]["result"],
+            mut targets,
+        )
+    }
+    for t in 0 .. targets.len() {
+        if t > 0 { print!(",") }
+        print!("\"0x", hex(targets[t], 20), "\"")
+    }
+    println!("]}")
+    Reply::ok(1)
 }

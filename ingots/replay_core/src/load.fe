@@ -1,7 +1,7 @@
 //! Turns JSON-RPC results into fevm inputs: a `prestateTracer` result into a
 //! `WorldState`, and a block header into a `BlockEnv`.
 
-use core::{MemBuffer, MemSpan}
+use core::{MemBuffer, MemSpan, MemVec}
 use core::text::parse_hex_uint
 use json::{Key, Value}
 use fevm::{Authorization, BlockEnv, InputData, OK, TxEnv, TxRequest, WorldState}
@@ -314,6 +314,48 @@ pub fn add_extras(_ world: mut WorldState, _ extras: Value) {
             if !world.exists(address) {
                 let code = hex_bytes(entry.value.text())
                 world.set_code(address: address, code: code.span())
+            }
+        }
+    }
+}
+
+fn has_account(_ prestate: Value, _ address: u256) -> bool {
+    for ref member in prestate.members() {
+        if parse_hex_uint(member.key.span()).unwrap_or(default: 0) == address {
+            return true
+        }
+    }
+    false
+}
+
+fn add_target(_ targets: mut MemVec<u256>, _ target: u256) {
+    for i in 0 .. targets.len() {
+        if targets[i] == target {
+            return
+        }
+    }
+    targets.push(target)
+}
+
+/// The EIP-7702 delegation targets of transaction `tx` missing from its
+/// `prestate`: those its authorizations name, and those the designators in
+/// its pre-state point to. Running a delegated account runs the target's
+/// code, yet the prestate tracer does not report the target.
+pub fn collect_delegates(_ tx: Value, _ prestate: Value, _ targets: mut MemVec<u256>) {
+    if tx.has("authorizationList") {
+        for ref auth in tx["authorizationList"].items() {
+            let target = field(auth, "address")
+            if target != 0 && !has_account(prestate, target) {
+                add_target(mut targets, target)
+            }
+        }
+    }
+    for ref member in prestate.members() {
+        if member.value.has("code") {
+            let code = hex_bytes(member.value["code"].text())
+            let target = delegation_target(code.span())
+            if target != 0 && !has_account(prestate, target) {
+                add_target(mut targets, target)
             }
         }
     }

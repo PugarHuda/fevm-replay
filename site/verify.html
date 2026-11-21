@@ -50,6 +50,7 @@
   <div class="controls">
     <label for="bblock">Block</label>
     <select id="bblock">
+      <option value="live">A block near the head, fetched now by your browser from public nodes (20 to 60 s)</option>
       <option value="block-0x19335e5.tar.gz">26,424,805: 71 transactions (3.5 MB), the block CI validates</option>
       <option value="block-0x19335c4.tar.gz">26,424,772: 286 transactions and an EIP-7002 withdrawal request (12 MB)</option>
       <option value="block-0x1938869.tar.gz">26,445,929: 153 transactions and 15 blobs (9.8 MB)</option>
@@ -58,6 +59,7 @@
     <label><input type="checkbox" id="btamper"> a receipt claims one more gas than the transaction used</label>
     <button class="primary" id="brun">Validate</button>
   </div>
+  <p class="note" id="blive">"Near the head": your browser asks <code>eth.drpc.org</code> for the block, its receipts and its prestate traces, lets the module's <code>witness_keys</code> (the Fe that decides what <code>fetch-proofs</code> fetches natively) say which accounts and slots to prove, asks <code>ethereum-rpc.publicnode.com</code> for those proofs at the parent and at the block, and validates. Afterwards you can save what it fetched and check it natively with <code>fevm_replay chain</code>.</p>
   <p class="note">Or validate your own block: <label>a <code>.tar.gz</code> of a directory written by <code>fevm_replay fetch</code> and <code>fetch-proofs</code> <input type="file" id="bfile" accept=".gz,.tgz,application/gzip"></label>. It stays in your browser.</p>
   <p class="verdict" id="bverdict" aria-live="polite"></p>
   <pre id="bout">fevm runs in a worker, off the page's thread.</pre>
@@ -152,6 +154,7 @@ async function start() {
   brun.disabled = true;
   bverdict.textContent = "";
   bverdict.className = "verdict";
+  document.getElementById("bsave")?.remove();
   const worker = new Worker("wasm/block-worker.mjs", { type: "module" });
   worker.onmessage = ({ data }) => {
     if (data.step) { bout.textContent = data.step; return; }
@@ -159,6 +162,18 @@ async function start() {
     brun.disabled = false;
     if (data.error) { bout.textContent = data.error; return; }
     bout.textContent = data.out;
+    if (data.live) {
+      const name = "0x" + data.live.number.toString(16);
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(data.saved);
+      link.download = `${name}.tar.gz`;
+      link.textContent = `save block ${data.live.number.toLocaleString("en")} as ${name}.tar.gz`;
+      bout.textContent = `Block ${data.live.number.toLocaleString("en")} (the head was ${data.live.head.toLocaleString("en")}): ${data.live.transactions} transactions; ${data.live.accounts} accounts and ${data.live.slots} slots proven at both ends.
+
+` + data.out;
+      bverdict.after(Object.assign(document.createElement("p"), { className: "note", id: "bsave" }));
+      document.getElementById("bsave").replaceChildren("Fetched by your browser: ", link, " (then: tar xzf " + name + ".tar.gz && fevm_replay chain " + name + ")");
+    }
     const s = (data.ms / 1000).toFixed(2);
     if (data.reply.ok && data.reply.value === 1) {
       bverdict.textContent = `Every root holds: fevm validated the block in ${s} s in your browser.`;
@@ -173,7 +188,8 @@ async function start() {
   if (file) {
     worker.postMessage({ bytes: await file.arrayBuffer(), tamper });
   } else {
-    worker.postMessage({ archive: document.getElementById("bblock").value, tamper });
+    const choice = document.getElementById("bblock").value;
+    worker.postMessage(choice === "live" ? { live: true, tamper } : { archive: choice, tamper });
   }
 }
 brun.addEventListener("click", start);

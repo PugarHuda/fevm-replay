@@ -2,8 +2,8 @@
   "manifest_version": 1,
   "module": {
     "file": "fevm_replay_web.wasm",
-    "sha256": "eb866d3033b68e562a27dc286d5e7bf224d35adacd58622d18f48c5900f59356",
-    "size": 3934737,
+    "sha256": "d4e886948319f669b9ce13e5496b201434a555d4e53a5853ad7e87223f53a063",
+    "size": 3941952,
     "initial_memory_pages": 1026
   },
   "contract_version": 3,
@@ -166,6 +166,26 @@
     },
     {
       "name": "verify",
+      "kind": "function",
+      "params": [
+        {
+          "name": "name",
+          "type": "HostText",
+          "wasm": [
+            "i32",
+            "i32"
+          ]
+        }
+      ],
+      "result": {
+        "type": "Reply",
+        "wasm": [
+          "i64"
+        ]
+      }
+    },
+    {
+      "name": "witness_keys",
       "kind": "function",
       "params": [
         {

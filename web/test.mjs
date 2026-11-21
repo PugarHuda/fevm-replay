@@ -60,3 +60,27 @@ assert.deepEqual(big.reply, { ok: true, value: 1 }, big.out);
 assert.ok(big.out.includes("286/286 transactions MATCH"), big.out);
 assert.ok(big.out.includes("hashes to the header's stateRoot"), big.out);
 console.log(`block 26,424,772: every root holds (${(big.ms / 1000).toFixed(2)} s), on a 64 MiB stack`);
+
+// What to prove: the module's witness_keys picks the same accounts and slots
+// as the native fetch-proofs did for the fixture (its saved proofs).
+{
+  const files = await untar(archive);
+  const text = (name) => new TextDecoder().decode(files[`${name}.json`]);
+  const proofs = JSON.parse(text("proofs"));
+  const queue = (address, slot) => {
+    const account = proofs.pre.find((a) => a.address.toLowerCase() === address);
+    return account.storageProof.find((s) => BigInt(s.key) === BigInt(slot)).value;
+  };
+  const requests = ["0x00000961ef480eb55e80d19ad83579a64c007002", "0x0000bbddc7ce488642fb579f8b00f3a590007251"];
+  const queues = requests.flatMap((a) => [queue(a, 2), queue(a, 3)]);
+  const doc = `{"block":${text("block")},"prestate":${text("prestate")},"diff":${text("diff")},"queues":${JSON.stringify(queues)}}`;
+  const guest = await instantiate(wasm, { manifest, files: { "keys.json": doc } });
+  assert.deepEqual(guest.callReply("witness_keys", "keys.json"), { ok: true, value: 1 });
+  const keys = JSON.parse(guest.host.stdout);
+  const set = (entries) => new Set(entries.flatMap(([a, slots]) => [a.toLowerCase(), ...slots.map((s) => `${a.toLowerCase()}:${BigInt(s)}`)]));
+  const mine = set(keys.accounts);
+  const native = set(proofs.pre.map((a) => [a.address, a.storageProof.map((s) => s.key)]));
+  assert.equal(mine.size, native.size);
+  for (const key of native) assert.ok(mine.has(key), key);
+  console.log(`witness_keys: the same ${keys.accounts.length} accounts and ${mine.size - keys.accounts.length} slots as fetch-proofs`);
+}
