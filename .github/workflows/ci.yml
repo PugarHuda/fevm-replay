@@ -101,7 +101,7 @@ jobs:
         run: |
           curl -sSfL -o fe-release https://github.com/argotorg/fe/releases/download/v26.7.0/fe_linux_amd64
           chmod +x fe-release
-          (cd web && ../fe-release fmt --check && ../fe-release build --backend wasm -O 2 --out-dir ../out/web .)
+          (cd web && ../fe-release fmt --check && ../fe-release build --backend wasm -O 2 --wasm-stack-size 67108864 --out-dir ../out/web .)
           python3 web/tailcalls.py out/web/fevm_replay_web.wasm out/web/fevm_replay_web.manifest.json
           cmp out/web/fevm_replay_web.wasm site/wasm/fevm_replay_web.wasm
           cmp out/web/fevm_replay_web.manifest.json site/wasm/fevm_replay_web.manifest.json

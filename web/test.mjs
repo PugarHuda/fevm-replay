@@ -50,3 +50,13 @@ const bad = await validate(wasm, manifest, tamper(block));
 assert.deepEqual(bad.reply, { ok: true, value: 0 }, bad.out);
 assert.match(bad.out, /70\/71 transactions MATCH/);
 console.log(`block 26,424,805: every root holds (${(good.ms / 1000).toFixed(2)} s); a receipt claiming one more gas is caught`);
+
+// A block whose transactions run long stretches of opcodes: fevm's handlers
+// tail-call each other, and each one still takes a frame of the module's own
+// stack, so this one needs more than Fe's default 1 MiB (--wasm-stack-size).
+const deep = bundle(await untar(fs.readFileSync(new URL("block-0x19335c4.tar.gz", dir))));
+const big = await validate(wasm, manifest, deep);
+assert.deepEqual(big.reply, { ok: true, value: 1 }, big.out);
+assert.ok(big.out.includes("286/286 transactions MATCH"), big.out);
+assert.ok(big.out.includes("hashes to the header's stateRoot"), big.out);
+console.log(`block 26,424,772: every root holds (${(big.ms / 1000).toFixed(2)} s), on a 64 MiB stack`);

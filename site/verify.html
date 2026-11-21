@@ -44,19 +44,27 @@
 <main class="wrap">
   <section class="g-head">
     <h1>Validate a mainnet block in your browser</h1>
-    <p class="intro">This runs fevm, the EVM written in Fe, compiled to WebAssembly with fevm-replay's stateless validation (<a href="https://github.com/PugarHuda/fevm-replay/blob/main/ingots/replay_core/src/validate.fe"><code>ingots/replay_core</code></a>): the same Fe code the native tool and CI run. Your browser downloads mainnet block 26,424,805, the node's traces of it and its parent's proofs (3.5 MB compressed), then fevm proves the parent's state from those proofs, runs the block's two first system calls and 71 transactions, and checks every root the header commits to: receipts, transactions, withdrawals, requests, gas, logs bloom and, from the witness and fevm's end state, the state root. Nothing is trusted but the block hash.</p>
+    <p class="intro">This runs fevm, the EVM written in Fe, compiled to WebAssembly with fevm-replay's stateless validation (<a href="https://github.com/PugarHuda/fevm-replay/blob/main/ingots/replay_core/src/validate.fe"><code>ingots/replay_core</code></a>): the same Fe code the native tool and CI run. Pick a mainnet block: your browser downloads it, the node's traces of it and its parent's proofs, then fevm proves the parent's state from those proofs, runs the block's system calls and every transaction, and checks every root the header commits to: receipts, transactions, withdrawals, requests, gas, logs bloom and, from the witness and fevm's end state, the state root. Nothing is trusted but the block hash. Every one of the 51 blocks on the <a href="stateless.html">stateless page</a> validates in this module, as it does natively.</p>
   </section>
 
   <div class="controls">
+    <label for="bblock">Block</label>
+    <select id="bblock">
+      <option value="block-0x19335e5.tar.gz">26,424,805: 71 transactions (3.5 MB), the block CI validates</option>
+      <option value="block-0x19335c4.tar.gz">26,424,772: 286 transactions and an EIP-7002 withdrawal request (12 MB)</option>
+      <option value="block-0x1938869.tar.gz">26,445,929: 153 transactions and 15 blobs (9.8 MB)</option>
+      <option value="block-0x193565d.tar.gz">26,433,117: 418 transactions, the most of any block here (14 MB)</option>
+    </select>
     <label><input type="checkbox" id="btamper"> a receipt claims one more gas than the transaction used</label>
-    <button class="primary" id="brun">Validate block 26,424,805</button>
+    <button class="primary" id="brun">Validate</button>
   </div>
+  <p class="note">Or validate your own block: <label>a <code>.tar.gz</code> of a directory written by <code>fevm_replay fetch</code> and <code>fetch-proofs</code> <input type="file" id="bfile" accept=".gz,.tgz,application/gzip"></label>. It stays in your browser.</p>
   <p class="verdict" id="bverdict" aria-live="polite"></p>
   <pre id="bout">fevm runs in a worker, off the page's thread.</pre>
 
   <section class="why">
     <h2>How a 3.9 MB module runs a block</h2>
-    <p>The page loads <code>fevm_replay_web.wasm</code> into a Web Worker with Fe's own WebAssembly host, checks it against its build manifest and calls <code>validate_block</code> on one JSON document: the block, its receipts and traces, and the parent's and the block's proofs, as <code>fevm_replay fetch</code> and <code>fetch-proofs</code> saved them. fevm dispatches opcodes with tail calls, each handler calling the next; Fe's WebAssembly backend emits them as plain calls, which overflow the browser's stack within one transaction. <a href="https://github.com/PugarHuda/fevm-replay/blob/main/web/tailcalls.py"><code>web/tailcalls.py</code></a> turns the 66,146 calls that are in tail position into <code>return_call</code>, in place, and CI checks that the module served here is exactly that build.</p>
+    <p>The page loads <code>fevm_replay_web.wasm</code> into a Web Worker with Fe's own WebAssembly host, checks it against its build manifest and calls <code>validate_block</code> on one JSON document: the block, its receipts and traces, and the parent's and the block's proofs, as <code>fevm_replay fetch</code> and <code>fetch-proofs</code> saved them. fevm dispatches opcodes with tail calls, each handler calling the next; Fe's WebAssembly backend emits them as plain calls, which overflow the browser's stack within one transaction. <a href="https://github.com/PugarHuda/fevm-replay/blob/main/web/tailcalls.py"><code>web/tailcalls.py</code></a> turns the 66,146 calls that are in tail position into <code>return_call</code>, in place, and CI checks that the module served here is exactly that build. A tail call frees the engine's stack, but not the module's own: each handler still takes a frame of the stack in linear memory (it passes the cursor by pointer into its caller's frame), so a long stretch of opcodes outgrows Fe's default of 1 MiB. With it, 13 of the 51 stateless blocks validate and 38 trap with <code>unreachable</code>; built with <code>--wasm-stack-size 67108864</code> (64 MiB), all 51 do, with the same verdict as natively, in 0.3 to 6 seconds each.</p>
   </section>
 
   <hr>
@@ -139,7 +147,8 @@ run.addEventListener("click", async () => {
 const brun = document.getElementById("brun");
 const bout = document.getElementById("bout");
 const bverdict = document.getElementById("bverdict");
-brun.addEventListener("click", () => {
+const bfile = document.getElementById("bfile");
+async function start() {
   brun.disabled = true;
   bverdict.textContent = "";
   bverdict.className = "verdict";
@@ -159,8 +168,17 @@ brun.addEventListener("click", () => {
       bverdict.classList.add("bad");
     }
   };
-  worker.postMessage({ archive: "block-0x19335e5.tar.gz", tamper: document.getElementById("btamper").checked });
-});
+  const tamper = document.getElementById("btamper").checked;
+  const file = bfile.files[0];
+  if (file) {
+    worker.postMessage({ bytes: await file.arrayBuffer(), tamper });
+  } else {
+    worker.postMessage({ archive: document.getElementById("bblock").value, tamper });
+  }
+}
+brun.addEventListener("click", start);
+document.getElementById("bblock").addEventListener("change", () => { bfile.value = ""; });
+bfile.addEventListener("change", () => { if (bfile.files[0]) start(); });
 </script>
 </body>
 </html>

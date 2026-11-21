@@ -8,7 +8,10 @@ onmessage = async ({ data }) => {
     const [bytes, manifest, archive] = await Promise.all([
       fetch("fevm_replay_web.wasm").then((r) => r.arrayBuffer()),
       fetch("fevm_replay_web.manifest.json").then((r) => r.json()),
-      fetch(data.archive).then((r) => r.arrayBuffer()),
+      data.bytes ?? fetch(data.archive).then((r) => {
+        if (!r.ok) throw new Error(`${data.archive}: HTTP ${r.status}`);
+        return r.arrayBuffer();
+      }),
     ]);
     postMessage({ step: "Unpacking…" });
     let text = bundle(await untar(archive));

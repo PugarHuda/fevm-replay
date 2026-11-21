@@ -2,9 +2,9 @@
   "manifest_version": 1,
   "module": {
     "file": "fevm_replay_web.wasm",
-    "sha256": "9b32f32e24c9c4a5bc934f70343ea9391b8e5d3eb005c8c8e28c54547c59c931",
-    "size": 3934736,
-    "initial_memory_pages": 18
+    "sha256": "eb866d3033b68e562a27dc286d5e7bf224d35adacd58622d18f48c5900f59356",
+    "size": 3934737,
+    "initial_memory_pages": 1026
   },
   "contract_version": 3,
   "optimization": "2",
