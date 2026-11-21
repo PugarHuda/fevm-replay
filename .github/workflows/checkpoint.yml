@@ -1,0 +1,40 @@
+name: Light client checkpoint
+
+# Weekly: the light client walks from the checkpoint in
+# site/wasm/lightclient.mjs to the latest finalized header (every handoff's
+# signature checked by noble and by fevm's BLS12-381 precompiles) and checks
+# that public checkpoint sync providers agree. A failure means the built-in
+# checkpoint no longer bootstraps or the chain of signatures broke. Run by
+# hand with "write" to move the checkpoint forward to that header.
+on:
+  schedule:
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      write:
+        description: Commit the newer checkpoint
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  advance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Walk to the latest finalized header
+        run: |
+          node web/advance-checkpoint.mjs ${{ inputs.write && '--write' || '' }} | tee advance.txt
+          echo "### $(cat advance.txt | head -1)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Commit the newer checkpoint
+        if: inputs.write
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Light client checkpoint moved forward by the light client itself (web/advance-checkpoint.mjs)"
+          git push

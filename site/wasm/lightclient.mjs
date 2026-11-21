@@ -173,20 +173,11 @@ async function get(path) {
 }
 
 /**
- * Checks that block `number` with hash `hash` is on the chain the sync
- * committee signs, from the beacon block root `checkpoint` (any finalized
- * root the caller trusts; by default the one above). `headers(from, to)` gives execution
- * headers `from..to` (eth_getBlockByNumber results).
+ * From the checkpoint `root` to the committee that signs now: bootstrap, then
+ * each handoff, then `latest` (the optimistic or the finality update),
+ * signed by that committee. `check` adds a second check of each signature.
  */
-export async function lightClient(number, hash, headers, step = () => {}, root = CHECKPOINT.root, fevm) {
-  let byFevm = 0;
-  const alsoFevm = async (s) => {
-    if (!fevm) return s.count;
-    step(`Light client: fevm (Fe) checks the signature over slot ${s.slot} again with its BLS12-381 precompiles…`);
-    if (!(await fevmVerifies(fevm, s))) throw new Error(`fevm's BLS12-381 precompiles reject the signature over slot ${s.slot}`);
-    byFevm++;
-    return s.count;
-  };
+async function follow(root, latest, step, check) {
   root = root.toLowerCase();
   if (!/^0x[0-9a-f]{64}$/.test(root)) throw new Error(`a checkpoint is a beacon block root (0x and 64 hex digits), not ${root}`);
   step(`Light client: the sync committee at checkpoint ${root.slice(0, 10)}…`);
@@ -198,35 +189,61 @@ export async function lightClient(number, hash, headers, step = () => {}, root =
   }
   let committee = boot.current_sync_committee;
   let at = period(boot.header.beacon.slot);
-  const optimistic = await get("/eth/v1/beacon/light_client/optimistic_update");
-  const now = period(optimistic.body.data.signature_slot);
+  const fetched = await get(`/eth/v1/beacon/light_client/${latest}`);
+  const u = fetched.body.data;
+  const now = period(u.signature_slot);
   const handoffs = [];
   if (now > at) {
     step(`Light client: ${now - at} sync committee handoff${now - at > 1 ? "s" : ""} since the checkpoint…`);
     const updates = (await get(`/eth/v1/beacon/light_client/updates?start_period=${at}&count=${now - at}`)).body;
-    for (const { data: u } of updates) {
-      if (period(u.signature_slot) !== at) throw new Error(`an update for period ${period(u.signature_slot)} where ${at} was expected`);
-      const n = await alsoFevm(signed(committee, u.sync_aggregate, u.attested_header.beacon, u.signature_slot));
-      if (!branchHolds(committeeRoot(u.next_sync_committee), u.next_sync_committee_branch, NEXT_SYNC_COMMITTEE, u.attested_header.beacon.state_root)) {
-        throw new Error(`the next sync committee is not in the state at slot ${u.attested_header.beacon.slot}`);
+    for (const { data: h } of updates) {
+      if (period(h.signature_slot) !== at) throw new Error(`an update for period ${period(h.signature_slot)} where ${at} was expected`);
+      const n = await check(signed(committee, h.sync_aggregate, h.attested_header.beacon, h.signature_slot));
+      if (!branchHolds(committeeRoot(h.next_sync_committee), h.next_sync_committee_branch, NEXT_SYNC_COMMITTEE, h.attested_header.beacon.state_root)) {
+        throw new Error(`the next sync committee is not in the state at slot ${h.attested_header.beacon.slot}`);
       }
-      if (!branchHolds(headerRoot(u.finalized_header.beacon), u.finality_branch, FINALIZED_ROOT, u.attested_header.beacon.state_root)) {
-        throw new Error(`the finalized header is not in the state at slot ${u.attested_header.beacon.slot}`);
+      if (!branchHolds(headerRoot(h.finalized_header.beacon), h.finality_branch, FINALIZED_ROOT, h.attested_header.beacon.state_root)) {
+        throw new Error(`the finalized header is not in the state at slot ${h.attested_header.beacon.slot}`);
       }
       handoffs.push({ period: at, signers: n });
-      committee = u.next_sync_committee;
+      committee = h.next_sync_committee;
       at++;
     }
     if (at !== now) throw new Error(`the nodes gave updates up to period ${at}, not ${now}`);
   }
-  const u = optimistic.body.data;
   // A checkpoint other than the one written above must be recent: past the
   // weak subjectivity period (about two weeks), validators who have since
   // left could have signed another history.
   if (root !== CHECKPOINT.root && Number(u.signature_slot) - checkpoint.slot > WEAK_SUBJECTIVITY_SLOTS) {
     throw new Error(`checkpoint ${root.slice(0, 10)}… (slot ${checkpoint.slot}) is older than about two weeks; use a recent finalized root`);
   }
-  const signers = await alsoFevm(signed(committee, u.sync_aggregate, u.attested_header.beacon, u.signature_slot));
+  const signers = await check(signed(committee, u.sync_aggregate, u.attested_header.beacon, u.signature_slot));
+  return { checkpoint, builtIn: root === CHECKPOINT.root, handoffs, update: u, signers, node: fetched.node };
+}
+
+const checker = (fevm, step) => {
+  const c = async (s) => {
+    if (!fevm) return s.count;
+    step(`Light client: fevm (Fe) checks the signature over slot ${s.slot} again with its BLS12-381 precompiles…`);
+    if (!(await fevmVerifies(fevm, s))) throw new Error(`fevm's BLS12-381 precompiles reject the signature over slot ${s.slot}`);
+    c.byFevm++;
+    return s.count;
+  };
+  c.byFevm = 0;
+  return c;
+};
+
+/**
+ * Checks that block `number` with hash `hash` is on the chain the sync
+ * committee signs, from the beacon block root `root` (any finalized root the
+ * caller trusts; by default the one above). `headers(from, to)` gives
+ * execution headers `from..to` (eth_getBlockByNumber results); `fevm`, if
+ * given, runs fevm's precompiles (`fevmPrecompiles`) to check each signature
+ * a second time.
+ */
+export async function lightClient(number, hash, headers, step = () => {}, root = CHECKPOINT.root, fevm) {
+  const check = checker(fevm, step);
+  const { checkpoint, builtIn, handoffs, update: u, signers, node } = await follow(root, "optimistic_update", step, check);
   const top = execution(u.attested_header);
   const topNumber = Number(top.block_number);
   if (topNumber < number) throw new Error(`the signed head (${topNumber}) is behind block ${number}; try again in a few seconds`);
@@ -240,5 +257,20 @@ export async function lightClient(number, hash, headers, step = () => {}, root =
     expect = h.parentHash;
   }
   if (blockHash(chain[0]) !== hash) throw new Error(`block ${number}'s header does not hash to the validated block's hash`);
-  return { checkpoint, builtIn: root === CHECKPOINT.root, byFevm, handoffs, slot: Number(u.attested_header.beacon.slot), signers, top: topNumber, headers: chain.length, node: optimistic.node };
+  return { checkpoint, builtIn, byFevm: check.byFevm, handoffs, slot: Number(u.attested_header.beacon.slot), signers, top: topNumber, headers: chain.length, node };
+}
+
+/**
+ * A newer checkpoint, reached by the light client from `root`: the finalized
+ * header of the latest finality update, signed (through every handoff since)
+ * by the committee `root` starts from, and proven in the signed state.
+ */
+export async function advance(root = CHECKPOINT.root, step = () => {}, fevm) {
+  const check = checker(fevm, step);
+  const { checkpoint, handoffs, update: u, signers } = await follow(root, "finality_update", step, check);
+  if (!branchHolds(headerRoot(u.finalized_header.beacon), u.finality_branch, FINALIZED_ROOT, u.attested_header.beacon.state_root)) {
+    throw new Error(`the finalized header is not in the state at slot ${u.attested_header.beacon.slot}`);
+  }
+  const next = { root: hex(headerRoot(u.finalized_header.beacon)), slot: Number(u.finalized_header.beacon.slot) };
+  return { from: checkpoint, next, handoffs, signers, byFevm: check.byFevm };
 }

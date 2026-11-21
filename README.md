@@ -615,6 +615,19 @@ light client: from the built-in checkpoint 0xa4faecb4… (slot 15704032), 1 sync
 2 signature(s)) (execution block 26464622), 8 headers hashed back to this block: its hash is the chain's
 ```
 
+The checkpoint can move forward by the same protocol:
+`node web/advance-checkpoint.mjs` walks from it through every handoff to
+the latest finalized header and checks that three public checkpoint sync
+providers (beaconcha.in, ethstaker, attestant) call the same root
+finalized; a weekly workflow ([`checkpoint.yml`](.github/workflows/checkpoint.yml))
+runs it, and with `write` commits the newer root.
+
+```
+checkpoint 0xa4faecb4… (slot 15704032) -> 0x710a27f2e15b… (slot 15704416): 1 handoff(s),
+511/512 signed the finality update, 2 signature(s) also checked by fevm; 3 of 3 checkpoint
+sync providers give the same finalized root
+```
+
 To start from a checkpoint you trust instead (any finalized beacon block
 root), pass `--checkpoint 0x…` to `node wasm/cli.mjs` or add
 `&checkpoint=0x…` to the page's address. Beacon nodes (publicnode and
