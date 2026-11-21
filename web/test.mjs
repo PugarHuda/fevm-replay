@@ -97,3 +97,31 @@ console.log(`block 26,424,772: every root holds (${(big.ms / 1000).toFixed(2)} s
   }
   console.log("live.mjs archive: a gzipped tar that untars to the same files");
 }
+
+// Glamsterdam, one transaction at a time (glamsterdam.html): a transfer to a
+// new account sent with 21,000 gas succeeds under Osaka, runs out of gas
+// under Amsterdam, and needs 204,600 (183,600 of it state gas); a transaction
+// that survives is reported as such.
+{
+  const doc = JSON.parse(block);
+  const run = async (hash) => {
+    const i = doc.block.result.transactions.findIndex((t) => t.hash === hash);
+    const input = { chain: doc.chain.result, block: { ...doc.block.result, transactions: [] }, tx: doc.block.result.transactions[i], prestate: doc.prestate.result[i].result };
+    const guest = await instantiate(new Uint8Array(wasm), { manifest, files: { "tx.json": JSON.stringify(input) } });
+    assert.deepEqual(guest.callReply("amsterdam_tx", "tx.json"), { ok: true, value: 1 });
+    return JSON.parse(guest.host.stdout);
+  };
+  const transfer = await run("0xd1163b9a4766267495dd7f4989552f22108fc05d1fcfb4b436ce7ecf656999aa");
+  assert.equal(transfer.limit, 21000);
+  assert.ok(transfer.osaka.ok && transfer.osaka.gas === 21000, JSON.stringify(transfer.osaka));
+  assert.ok(!transfer.amsterdam.ok && transfer.amsterdam.status === 15, JSON.stringify(transfer.amsterdam));
+  assert.equal(transfer.least, 204600);
+  assert.equal(transfer.at_least.state, 183600);
+  const survivors = [];
+  for (const t of doc.block.result.transactions.slice(0, 12)) {
+    const r = await run(t.hash);
+    if (r.osaka.ok && r.amsterdam.ok) survivors.push(r);
+  }
+  assert.ok(survivors.length > 0 && survivors.every((r) => r.least === 0));
+  console.log(`amsterdam_tx: a 21,000 transfer to a new account needs 204,600 under Glamsterdam (183,600 state gas); ${survivors.length} of the first 12 transactions survive as sent`);
+}
