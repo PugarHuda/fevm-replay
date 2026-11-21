@@ -107,6 +107,7 @@ jobs:
           cmp out/web/fevm_replay_web.manifest.json site/wasm/fevm_replay_web.manifest.json
           cmp fixtures/proven/0x19335e5.tar.gz site/wasm/block-0x19335e5.tar.gz
           node web/test.mjs out/web/fevm_replay_web.wasm
+          node site/wasm/cli.mjs fixtures/proven/0x19335e5.tar.gz | grep "every root holds"
 
       - name: Build fevm-replay
         run: fe build --backend native -O 2 --emit executable --out-dir out .

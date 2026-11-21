@@ -183,7 +183,10 @@ async function start() {
 
 ` + data.out;
       bverdict.after(Object.assign(document.createElement("p"), { className: "note", id: "bsave" }));
-      document.getElementById("bsave").replaceChildren("Fetched by your browser: ", link, " (then: tar xzf " + name + ".tar.gz && fevm_replay chain " + name + ")");
+      const share = document.createElement("a");
+      share.href = `verify.html?block=live&number=${data.live.number}`;
+      share.textContent = "a link to validate this block again";
+      document.getElementById("bsave").replaceChildren("Fetched by your browser: ", link, " (then: tar xzf " + name + ".tar.gz && fevm_replay chain " + name + "), or ", share, " (while nodes still keep its state, about 100 blocks).");
     }
     const s = (data.ms / 1000).toFixed(2);
     if (data.reply.ok && data.reply.value === 1) {
@@ -200,7 +203,8 @@ async function start() {
     worker.postMessage({ bytes: await file.arrayBuffer(), tamper });
   } else {
     const choice = document.getElementById("bblock").value;
-    worker.postMessage(choice === "live" ? { live: true, tamper } : { archive: choice, tamper });
+    const wanted = Number(new URLSearchParams(location.search).get("number")) || undefined;
+    worker.postMessage(choice === "live" ? { live: true, number: wanted, tamper } : { archive: choice, tamper });
   }
 }
 brun.addEventListener("click", start);

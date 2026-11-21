@@ -84,3 +84,16 @@ console.log(`block 26,424,772: every root holds (${(big.ms / 1000).toFixed(2)} s
   for (const key of native) assert.ok(mine.has(key), key);
   console.log(`witness_keys: the same ${keys.accounts.length} accounts and ${mine.size - keys.accounts.length} slots as fetch-proofs`);
 }
+
+// What the page saves for `fevm_replay chain`: a gzipped tar that unpacks to
+// the same files (the browser writes it with no library).
+{
+  const { archive } = await import("../site/wasm/live.mjs");
+  const files = { chain: '{"result":"0x1"}', block: "x".repeat(1000), proofs: "" };
+  const blob = await archive("0x10", files);
+  const back = await untar(new Uint8Array(await blob.arrayBuffer()));
+  for (const [name, text] of Object.entries(files)) {
+    assert.equal(new TextDecoder().decode(back[`${name}.json`]), text, name);
+  }
+  console.log("live.mjs archive: a gzipped tar that untars to the same files");
+}

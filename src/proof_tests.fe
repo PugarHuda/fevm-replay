@@ -180,3 +180,59 @@ fn every_slot_of_an_empty_trie_is_zero() {
     )
     assert!(proof::slot(storage_root: 0x1234, slot: 5, none).is_none())
 }
+
+// geth-block's allocation: what the parent's proofs prove, and nothing they
+// do not. The first run put an account the proofs show absent into geth's
+// allocation, and geth refunded an EIP-7702 authority it took to exist.
+#[test]
+fn geth_is_given_only_the_accounts_the_proofs_prove() {
+    let doc = vector()
+    var text = MemBuffer::empty()
+    "{\"parent\":{\"stateRoot\":".fmt(mut text)
+    doc["header"]["stateRoot"].fmt(mut text)
+    "},\"pre\":[{\"address\":".fmt(mut text)
+    doc["address"].fmt(mut text)
+    ",\"accountProof\":".fmt(mut text)
+    doc["accountProof"].fmt(mut text)
+    ",\"storageProof\":[{\"key\":".fmt(mut text)
+    doc["key"].fmt(mut text)
+    ",\"proof\":".fmt(mut text)
+    doc["proof"].fmt(mut text)
+    "}]},{\"address\":\"0x0000000000000000000000000000000000000001\",\"accountProof\":"
+        .fmt(mut text)
+    doc["accountProof"].fmt(mut text)
+    ",\"storageProof\":[]}]}".fmt(mut text)
+    let proofs = parse(text.span()).unwrap()
+    let prestates = parse("{\"result\":[]}".span()).unwrap()
+    let (alloc_text, accounts) = ingot::geth::proven_alloc(proofs, prestates)
+    assert!(accounts == 1)
+    let alloc = parse(alloc_text.span()).unwrap()
+    assert!(alloc.members().len() == 1)
+    let account = ref alloc.members()[0].value
+    assert!(field(account, "balance") == field(doc, "balance"))
+    assert!(field(account, "nonce") == field(doc, "nonce"))
+    let value = field(doc, "value")
+    assert!((account["storage"].members().len() == 1) == (value != 0))
+}
+
+// The environment geth runs a block in: the header's fields, its
+// withdrawals, the parent's hash and any older hashes the block reads.
+#[test]
+fn geth_gets_the_withdrawals_and_the_block_hashes() {
+    let header = parse(
+        "{\"miner\":\"0x01\",\"gasLimit\":\"0x10\",\"number\":\"0x64\",\"timestamp\":\"0x5\",\"mixHash\":\"0x02\",\"baseFeePerGas\":\"0x7\",\"excessBlobGas\":\"0x0\",\"parentBeaconBlockRoot\":\"0x03\",\"parentHash\":\"0xaa\",\"withdrawals\":[{\"index\":\"0x1\",\"validatorIndex\":\"0x2\",\"address\":\"0x04\",\"amount\":\"0x9\"}]}"
+            .span(),
+    )
+        .unwrap()
+    let extras = parse("{\"blockHashes\":{\"0x10\":\"0xbb\"}}".span()).unwrap()
+    let env = parse(ingot::geth::block_env(header, extras).span()).unwrap()
+    assert!(field(env, "currentNumber") == 100)
+    assert!(field(env, "currentDifficulty") == 0)
+    assert!(env["withdrawals"].items().len() == 1)
+    assert!(field(env["withdrawals"][0], "amount") == 9)
+    assert!(field(env["blockHashes"], "99") == 0xaa)
+    assert!(field(env["blockHashes"], "0x10") == 0xbb)
+    let none = parse("{}".span()).unwrap()
+    let plain = parse(ingot::geth::block_env(header, none).span()).unwrap()
+    assert!(plain["blockHashes"].members().len() == 1)
+}

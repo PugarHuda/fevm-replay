@@ -2,7 +2,7 @@
 // block (or, with `live`, a block near the head straight from public
 // nodes), and posts back progress, then the module's verdict and output.
 import { bundle, tamper, untar, validate } from "./block.mjs";
-import { anchor, archive, fetchBlock, olderHashes, pickBlock } from "./live.mjs";
+import { anchor, archive, atNumber, fetchBlock, olderHashes, pickBlock } from "./live.mjs";
 
 // The saved block the page validates when the public nodes will not serve a live one.
 const FALLBACK = "block-0x19335c4.tar.gz";
@@ -23,7 +23,7 @@ onmessage = async ({ data }) => {
     let fallback;
     if (data.live) {
       try {
-        const picked = await pickBlock(step);
+        const picked = data.number ? await atNumber(data.number, step) : await pickBlock(step);
         const fetched = await fetchBlock(picked.number, bytes, manifest, step);
         live = { ...picked, accounts: fetched.accounts, slots: fetched.slots, files: fetched.files };
         text = joined(fetched.files);

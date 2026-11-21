@@ -582,7 +582,7 @@ uses (args: std::env::Args, fs: mut Fs, proc: mut Spawn, out: mut Stdout)
 // proofs prove after it must be what geth's allocation holds.
 
 /// The `t8n` allocation from the parent's proofs; also how many accounts.
-fn proven_alloc(_ proofs: Value, _ prestates: Value) -> (MemBuffer, u64) {
+pub fn proven_alloc(_ proofs: Value, _ prestates: Value) -> (MemBuffer, u64) {
     let root = field(proofs["parent"], "stateRoot")
     var out = MemBuffer::empty()
     "{".fmt(mut out)
@@ -674,7 +674,7 @@ fn code_text(_ prestates: Value, _ proofs: Value, _ address: u256) -> MemBuffer 
     out
 }
 
-fn block_env(_ header: Value, _ extras: Value) -> MemBuffer {
+pub fn block_env(_ header: Value, _ extras: Value) -> MemBuffer {
     var out = MemBuffer::empty()
     "{\"currentCoinbase\":".fmt(mut out)
     quoted(mut out, header["miner"].text())

@@ -73,6 +73,19 @@ export async function pickBlock(step) {
   return { head, number: Number(usable[0].number), transactions: usable[0].transactions.length };
 }
 
+/**
+ * Block `number`, asked for by a link: nodes keep the state to prove it for
+ * about the last 100 blocks only.
+ */
+export async function atNumber(number, step) {
+  step(`Asking a node for block ${number.toLocaleString("en")}…`);
+  const head = Number(JSON.parse(await call(PROOF_NODES, "eth_blockNumber", [])).result);
+  if (number > head) throw new Error(`block ${number} is not on the chain yet (the head is ${head})`);
+  if (head - number > 100) throw new Error(`block ${number} is ${head - number} behind the head; public nodes keep the state to prove only the last ~100`);
+  const [h] = await batch(PROOF_NODES, [["eth_getBlockByNumber", [hex(number), false]]]);
+  return { head, number, transactions: h.transactions.length };
+}
+
 /** Everything `validate_block` reads about block `number`, as the native fetchers save it. */
 export async function fetchBlock(number, wasm, manifest, step) {
   const at = hex(number), parent = hex(number - 1);
