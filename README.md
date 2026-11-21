@@ -30,7 +30,7 @@ Replaying is fast: those 5,129 transactions take 5.9 seconds once fetched.
 | **fevm on mainnet** | 115,213 transactions replayed, 290 blocks as chains, no fevm bug; against geth itself (`evm t8n` 1.17.10), 3,100 of 3,100 mutated mainnet calls end the same, and 77 of 77 whole blocks (16,960 transactions) give the header's receipts root, gas and bloom and the proven end state ([more](#fevm-against-geth)) |
 | **Stateless** | With the parent's proofs as a witness, fevm runs a block's system calls and transactions and *computes* its `stateRoot`; `transactionsRoot`, `receiptsRoot`, `withdrawalsRoot`, `requestsHash`, `logsBloom` and `gasUsed` come out of fevm too. every block validated so far matched every root (the badge above counts them; 3 consecutive ones as one chain), and `follow` keeps taking more from the chain head; one is checked in CI on every push. A MATCH rests on the block hash, not the node ([details](#every-root-in-the-header)) |
 | **For EIP authors** | Measured on 77 mainnet blocks over 5 days ([findings](docs/stateless-findings.md)): code is 45% of a stateless witness; EIP-4762 (Draft) would cost 25% more gas, and 39% of transactions, sent with the same gas limit, would run out of gas. Exempting the coinbase, as the draft exempts the sender and target, brings that to 14%: it saves ETH transfers (58% short, 1.6% exempt) but not contract calls (27%, still 23%: code and storage). Code at half price would bring it to 5.8%, free code to 1.4% |
-| **Fe ports** | 5 ports (USDT, every Uniswap V2 pair, WETH9, DAI, USDC's proxy) certified by mainnet replay, mainnet mutations, fuzzing and mutation testing ([verified page](https://fevm-replay.vercel.app/verified.html)). Also all four of Ethereum's system contracts (EIP-4788, EIP-2935, EIP-7002, EIP-7251), ported from assembly: on 55 mainnet blocks they store and return what the deployed ones do, and with all four system calls run by the Fe ports every root in the header still matches; the mainnet transactions that call them run identically ([more](#ethereums-own-system-contracts-in-fe)) |
+| **Fe ports** | 5 ports (USDT, every Uniswap V2 pair, WETH9, DAI, USDC's proxy) certified by mainnet replay, mainnet mutations, fuzzing and mutation testing ([verified page](https://fevm-replay.vercel.app/verified.html)). Also all four of Ethereum's system contracts (EIP-4788, EIP-2935, EIP-7002, EIP-7251), ported from assembly: on 77 mainnet blocks they store and return what the deployed ones do, and with all four system calls run by the Fe ports every root in the header still matches; the mainnet transactions that call them run identically ([more](#ethereums-own-system-contracts-in-fe)) |
 | **Gas vs Solidity** | On 57,034 mainnet calls in identical transactions, the five Fe ports used 3.3% less gas than the deployed solc bytecode; 59 of 61 functions are cheaper (USDT −4.4%, WETH9 −4.0%, DAI −1.6%, pair −1.1%, USDC proxy −1.0%). The system contracts go the other way: hand-written assembly beats them by 24 to 2,026 gas a call ([per function](docs/gas.md)) |
 | **Fe-specific** | Effects prove validation needs no file, process or network, so the same Fe compiles to WebAssembly with fevm in it: [validate a whole mainnet block in your browser](https://fevm-replay.vercel.app/verify.html), every root in its header, including a block near the chain's head your browser fetches itself from public nodes (all 77 stateless blocks validate in the module); `const fn` + `static_assert` check the blob fee against a real block; std units, `core::fixed`, `msg`/`recv` ([Fe highlight](#fe-highlight)) |
 | **Found** | 4 bugs in the Fe ports (one in our own EIP-7002 port, found by validating a mainnet block on it), 2 node tracer bugs, the transactions the Osaka fork changed, where Fe's code cost more than solc's ([argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002), since fixed in Fe's std), and that Fe's WebAssembly backend emits fevm's tail-call dispatch as plain calls, which overflow a browser's stack ([`web/tailcalls.py`](web/tailcalls.py) works around it), and that even as tail calls each still takes a frame of the module's own 1 MiB stack, so 38 of 51 mainnet blocks trap until it is 64 MiB |
@@ -335,10 +335,10 @@ contracts on a block's proven state:
 **Whole blocks on Fe system code.** `fevm_replay chain <dir> --system
 <out-dir>` validates a block with all four system calls run by the Fe ports
 (built into `out-dir`); the deployed code goes back before the roots are
-hashed, since a system call writes storage, never code. On 55 of 55 mainnet
+hashed, since a system call writes storage, never code. On 77 of 77 mainnet
 blocks every root still matches the header: the parent beacon root and hash
 the ports stored, and the withdrawal and consolidation requests they
-returned (12 blocks with consolidations, 2 with withdrawals), hashed into
+returned (11 blocks with consolidations, 2 with withdrawals), hashed into
 `requestsHash`. With EIP-2935's code in EIP-4788's place, the state root
 fails.
 
@@ -363,10 +363,10 @@ the port in place of the deployed one.
 
 | | Mainnet blocks | Block's system call | Calls answered as deployed | Mainnet transactions that called it | Gas (Fe vs deployed) |
 | --- | ---: | --- | ---: | ---: | --- |
-| EIP-4788 beacon roots | 55 | same slots, every block | 8 of 8, every block | 15 of 15 identical | call +25 (10,076), read +24 |
-| EIP-2935 history | 55 | same slots, every block | 8 of 8, every block | none in these blocks | call +55 (5,098) |
-| EIP-7002 withdrawal requests | 55 | same output and storage (empty queue every block; 16 dequeued from the synthetic queue) | 5 of 5, every block | 2 of 2 identical | call +133, request +173 |
-| EIP-7251 consolidation requests | 55 | same output and storage; 12 blocks dequeued 2 from real queues (6 to 93 deep) | 5 of 5, every block, fees 1 to 1,230 wei | none in these blocks | call +133, 2 dequeued +2,026 |
+| EIP-4788 beacon roots | 77 | same slots, every block | 8 of 8, every block | 15 of 15 identical | call +25 (10,076), read +24 |
+| EIP-2935 history | 77 | same slots, every block | 8 of 8, every block | none in these blocks | call +55 (5,098) |
+| EIP-7002 withdrawal requests | 77 | same output and storage (empty queue every block; 16 dequeued from the synthetic queue) | 5 of 5, every block | 2 of 2 identical | call +133, request +173 |
+| EIP-7251 consolidation requests | 77 | same output and storage; 11 blocks dequeued 2 from real queues (6 to 120 deep) | 5 of 5, every block, fees 1 to 2,807 wei | none in these blocks | call +133, 2 dequeued +2,026 |
 
 CI runs the check on a proven block. The ports cost more gas than
 hand-written assembly: a few dozen a call at the start of the block, more
