@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Validate in your browser · fevm-replay</title>
 <meta name="description" content="fevm, the EVM written in Fe, compiled to WebAssembly with fevm-replay's stateless validation: a whole mainnet block validated in your browser against every root in its header, and mainnet proofs checked against a state root.">
+<meta property="og:title" content="Validate in your browser · fevm-replay">
+<meta property="og:description" content="fevm, the EVM written in Fe, compiled to WebAssembly with fevm-replay's stateless validation: a whole mainnet block validated in your browser against every root in its header, and mainnet proofs checked against a state root.">
+<meta property="og:image" content="https://fevm-replay.vercel.app/tour.jpg">
+<meta property="og:url" content="https://fevm-replay.vercel.app/verify.html">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -19,6 +25,8 @@
   .controls label { display: inline-flex; gap: 0.4rem; align-items: center; color: var(--steel); }
   pre#out, pre#bout { min-height: 12rem; white-space: pre-wrap; overflow-wrap: anywhere; }
   .verdict { font-weight: 700; margin: 0.75rem 0; }
+  #bdiff { display: block; overflow-x: auto; border-collapse: collapse; margin: 0 0 1rem; font-family: "JetBrains Mono", monospace; font-size: 0.85rem; }
+  #bdiff th, #bdiff td { text-align: left; padding: 0.4rem 0.9rem 0.4rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
   .verdict.ok { color: var(--match, #2e8b6f); }
   .verdict.bad { color: var(--diff, #c9961a); }
   .why { max-width: var(--measure); }
@@ -26,7 +34,7 @@
 </head>
 <body>
 <header class="wrap site-head">
-  <a class="mark" href="./" aria-label="fevm-replay home">
+  <a class="mark" href="./" aria-label="26 Fe fevm-replay home">
     <span class="tile" aria-hidden="true"><small>26</small><b>Fe</b></span>
     <span>fevm-replay</span>
   </a>
@@ -155,6 +163,7 @@ async function start() {
   bverdict.textContent = "";
   bverdict.className = "verdict";
   document.getElementById("bsave")?.remove();
+  document.getElementById("bdiff")?.remove();
   const worker = new Worker("wasm/block-worker.mjs", { type: "module" });
   worker.onmessage = ({ data }) => {
     if (data.step) { bout.textContent = data.step; return; }
@@ -195,6 +204,7 @@ async function start() {
     } else {
       bverdict.textContent = `The block does not validate as given (${s} s).`;
       bverdict.classList.add("bad");
+      diffTable(data.out);
     }
   };
   const tamper = document.getElementById("btamper").checked;
@@ -206,6 +216,31 @@ async function start() {
     const wanted = Number(new URLSearchParams(location.search).get("number")) || undefined;
     worker.postMessage(choice === "live" ? { live: true, number: wanted, tamper } : { archive: choice, tamper });
   }
+}
+// Each "DIFF  tx <i> <hash>" in the output, with the "  field: chain X, fevm Y"
+// lines under it, as a table row linking the transaction on Etherscan.
+function diffTable(text) {
+  const rows = [];
+  let row;
+  for (const line of text.split("\n")) {
+    const m = line.match(/^DIFF\s+tx (\d+) (0x[0-9a-f]{64})/);
+    if (m) rows.push(row = { i: m[1], hash: m[2], fields: [] });
+    else if (row && /^\s+\S/.test(line)) row.fields.push(line.trim());
+    else row = undefined;
+  }
+  if (!rows.length) return;
+  const table = document.createElement("table");
+  table.id = "bdiff";
+  table.innerHTML = "<thead><tr><th>Tx</th><th>Hash</th><th>What differs (node's receipt vs fevm)</th></tr></thead>";
+  const body = table.createTBody();
+  for (const r of rows) {
+    const tr = body.insertRow();
+    tr.insertCell().textContent = r.i;
+    const a = Object.assign(document.createElement("a"), { href: `https://etherscan.io/tx/${r.hash}`, textContent: r.hash.slice(0, 12) + "…" });
+    tr.insertCell().append(a);
+    tr.insertCell().textContent = r.fields.join("; ");
+  }
+  bverdict.after(table);
 }
 brun.addEventListener("click", start);
 // verify.html?block=0x19335e5 (or ?block=live) picks that block.

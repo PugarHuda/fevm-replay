@@ -4,7 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>fevm-replay</title>
-<meta name="description" content="Replay real Ethereum mainnet transactions in fevm, the EVM written in Fe, and prove each ends exactly as it did on chain. Then swap in a Fe port of a Solidity contract and check it against real traffic.">
+<meta name="description" content="fevm, the EVM written in Fe, validates Ethereum mainnet blocks statelessly: every root in the header from the parent's witness, on 77 blocks, agreeing with geth; and it runs in your browser on a block fetched minutes ago. Plus Fe ports of Solidity contracts, shadow-replayed against mainnet.">
+<meta property="og:title" content="fevm-replay">
+<meta property="og:description" content="fevm, the EVM written in Fe, validates Ethereum mainnet blocks statelessly: every root in the header from the parent's witness, on 77 blocks, agreeing with geth; and it runs in your browser on a block fetched minutes ago. Plus Fe ports of Solidity contracts, shadow-replayed against mainnet.">
+<meta property="og:image" content="https://fevm-replay.vercel.app/tour.jpg">
+<meta property="og:url" content="https://fevm-replay.vercel.app/">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -14,7 +20,7 @@
 </head>
 <body>
 <header class="wrap site-head">
-  <a class="mark" href="./" aria-label="fevm-replay home">
+  <a class="mark" href="./" aria-label="26 Fe fevm-replay home">
     <span class="tile" aria-hidden="true"><small>26</small><b>Fe</b></span>
     <span>fevm-replay</span>
   </a>

@@ -557,6 +557,19 @@ They agree on all 77 mainnet blocks validated statelessly so far (26,424,722
 to 26,461,900, taken on five days), 26,424,772's EIP-7002 withdrawal request among them. One setting is mainnet's own: `Config::osaka()`
 carries Osaka's blob schedule (6/9), and mainnet runs BPO2's (14/21, EIP-7892).
 
+### Beside rsp, zeth and light clients
+
+The shape is the one zkVM block provers use: rsp and zeth fetch a block's
+witness with `eth_getProof`, execute the block on a partial world (revm in
+Rust) inside a guest with no I/O, and check the header's roots. fevm-replay
+does the same with an EVM written in Fe, and Fe's effects make "no I/O"
+something the compiler checks rather than a convention: the validation
+(`ingots/replay_core`) asks for no capability, which is why the same code
+builds to WebAssembly and runs in a browser tab. What it does not do yet is
+what a light client like Helios adds: the block's hash comes from public
+nodes that must agree (four, for a live block), not from the beacon chain's
+sync committee.
+
 ## Try it without Fe
 
 Each release carries the executable for x86-64 Linux (or WSL), the ports'
