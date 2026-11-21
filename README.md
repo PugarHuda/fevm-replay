@@ -309,9 +309,12 @@ EIP-7825's cap):
 why: of the 6818 that no longer succeed, 6640 would with a higher gas limit (median 72429 gas more,
 802 within 10% of their limit, 983289177 gas in all); state gas (EIP-8037) is most of the extra in
 4266, execution repricing in 2374; 178 fail at any limit up to 16,777,216
+  state gas, by what the transaction creates: a new account 1215, code 20, storage slots filled
+from zero 2991, none of these in the trace 40
 ```
 
-So nearly two thirds fail for state gas (new accounts, new slots, new code),
+So nearly two thirds fail for state gas, mostly for storage slots filled
+from zero (2,991) and new accounts (1,215),
 a third for the repricing of execution (cold access at 3,000, a value
 transfer at 11,300). The 178 that fail at any limit change behavior, not
 only cost.

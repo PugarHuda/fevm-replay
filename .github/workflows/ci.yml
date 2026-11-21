@@ -155,6 +155,7 @@ jobs:
           echo "$out" | grep -q "71 transactions, each on its own traced pre-state and its own gas limit; 1 no longer valid, 20 that succeeded would fail"
           echo "$out" | grep -q "fails under Amsterdam: ETH transfers 0xd1163b9a4766267495dd7f4989552f22108fc05d1fcfb4b436ce7ecf656999aa (gas limit 21000"
           echo "$out" | grep -q "why: of the 21 that no longer succeed, 21 would with a higher gas limit (median 182600 gas more"
+          echo "$out" | grep -q "state gas, by what the transaction creates: a new account 8, code 0, storage slots filled from zero 4"
 
       - name: The Fe system contracts do on a mainnet block what the deployed ones do
         run: |

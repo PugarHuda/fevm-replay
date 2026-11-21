@@ -134,6 +134,42 @@ fn least_limit(
     hi
 }
 
+// What a transaction's diff creates: 0 a new account, 1 code, 2 a slot
+// filled from zero, 3 none of these.
+fn created(_ diff: Value) -> usize {
+    let pre = ref diff["pre"]
+    let post = ref diff["post"]
+    var code = false
+    var slot = false
+    for ref member in post.members() {
+        let existed = match pre.get(member.key.span()) {
+            Option::Some(_) => true,
+            Option::None => false,
+        }
+        if !existed { return 0 }
+        if member.value.has("code") {
+            code = true
+        }
+        if member.value.has("storage") {
+            for ref entry in member.value["storage"].members() {
+                let before = match pre.get(member.key.span()) {
+                    Option::Some(ref account) => if account.has("storage") {
+                        match account["storage"].get(entry.key.span()) {
+                            Option::Some(ref v) => load::hex_word(v),
+                            Option::None => 0,
+                        }
+                    } else {
+                        0
+                    },
+                    Option::None => 0,
+                }
+                if before == 0 { slot = true }
+            }
+        }
+    }
+    if code { 1 } else if slot { 2 } else { 3 }
+}
+
 fn read_doc(_ dir: MemSpan, _ name: String<16>) -> Option<Value>
 uses (fs: Fs)
 {
@@ -167,6 +203,7 @@ uses (args: std::env::Args, fs: mut Fs, out: mut Stdout)
     var never: u64 = 0
     var by_state: u64 = 0
     var by_execution: u64 = 0
+    var created_by: [u64; 4] = [0; 4]
     var extra_sum: u64 = 0
     var extras_needed: core::MemVec<u64> = core::MemVec::new()
     var within_tenth: u64 = 0
@@ -187,6 +224,10 @@ uses (args: std::env::Args, fs: mut Fs, out: mut Stdout)
         let Option::Some(prestates) = read_doc(dir, "prestate.json") else {
             println!("ERROR ", args.get(a), ": no prestate.json")
             continue
+        }
+        let diffs = match read_doc(dir, "diff.json") {
+            Option::Some(doc) => doc,
+            Option::None => Value::object(),
         }
         let extras = match read_doc(dir, "delegates.json") {
             Option::Some(doc) => doc,
@@ -272,6 +313,9 @@ uses (args: std::env::Args, fs: mut Fs, out: mut Stdout)
                                 execution
                             }) {
                         by_state += 1
+                        if diffs.has("result") {
+                            created_by[created(diffs["result"][index]["result"])] += 1
+                        }
                     } else {
                         by_execution += 1
                     }
@@ -421,6 +465,16 @@ uses (args: std::env::Args, fs: mut Fs, out: mut Stdout)
         "; ",
         never,
         " fail at any limit up to 16,777,216",
+    )
+    println!(
+        "  state gas, by what the transaction creates: a new account ",
+        created_by[0],
+        ", code ",
+        created_by[1],
+        ", storage slots filled from zero ",
+        created_by[2],
+        ", none of these in the trace ",
+        created_by[3],
     )
     if osaka_invalid > 0 {
         println!(
