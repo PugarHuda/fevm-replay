@@ -60,7 +60,7 @@
 <main class="wrap">
   <section class="g-head">
     <h1>Mainnet blocks, validated statelessly by fevm</h1>
-    <p class="intro">Each row is a mainnet block. fevm-replay took the parent's Merkle proofs as a witness, ran the block's system calls and transactions in fevm, wrote fevm's end state into the partial trie and hashed it again. A block counts only if that root is the header's <code>stateRoot</code> and every other root in the header (transactions, receipts, withdrawals, requests, gas, logs bloom) came out of fevm too. The blocks were taken as the chain grew, two behind the head, by <code>fevm_replay follow</code>, which runs the tool's own <code>fetch-block</code>, <code>fetch-proofs</code> and <code>chain</code>.</p>
+    <p class="intro">Each row is a mainnet block. fevm-replay took the parent's Merkle proofs as a witness, ran the block's system calls and transactions in fevm, wrote fevm's end state into the partial trie and hashed it again. A block counts only if that root is the header's <code>stateRoot</code> and every other root in the header (transactions, receipts, withdrawals, requests, gas, logs bloom) came out of fevm too. The blocks were taken as the chain grew, two behind the head, by <code>fevm_replay follow</code>, which runs the tool's own <code>fetch-block</code>, <code>fetch-proofs</code> and <code>chain</code>, or by the fetcher the <a href="verify.html?block=live">browser page</a> uses (the same Fe decides what to prove), checked natively by <code>chain</code>. Two other implementations agree on every block of the first 51: fevm's own chain layer (<code>fevm_chain</code>), and geth's <code>evm t8n</code> on the same witness, whose receipts root, logs bloom, gas and requests hash are the header's and whose end state is the proven one (<code>fevm_replay geth-block</code>). All 51 also validate in the WebAssembly module the browser runs.</p>
   </section>
 
   <div class="facts" id="facts"></div>
@@ -159,6 +159,8 @@ fetch("data/stateless.json").then((r) => r.json()).then((rows) => {
     `<div><b>${txs ? (bytes / txs / 1024).toFixed(1) : "–"} KiB</b><span>of witness per transaction, ${gas ? size(bytes / (gas / 1e6)) : "–"} per million gas</span></div>` +
     (ratio ? `<div><b>${ratio.toFixed(1)}×</b><span>smaller with a binary tree (EIP-7864), estimated, on average</span></div>` : "");
   const body = document.getElementById("rows");
+  // Blocks whose witness the site serves: validate them again in the browser.
+  const inBrowser = { 26424805: "0x19335e5", 26424772: "0x19335c4", 26445929: "0x1938869", 26433117: "0x193565d" };
   rows.forEach((r) => {
     const tr = document.createElement("tr");
     const link = `<a class="addr" href="https://etherscan.io/block/${r.number}">${r.number.toLocaleString("en")}</a>`;
@@ -166,7 +168,8 @@ fetch("data/stateless.json").then((r) => r.json()).then((rows) => {
       tr.innerHTML = `<td>${link}</td><td class="n">–</td><td class="kind" colspan="5">${esc(r.result)}</td>`;
     } else {
       const badge = r.every_root
-        ? `<span class="badge" title="block ${esc(r.hash || "")}: every root in its header computed by fevm">validated by fevm</span>`
+        ? `<span class="badge" title="block ${esc(r.hash || "")}: every root in its header computed by fevm">validated by fevm</span>` +
+          (inBrowser[r.number] ? ` <a href="verify.html?block=${inBrowser[r.number]}">again, in your browser</a>` : "")
         : `<strong>differs</strong>`;
       tr.innerHTML =
         `<td>${link}</td>` +

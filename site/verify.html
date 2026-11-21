@@ -193,6 +193,16 @@ async function start() {
   }
 }
 brun.addEventListener("click", start);
+// verify.html?block=0x19335e5 (or ?block=live) picks that block.
+const asked = new URLSearchParams(location.search).get("block");
+if (asked) {
+  const sel = document.getElementById("bblock");
+  const value = asked === "live" ? "live" : `block-${asked}.tar.gz`;
+  if ([...sel.options].some((o) => o.value === value)) {
+    sel.value = value;
+    sel.scrollIntoView({ block: "center" });
+  }
+}
 document.getElementById("bblock").addEventListener("change", () => { bfile.value = ""; });
 bfile.addEventListener("change", () => { if (bfile.files[0]) start(); });
 </script>
