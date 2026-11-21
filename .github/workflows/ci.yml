@@ -156,6 +156,26 @@ jobs:
           echo "$out" | grep -q "a queue of 17 requests and two end-of-block calls: 19/19 steps as deployed"
           echo "$out" | grep -q "the Fe ports did what the deployed ones did (52 reads)"
 
+      - name: geth's own evm t8n on the same mainnet block and witness agrees with the header and the proven end state
+        run: |
+          curl -sSfL -o geth.tgz https://gethstore.blob.core.windows.net/builds/geth-alltools-linux-amd64-1.17.10-1df30b18.tar.gz
+          echo "f991c32e5b7bb68db97a1b06d50c7c06f6aa9ae84d8f6f9b2301dc02cad2a7cf  geth.tgz" | sha256sum -c
+          tar xzf geth.tgz --strip-components=1 geth-alltools-linux-amd64-1.17.10-1df30b18/evm
+          out=$(./out/fevm_replay geth-block ./evm proven/0x19335e5)
+          echo "$out"
+          echo "$out" | grep -q "geth-block: 1 of 1 blocks agree with geth (71 transactions, 734 proven end values)"
+          cp -r proven/0x19335e5 proven/tampered-geth
+          python3 - <<'PY'
+          import json
+          p = "proven/tampered-geth/block.json"
+          doc = json.load(open(p))
+          w = doc["result"]["withdrawals"][0]
+          w["amount"] = hex(int(w["amount"], 16) + 1)
+          json.dump(doc, open(p, "w"))
+          PY
+          if ./out/fevm_replay geth-block ./evm proven/tampered-geth > tampered-geth.txt; then cat tampered-geth.txt; exit 1; fi
+          grep "end state" tampered-geth.txt
+
       - name: Mutation testing of the system contracts check
         run: |
           out=$(./out/fevm_replay mutants-system ports/system proven/0x19335e5)

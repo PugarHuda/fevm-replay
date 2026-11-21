@@ -25,7 +25,7 @@ Replaying is fast: those 5,129 transactions take 5.9 seconds once fetched.
 | | |
 | --- | --- |
 | **What** | fevm-replay replays real mainnet history in fevm, validates whole blocks statelessly against every root in their headers (what a stateless light client checks, from nothing but the parent's proofs), and checks Fe ports of Solidity contracts against real traffic. All Fe, from the HTTP call to the verdict. |
-| **fevm on mainnet** | 115,213 transactions replayed, 290 blocks as chains, no fevm bug; against geth itself (`evm t8n` 1.17.10), 3,100 of 3,100 mutated mainnet calls end the same ([more](#fevm-against-geth)) |
+| **fevm on mainnet** | 115,213 transactions replayed, 290 blocks as chains, no fevm bug; against geth itself (`evm t8n` 1.17.10), 3,100 of 3,100 mutated mainnet calls end the same, and 51 of 51 whole blocks (11,751 transactions) give the header's receipts root, gas and bloom and the proven end state ([more](#fevm-against-geth)) |
 | **Stateless** | With the parent's proofs as a witness, fevm runs a block's system calls and transactions and *computes* its `stateRoot`; `transactionsRoot`, `receiptsRoot`, `withdrawalsRoot`, `requestsHash`, `logsBloom` and `gasUsed` come out of fevm too. every block validated so far matched every root (the badge above counts them; 3 consecutive ones as one chain), and `follow` keeps taking more from the chain head; one is checked in CI on every push. A MATCH rests on the block hash, not the node ([details](#every-root-in-the-header)) |
 | **For EIP authors** | Measured on 51 mainnet blocks over 4 days ([findings](docs/stateless-findings.md)): code is 43% of a stateless witness; EIP-4762 (Draft) would cost 23% more gas, and 35% of transactions, sent with the same gas limit, would run out of gas. Exempting the coinbase, as the draft exempts the sender and target, brings that to 13%: it saves ETH transfers (51% short, 1.3% exempt) but not contract calls (26%, still 21%: code and storage). Code at half price would bring it to 5.7%, free code to 1.4% |
 | **Fe ports** | 5 ports (USDT, every Uniswap V2 pair, WETH9, DAI, USDC's proxy) certified by mainnet replay, mainnet mutations, fuzzing and mutation testing ([verified page](https://fevm-replay.vercel.app/verified.html)). Also all four of Ethereum's system contracts (EIP-4788, EIP-2935, EIP-7002, EIP-7251), ported from assembly: on 55 mainnet blocks they store and return what the deployed ones do, and with all four system calls run by the Fe ports every root in the header still matches; the mainnet transactions that call them run identically ([more](#ethereums-own-system-contracts-in-fe)) |
@@ -132,6 +132,21 @@ end the same in both** (2,638 reverted, 462 succeeded). The one difference
 the first pass found was the harness's: geth was given the parent block's
 hash and fevm was not, and a bot that checks it (step 42) reverted at once
 in fevm and ran 18,000 steps in geth.
+
+**Whole blocks through geth.** `fevm_replay geth-block <geth-evm> <dir>...`
+gives geth's `evm t8n` a whole mainnet block on the same witness fevm
+validates it from: every account and slot the parent's proofs prove (with
+the code the tracer saw), the header, its withdrawals and the block hashes
+it may read, and the block's own signed transactions. geth's receipts root,
+logs bloom, gas used and requests hash must be the header's (fevm's are, on
+every validated block), it must reject nothing, and every account and slot
+the block's proofs prove after it must be what geth ends with. On all 51
+stateless blocks: **51 of 51 agree, 11,751 transactions and 123,378 proven
+end values**. The first run differed on one EIP-7702 transaction by 12,500
+gas: the harness had put an account the proofs show absent into geth's
+allocation, and geth refunds an authority that exists. CI runs it on the
+fixture with geth's official 1.17.10 `evm` (sha256-pinned), and refuses the
+block with one wei more in a withdrawal.
 
 ## Every root in the header
 

@@ -22,6 +22,7 @@ use ingot::fetch::{header_blob_fee, join}
 use load::{field, hex_bytes, load_block, load_tx_with, load_world}
 use ingot::mutate::{Rng, mutate}
 use proof
+use mpt
 
 /// The test account (the key execution-spec-tests use).
 const SENDER: u256 = 0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b
@@ -567,4 +568,365 @@ uses (args: std::env::Args, fs: mut Fs, proc: mut Spawn, out: mut Stdout)
         " skipped (read an older block's hash)",
     )
     if tally.differ == 0 { 0 } else { 1 }
+}
+
+// `geth-block <geth-evm> <dir>...`: whole mainnet blocks through geth's
+// `evm t8n`, on the same witness fevm validates them from. The allocation is
+// every account and slot the parent's proofs prove (an account the proofs
+// show absent is left out: geth would count it as existing, and EIP-7702
+// refunds an existing authority), with the code the prestate tracer saw;
+// the environment is the header, its withdrawals and the block hashes the
+// block may read. geth's receipts root, logs bloom, gas used and requests
+// hash must be the header's (which fevm's are, on a validated block), it
+// must reject no transaction, and every account and slot the block's own
+// proofs prove after it must be what geth's allocation holds.
+
+/// The `t8n` allocation from the parent's proofs; also how many accounts.
+fn proven_alloc(_ proofs: Value, _ prestates: Value) -> (MemBuffer, u64) {
+    let root = field(proofs["parent"], "stateRoot")
+    var out = MemBuffer::empty()
+    "{".fmt(mut out)
+    var accounts: u64 = 0
+    for ref entry in proofs["pre"].items() {
+        let address = field(entry, "address")
+        let present = match mpt::walk(
+            root: root,
+            key: mpt::hashed(address, len: 20),
+            entry["accountProof"],
+        ) {
+            Option::Some(found) => match found {
+                Option::Some(_) => true,
+                Option::None => false,
+            },
+            Option::None => false,
+        }
+        if !present { continue }
+        let Option::Some(account) = mpt::account(
+            state_root: root,
+            address: address,
+            entry["accountProof"],
+        ) else {
+            continue
+        }
+        if accounts > 0 {
+            ",".fmt(mut out)
+        }
+        accounts += 1
+        "\"0x".fmt(mut out)
+        hex(address, 20).fmt(mut out)
+        "\":{\"balance\":".fmt(mut out)
+        word_text(mut out, account.balance)
+        ",\"nonce\":".fmt(mut out)
+        word_text(mut out, account.nonce)
+        let code = code_text(prestates, proofs, address)
+        if code.len() > 0 {
+            ",\"code\":\"".fmt(mut out)
+            code.span().fmt(mut out)
+            "\"".fmt(mut out)
+        }
+        ",\"storage\":{".fmt(mut out)
+        var slots: u64 = 0
+        for ref s in entry["storageProof"].items() {
+            let key = field(s, "key")
+            let value = mpt::slot(storage_root: account.storage_root, slot: key, s["proof"])
+                .unwrap_or(default: 0)
+            if value == 0 { continue }
+            if slots > 0 {
+                ",".fmt(mut out)
+            }
+            slots += 1
+            "\"0x".fmt(mut out)
+            hex(key, 32).fmt(mut out)
+            "\":\"0x".fmt(mut out)
+            hex(value, 32).fmt(mut out)
+            "\"".fmt(mut out)
+        }
+        "}}".fmt(mut out)
+    }
+    "}".fmt(mut out)
+    (out, accounts)
+}
+
+/// `address`'s code as hex text with its 0x: the first the prestate tracer
+/// gave, else the system contracts' code `fetch-proofs` saved; empty if none.
+fn code_text(_ prestates: Value, _ proofs: Value, _ address: u256) -> MemBuffer {
+    var out = MemBuffer::empty()
+    for ref t in prestates["result"].items() {
+        for ref member in t["result"].members() {
+            if member.value.has("code")
+                && parse_hex_uint(member.key.span()).unwrap_or(default: 0) == address {
+                let text = member.value["code"].text()
+                if text.len() > 2 {
+                    text.fmt(mut out)
+                    return out
+                }
+            }
+        }
+    }
+    let saved = proof::code_of(proofs, address)
+    if saved.len() > 0 {
+        "0x".fmt(mut out)
+        let bytes = saved.span()
+        for i in 0 .. bytes.len() {
+            hex(bytes[i] as u256, 1).fmt(mut out)
+        }
+    }
+    out
+}
+
+fn block_env(_ header: Value, _ extras: Value) -> MemBuffer {
+    var out = MemBuffer::empty()
+    "{\"currentCoinbase\":".fmt(mut out)
+    quoted(mut out, header["miner"].text())
+    for k in 0 .. 7 {
+        let (name, key) = match k {
+            0 => ("currentGasLimit", "gasLimit"),
+            1 => ("currentNumber", "number"),
+            2 => ("currentTimestamp", "timestamp"),
+            3 => ("currentRandom", "mixHash"),
+            4 => ("currentBaseFee", "baseFeePerGas"),
+            5 => ("currentExcessBlobGas", "excessBlobGas"),
+            _ => ("parentBeaconBlockRoot", "parentBeaconBlockRoot"),
+        }
+        ",".fmt(mut out)
+        quoted(mut out, name.span())
+        ":".fmt(mut out)
+        quoted(mut out, header[key].text())
+    }
+    ",\"currentDifficulty\":\"0x0\",\"withdrawals\":".fmt(mut out)
+    header["withdrawals"].fmt(mut out)
+    ",\"blockHashes\":{\"".fmt(mut out)
+    decimal(field(header, "number") - 1).fmt(mut out)
+    "\":".fmt(mut out)
+    quoted(mut out, header["parentHash"].text())
+    if extras.has("blockHashes") {
+        for ref member in extras["blockHashes"].members() {
+            ",".fmt(mut out)
+            quoted(mut out, member.key.span())
+            ":".fmt(mut out)
+            quoted(mut out, member.value.text())
+        }
+    }
+    "}}".fmt(mut out)
+    out
+}
+
+fn same_text(_ a: Value, _ b: Value, _ key: String<16>) -> bool {
+    a.has(key) && b.has(key) && fuzz::same_bytes(a[key].text(), b[key].text())
+}
+
+// geth's value of `slot` of the account under `key` in its allocation.
+fn geth_slot(_ post: Value, _ key: MemSpan, _ slot: u256) -> u256 {
+    var slot_key = MemBuffer::empty()
+    "0x".fmt(mut slot_key)
+    hex(slot, 32).fmt(mut slot_key)
+    match post.get(key) {
+        Option::Some(ref g) => if g.has("storage") && g["storage"].has(slot_key.span()) {
+            parse_hex_uint(g["storage"].member(slot_key.span()).text()).unwrap_or(default: 0)
+        } else {
+            0
+        },
+        Option::None => 0,
+    }
+}
+
+pub fn geth_block_command() -> i32
+uses (args: std::env::Args, fs: mut Fs, proc: mut Spawn, out: mut Stdout)
+{
+    if args.count() < 4 {
+        println!("usage: fevm-replay geth-block <geth-evm> <dir>...")
+        return 2
+    }
+    let geth = args.get(2)
+    let work = "/tmp/fevm-replay-geth-block"
+    let _ = fs.create_dir_all(work)
+    var agree: u64 = 0
+    var blocks: u64 = 0
+    var values: u64 = 0
+    var transactions: u64 = 0
+    for a in 3 .. args.count() {
+        let dir = args.get(a)
+        blocks += 1
+        let Result::Ok(block_bytes) = fs.read(join(dir, "block.json")) else {
+            println!("ERROR ", dir, ": no block.json")
+            continue
+        }
+        let Result::Ok(pre_bytes) = fs.read(join(dir, "prestate.json")) else {
+            println!("ERROR ", dir, ": no prestate.json")
+            continue
+        }
+        let Result::Ok(proof_bytes) = fs.read(join(dir, "proofs.json")) else {
+            println!("ERROR ", dir, ": no proofs.json (fetch-proofs)")
+            continue
+        }
+        var extras_bytes = MemBuffer::empty()
+        match fs.read(join(dir, "delegates.json")) {
+            Result::Ok(bytes) => {
+                extras_bytes = bytes
+            },
+            Result::Err(_) => {
+                "{}".fmt(mut extras_bytes)
+            },
+        }
+        let Result::Ok(block) = parse(block_bytes.span()) else {
+            continue
+        }
+        let Result::Ok(prestates) = parse(pre_bytes.span()) else {
+            continue
+        }
+        let Result::Ok(proofs) = parse(proof_bytes.span()) else {
+            continue
+        }
+        let Result::Ok(extras) = parse(extras_bytes.span()) else {
+            continue
+        }
+        let header = ref block["result"]
+        let (alloc, accounts) = proven_alloc(proofs, prestates)
+        let Result::Ok(_) = fs.write(join(work, "alloc.json"), alloc.span()) else {
+            return 1
+        }
+        let Result::Ok(_) = fs
+            .write(
+                join(work, "env.json"),
+                block_env(header, extras).span(),
+            ) else {
+            return 1
+        }
+        var txs_text = MemBuffer::empty()
+        header["transactions"].fmt(mut txs_text)
+        let Result::Ok(_) = fs.write(join(work, "txs.json"), txs_text.span()) else {
+            return 1
+        }
+        // Osaka with mainnet's blob schedule since BPO2.
+        let command = Command::new(geth)
+            .arg("t8n")
+            .arg("--input.alloc")
+            .arg("/tmp/fevm-replay-geth-block/alloc.json")
+            .arg("--input.env")
+            .arg("/tmp/fevm-replay-geth-block/env.json")
+            .arg("--input.txs")
+            .arg("/tmp/fevm-replay-geth-block/txs.json")
+            .arg("--output.basedir")
+            .arg("/tmp/fevm-replay-geth-block/out")
+            .arg("--output.result")
+            .arg("result.json")
+            .arg("--output.alloc")
+            .arg("alloc.json")
+            .arg("--state.fork")
+            .arg("BPO2")
+            .arg("--state.chainid")
+            .arg("1")
+            .stdout(Redirect::Capture)
+            .stderr(Redirect::Capture)
+        let ok = match proc.output(command) {
+            Result::Ok(output) => output.status.success(),
+            Result::Err(_) => false,
+        }
+        if !ok {
+            println!("DIFF  ", dir, ": geth's t8n failed")
+            continue
+        }
+        let Result::Ok(result_bytes) = fs.read("/tmp/fevm-replay-geth-block/out/result.json") else {
+            return 1
+        }
+        let Result::Ok(post_bytes) = fs.read("/tmp/fevm-replay-geth-block/out/alloc.json") else {
+            return 1
+        }
+        let Result::Ok(result) = parse(result_bytes.span()) else {
+            return 1
+        }
+        let Result::Ok(post) = parse(post_bytes.span()) else {
+            return 1
+        }
+        let count = header["transactions"].items().len()
+        transactions += count.downcast_unchecked()
+        var why = MemBuffer::empty()
+        if result.has("rejected") && result["rejected"].items().len() > 0 {
+            "rejected transactions; ".fmt(mut why)
+        }
+        if result["receipts"].items().len() != count {
+            "receipt count; ".fmt(mut why)
+        }
+        if !same_text(result, header, "receiptsRoot") {
+            "receiptsRoot; ".fmt(mut why)
+        }
+        if !same_text(result, header, "logsBloom") {
+            "logsBloom; ".fmt(mut why)
+        }
+        if field(result, "gasUsed") != field(header, "gasUsed") {
+            "gasUsed; ".fmt(mut why)
+        }
+        if !same_text(result, header, "requestsHash") {
+            "requestsHash; ".fmt(mut why)
+        }
+        // The end state the block's own proofs prove, against geth's.
+        let root = field(header, "stateRoot")
+        var checked: u64 = 0
+        var differ: u64 = 0
+        for ref entry in proofs["post"].items() {
+            let address = field(entry, "address")
+            let Option::Some(account) = mpt::account(
+                state_root: root,
+                address: address,
+                entry["accountProof"],
+            ) else {
+                differ += 1
+                continue
+            }
+            var key = MemBuffer::empty()
+            "0x".fmt(mut key)
+            hex(address, 20).fmt(mut key)
+            let (balance, nonce) = match post.get(key.span()) {
+                Option::Some(ref g) => (field(g, "balance"), field(g, "nonce")),
+                Option::None => (0, 0),
+            }
+            checked += 1
+            if balance != account.balance || nonce != account.nonce {
+                differ += 1
+                println!("DIFF  ", dir, " account 0x", hex(address, 20))
+            }
+            for ref s in entry["storageProof"].items() {
+                let slot = field(s, "key")
+                let proven = mpt::slot(storage_root: account.storage_root, slot: slot, s["proof"])
+                    .unwrap_or(default: 0)
+                checked += 1
+                if geth_slot(post, key.span(), slot) != proven {
+                    differ += 1
+                    println!("DIFF  ", dir, " slot of 0x", hex(address, 20))
+                }
+            }
+        }
+        values += checked
+        if differ > 0 {
+            "end state; ".fmt(mut why)
+        }
+        if why.len() == 0 {
+            agree += 1
+            println!(
+                "geth-block ",
+                dir,
+                ": geth agrees, ",
+                count,
+                " transactions; receiptsRoot, logsBloom, gasUsed and requestsHash are the header's; ",
+                checked,
+                " proven end values (",
+                accounts,
+                " accounts given) are geth's",
+            )
+        } else {
+            println!("DIFF  ", dir, ": ", why.span())
+        }
+    }
+    println!(
+        "geth-block: ",
+        agree,
+        " of ",
+        blocks,
+        " blocks agree with geth (",
+        transactions,
+        " transactions, ",
+        values,
+        " proven end values)",
+    )
+    if agree == blocks { 0 } else { 1 }
 }
