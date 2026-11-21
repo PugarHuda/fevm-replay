@@ -11,10 +11,10 @@ use core::{MemBuffer, MemSpan}
 use std::fs::Fs
 use std::io::Stdout
 use json::{Value, parse}
-use fevm::{Buffers, Config, OK}
+use fevm::{BlockEnv, Buffers, Config, OK}
 use fevm::status::VALID
 use replay_core::{compat, load, replay}
-use load::{field, load_block, load_tx}
+use load::{field, hex_bytes, load_block, load_tx, load_tx_with}
 use ingot::fetch::{header_blob_fee, join}
 
 const KINDS: usize = 5
@@ -62,6 +62,57 @@ fn kind_name(_ k: usize) -> String<24> {
     }
 }
 
+struct Run {
+    ok: bool,
+    gas: u64,
+    state: u64,
+}
+
+impl Copy for Run {}
+
+// The transaction under Amsterdam with gas limit `limit`, priced at zero so
+// that its sender can afford any limit (the base fee check is off for it).
+fn run_at(_ prestate: Value, _ env: BlockEnv, _ parent: u256, _ extras: Value, _ tx: Value, _ limit: u64) -> Run {
+    let none = MemBuffer::empty()
+    var tracer = ()
+    var buffers = Buffers::new()
+    let input = hex_bytes(tx["input"].text())
+    var request = load_tx_with(tx, input: input.span(), priced: false)
+    request.env.gas_limit = limit
+    var config = Config::amsterdam()
+    config.check_base_fee = false
+    let r = compat::transact(
+        replay::build_world(prestate, env, parent, extras, core::MemVec::new(), none.span()),
+        request,
+        env,
+        config,
+        mut buffers,
+        mut tracer,
+    )
+    Run { ok: r.receipt.invalid == VALID && r.receipt.status == OK, gas: r.receipt.gas_used, state: r.receipt.state_gas_used }
+}
+
+const CAP: u64 = 16777216
+
+// The least gas limit under which the transaction succeeds under Amsterdam
+// (binary search up to EIP-7825's cap), or 0 if none does.
+fn least_limit(_ prestate: Value, _ env: BlockEnv, _ parent: u256, _ extras: Value, _ tx: Value, _ from: u64) -> u64 {
+    if !run_at(prestate, env, parent, extras, tx, CAP).ok {
+        return 0
+    }
+    var lo = from
+    var hi = CAP
+    while hi - lo > 1 {
+        let mid = lo + (hi - lo) / 2
+        if run_at(prestate, env, parent, extras, tx, mid).ok {
+            hi = mid
+        } else {
+            lo = mid
+        }
+    }
+    hi
+}
+
 fn read_doc(_ dir: MemSpan, _ name: String<16>) -> Option<Value>
 uses (fs: Fs)
 {
@@ -91,6 +142,13 @@ uses (args: std::env::Args, fs: mut Fs, out: mut Stdout)
     var more_gas: [u64; 5] = [0; 5]
     var less_gas: [u64; 5] = [0; 5]
     var shown: [u64; 5] = [0; 5]
+    var rescued: u64 = 0
+    var never: u64 = 0
+    var by_state: u64 = 0
+    var by_execution: u64 = 0
+    var extra_sum: u64 = 0
+    var extras_needed: core::MemVec<u64> = core::MemVec::new()
+    var within_tenth: u64 = 0
     var logs_added: u64 = 0
     var with_logs_added: u64 = 0
     var osaka_invalid: u64 = 0
@@ -168,6 +226,29 @@ uses (args: std::env::Args, fs: mut Fs, out: mut Stdout)
                 continue
             }
             count[k] += 1
+            let limit: u64 = field(txs[index], "gas").downcast_truncate()
+            if osaka.receipt.status == OK && (next.receipt.invalid != VALID || next.receipt.status != OK) {
+                let parent = field(header, "parentHash")
+                let least = least_limit(prestate, env, parent, extras, txs[index], limit)
+                if least == 0 {
+                    never += 1
+                } else {
+                    rescued += 1
+                    let extra = least - limit
+                    extra_sum += extra
+                    extras_needed.push(extra)
+                    if extra * 10 <= limit {
+                        within_tenth += 1
+                    }
+                    let at = run_at(prestate, env, parent, extras, txs[index], least)
+                    let execution = at.gas - at.state
+                    if at.state >= execution - (if execution > osaka.receipt.gas_used { osaka.receipt.gas_used } else { execution }) {
+                        by_state += 1
+                    } else {
+                        by_execution += 1
+                    }
+                }
+            }
             if next.receipt.invalid != VALID {
                 invalid[k] += 1
                 println!(
@@ -275,6 +356,44 @@ uses (args: std::env::Args, fs: mut Fs, out: mut Stdout)
             state_gas[k],
         )
     }
+    // The median extra gas, by selection.
+    var median: u64 = 0
+    let n = extras_needed.len()
+    if n > 0 {
+        var sorted: core::MemVec<u64> = core::MemVec::new()
+        for i in 0 .. n {
+            sorted.push(extras_needed[i])
+        }
+        for i in 0 .. n {
+            for j in i + 1 .. n {
+                if sorted[j] < sorted[i] {
+                    let t = sorted[i]
+                    sorted[i] = sorted[j]
+                    sorted[j] = t
+                }
+            }
+        }
+        median = sorted[n / 2]
+    }
+    println!(
+        "  why: of the ",
+        rescued + never,
+        " that no longer succeed, ",
+        rescued,
+        " would with a higher gas limit (median ",
+        median,
+        " gas more, ",
+        within_tenth,
+        " within 10% of their limit, ",
+        extra_sum,
+        " gas in all); state gas (EIP-8037) is most of the extra in ",
+        by_state,
+        ", execution repricing in ",
+        by_execution,
+        "; ",
+        never,
+        " fail at any limit up to 16,777,216",
+    )
     if osaka_invalid > 0 {
         println!(
             "  (",

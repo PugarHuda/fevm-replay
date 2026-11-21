@@ -154,6 +154,7 @@ jobs:
           echo "$out"
           echo "$out" | grep -q "71 transactions, each on its own traced pre-state and its own gas limit; 1 no longer valid, 20 that succeeded would fail"
           echo "$out" | grep -q "fails under Amsterdam: ETH transfers 0xd1163b9a4766267495dd7f4989552f22108fc05d1fcfb4b436ce7ecf656999aa (gas limit 21000"
+          echo "$out" | grep -q "why: of the 21 that no longer succeed, 21 would with a higher gas limit (median 182600 gas more"
 
       - name: The Fe system contracts do on a mainnet block what the deployed ones do
         run: |
@@ -185,6 +186,10 @@ jobs:
           PY
           if ./out/fevm_replay geth-block ./evm proven/tampered-geth > tampered-geth.txt; then cat tampered-geth.txt; exit 1; fi
           grep "end state" tampered-geth.txt
+          # Glamsterdam's rules in both engines, on the block's own signed transactions.
+          out=$(./out/fevm_replay geth-amsterdam ./evm proven/0x19335e5 60 1)
+          echo "$out"
+          echo "$out" | grep -q "60/60 runs agree with geth (20 reverted, 2 rejected by both), 0 differ"
 
       - name: Mutation testing of the system contracts check
         run: |

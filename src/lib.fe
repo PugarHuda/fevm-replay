@@ -128,6 +128,7 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         )
         println!("       fevm-replay geth-block <geth-evm> <dir>...")
         println!("       fevm-replay amsterdam <dir>...")
+        println!("       fevm-replay geth-amsterdam <geth-evm> <dir> <runs> <seed>")
         println!(
             "       fevm-replay certify-system <out-dir> <certificate.html> <dir>...",
         )
@@ -175,6 +176,13 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         [0x66, 0x75, 0x7a, 0x7a, 0x2d, 0x67, 0x65, 0x74, 0x68],
     ) {
         return geth::fuzz_geth_command()
+    }
+    // "geth-amsterdam"
+    if is_word(
+        args.get(1),
+        [0x67, 0x65, 0x74, 0x68, 0x2d, 0x61, 0x6d, 0x73, 0x74, 0x65, 0x72, 0x64, 0x61, 0x6d],
+    ) {
+        return geth::geth_amsterdam_command()
     }
     // "amsterdam"
     if is_word(

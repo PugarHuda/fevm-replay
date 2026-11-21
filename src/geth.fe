@@ -207,6 +207,69 @@ fn tx_json(_ tx: Value, _ input: MemSpan, signed: bool) -> MemBuffer {
     out
 }
 
+// The mainnet transaction as it was signed (types 0 to 2), for `t8n` to
+// recover its sender from: its own fields, access list and signature.
+fn signed_tx_json(_ tx: Value) -> MemBuffer {
+    var out = MemBuffer::empty()
+    "{\"type\":".fmt(mut out)
+    quoted(mut out, tx["type"].text())
+    let kind = field(tx, "type")
+    if tx.has("chainId") {
+        ",\"chainId\":".fmt(mut out)
+        quoted(mut out, tx["chainId"].text())
+    }
+    ",\"nonce\":".fmt(mut out)
+    quoted(mut out, tx["nonce"].text())
+    if kind == 2 {
+        ",\"maxFeePerGas\":".fmt(mut out)
+        quoted(mut out, tx["maxFeePerGas"].text())
+        ",\"maxPriorityFeePerGas\":".fmt(mut out)
+        quoted(mut out, tx["maxPriorityFeePerGas"].text())
+    } else {
+        ",\"gasPrice\":".fmt(mut out)
+        quoted(mut out, tx["gasPrice"].text())
+    }
+    ",\"gas\":".fmt(mut out)
+    quoted(mut out, tx["gas"].text())
+    ",\"to\":".fmt(mut out)
+    quoted(mut out, tx["to"].text())
+    ",\"value\":".fmt(mut out)
+    quoted(mut out, tx["value"].text())
+    ",\"input\":".fmt(mut out)
+    quoted(mut out, tx["input"].text())
+    if kind != 0 {
+        ",\"accessList\":[".fmt(mut out)
+        if tx.has("accessList") {
+            let entries = tx["accessList"].items()
+            for e in 0 .. entries.len() {
+                if e > 0 {
+                    ",".fmt(mut out)
+                }
+                "{\"address\":".fmt(mut out)
+                quoted(mut out, entries[e]["address"].text())
+                ",\"storageKeys\":[".fmt(mut out)
+                let keys = entries[e]["storageKeys"].items()
+                for k in 0 .. keys.len() {
+                    if k > 0 {
+                        ",".fmt(mut out)
+                    }
+                    quoted(mut out, keys[k].text())
+                }
+                "]}".fmt(mut out)
+            }
+        }
+        "]".fmt(mut out)
+    }
+    ",\"v\":".fmt(mut out)
+    quoted(mut out, tx["v"].text())
+    ",\"r\":".fmt(mut out)
+    quoted(mut out, tx["r"].text())
+    ",\"s\":".fmt(mut out)
+    quoted(mut out, tx["s"].text())
+    "}".fmt(mut out)
+    out
+}
+
 fn mentions(_ text: MemSpan, _ needle: MemSpan) -> bool {
     var i: usize = 0
     while i + needle.len() <= text.len() {
@@ -333,7 +396,41 @@ fn slot_listed(_ storage: Value, _ slot: u256) -> bool {
 }
 
 #[cfg(target_family = "unix")]
+// Glamsterdam's builder deposit and exit contracts, which geth's t8n calls
+// after the transactions under Amsterdam and needs in its allocation (their
+// code from go-ethereum v1.17.10's params/protocol_params.go). They are not on
+// mainnet yet, and no transaction here calls them.
+fn add_builder_contracts(_ alloc: MemBuffer) -> MemBuffer {
+    var out = MemBuffer::empty()
+    var end = alloc.len()
+    while end > 0 && alloc[end - 1] != 0x7d {
+        end -= 1
+    }
+    for i in 0 .. end - 1 {
+        out.push(alloc[i])
+    }
+    ",\"0x0000bff46984e3725691fa540a8c7589300d8282\":{\"balance\":\"0x0\",\"code\":\"0x3373fffffffffffffffffffffffffffffffffffffffe1461011c575f54807fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff146102705760015460088111605257506058565b60089003015b601190600182026001905f5b5f821115607f57810190830284830290049160010191906064565b90939004925050503660b814609f57366102705734610270575f5260205ff35b8034106102705760383567ffffffffffffffff1680633b9aca001161027057633b9aca00029034031061027057600154600101600155600354806006026004015f358155600101602035815560010160403581556001016060358155600101608035815560010160a035905560b85f5f3760b85fa0600101600355005b60035460025480820380604011610131575060405b5f5b8181146101d7578281016006026004018160b8028154815260200181600101548152602001816002015480825260401c67ffffffffffffffff16816010018160381c81600701538160301c81600601538160281c81600501538160201c81600401538160181c81600301538160101c81600201538160081c816001015353602001816003015481526020018160040154815260200190600501549052600101610133565b91018092146101e957906002556101f4565b90505f6002555f6003555b36610242575f54600154817fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff1461023057600882820111610238575b50505f610264565b0160089003610264565b7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff5b5f555f60015560b8025ff35b5f5ffd\"}".fmt(mut out)
+    ",\"0x000064d678505ad48f8ccb093bc65613800e8282\":{\"balance\":\"0x0\",\"code\":\"0x3373fffffffffffffffffffffffffffffffffffffffe1460e1575f54807fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff146101c65760015460028111605157506057565b60029003015b601190600182026001905f5b5f821115607e57810190830284830290049160010191906063565b909390049250505036603014609e57366101c657346101c6575f5260205ff35b34106101c657600154600101600155600354806003026004013381556001015f35815560010160203590553360601b5f5260305f60143760445fa0600101600355005b6003546002548082038060101160f5575060105b5f5b81811461012d5782810160030260040181604402815460601b8152601401816001015481526020019060020154905260010160f7565b910180921461013f579060025561014a565b90505f6002555f6003555b36610198575f54600154817fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff146101865760028282011161018e575b50505f6101ba565b01600290036101ba565b7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff5b5f555f6001556044025ff35b5f5ffd\"}}".fmt(mut out)
+    out
+}
+
 pub fn fuzz_geth_command() -> i32
+uses (args: std::env::Args, fs: mut Fs, proc: mut Spawn, out: mut Stdout)
+{
+    fuzz_geth("Osaka", Config::osaka(), mutating: true)
+}
+
+/// `geth-amsterdam <geth-evm> <dir> <runs> <seed>`: mainnet transactions as
+/// they were sent, under Glamsterdam's execution rules in both engines:
+/// geth's `t8n --state.fork Amsterdam` and fevm's `Config::amsterdam()`. The
+/// check on fevm's Amsterdam rules that `amsterdam` rests on.
+pub fn geth_amsterdam_command() -> i32
+uses (args: std::env::Args, fs: mut Fs, proc: mut Spawn, out: mut Stdout)
+{
+    fuzz_geth("Amsterdam", Config::amsterdam(), mutating: false)
+}
+
+fn fuzz_geth(_ fork: String<16>, _ config: Config, mutating: bool) -> i32
 uses (args: std::env::Args, fs: mut Fs, proc: mut Spawn, out: mut Stdout)
 {
     if args.count() != 6 {
@@ -392,7 +489,7 @@ uses (args: std::env::Args, fs: mut Fs, proc: mut Spawn, out: mut Stdout)
         let tx = ref txs[t]
         if tx.has("to")
             && !tx["to"].is_null()
-            && tx["input"].text().len() > 10
+            && (tx["input"].text().len() > 10 || !mutating)
             && field(tx, "type") <= 2 {
             calls.push(t)
         }
@@ -412,13 +509,17 @@ uses (args: std::env::Args, fs: mut Fs, proc: mut Spawn, out: mut Stdout)
         let tx = ref txs[t]
         let prestate = ref prestates["result"][t]["result"]
         var input = hex_bytes(tx["input"].text())
-        if r % 4 != 1 {
+        if mutating && r % 4 != 1 {
             let _ = mutate(mut rng, mut input)
         }
         let Result::Ok(_) = fs
             .write(
                 join(work, "alloc.json"),
-                alloc_json(prestate, proofs).span(),
+                if mutating {
+                    alloc_json(prestate, proofs)
+                } else {
+                    add_builder_contracts(alloc_json(prestate, proofs))
+                }.span(),
             ) else {
             return 1
         }
@@ -427,7 +528,11 @@ uses (args: std::env::Args, fs: mut Fs, proc: mut Spawn, out: mut Stdout)
         }
         var txs_text = MemBuffer::empty()
         "[".fmt(mut txs_text)
-        tx_json(tx, input.span(), signed: true).span().fmt(mut txs_text)
+        if mutating {
+            tx_json(tx, input.span(), signed: true).span().fmt(mut txs_text)
+        } else {
+            signed_tx_json(tx).span().fmt(mut txs_text)
+        }
         "]".fmt(mut txs_text)
         let Result::Ok(_) = fs.write(join(work, "txs.json"), txs_text.span()) else {
             return 1
@@ -447,7 +552,7 @@ uses (args: std::env::Args, fs: mut Fs, proc: mut Spawn, out: mut Stdout)
             .arg("--output.alloc")
             .arg("alloc.json")
             .arg("--state.fork")
-            .arg("Osaka")
+            .arg(fork)
             .arg("--state.chainid")
             .arg("1")
             .stdout(Redirect::Capture)
@@ -483,6 +588,7 @@ uses (args: std::env::Args, fs: mut Fs, proc: mut Spawn, out: mut Stdout)
         }
         // fevm, on the same world.
         var world = load_world(prestate)
+        // The test account is in geth's allocation either way (alloc_json).
         let _ = world.set_balance(SENDER, FUNDS)
         let _ = world.set_nonce(SENDER, 0)
         // The parent's hash, which geth gets from the environment.
@@ -491,14 +597,18 @@ uses (args: std::env::Args, fs: mut Fs, proc: mut Spawn, out: mut Stdout)
         let Result::Ok(request_doc) = parse(tx_text.span()) else {
             return 1
         }
-        let request = load_tx_with(request_doc, input: input.span(), priced: true)
+        let request = if mutating {
+            load_tx_with(request_doc, input: input.span(), priced: true)
+        } else {
+            load_tx_with(tx, input: input.span(), priced: true)
+        }
         var buffers = Buffers::new()
         var nothing = ()
         let applied = transact(
             world,
             request,
             env,
-            Config::osaka(),
+            config,
             mut buffers,
             mut nothing,
         )
@@ -550,7 +660,7 @@ uses (args: std::env::Args, fs: mut Fs, proc: mut Spawn, out: mut Stdout)
         }
     }
     println!(
-        "fuzz-geth ",
+        if mutating { "fuzz-geth " } else { "geth-amsterdam " },
         dir,
         ": ",
         tally.same,
