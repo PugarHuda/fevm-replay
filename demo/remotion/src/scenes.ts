@@ -122,7 +122,6 @@ export const scenes: Scene[] = [
     source: 'site/stateless.html intro (fevm_chain and geth-block agree on all 51); README "Whole blocks through geth"',
     cues: [
       { at: 'geth agree', target: { sel: '.g-head .intro', text: 'Two other implementations agree' } },
-      { at: 'lists each block', target: { sel: '#facts' } },
       { at: 'the witness per', target: { sel: '.charts' } },
       { at: 'whose storage', target: { sel: 'h2:has-text("Whose storage weighs the most")' } },
     ],
@@ -133,11 +132,11 @@ export const scenes: Scene[] = [
     url: 'stateless.html',
     start: { sel: '#eip4762' },
     narration:
-      "And what would stateless Ethereum cost? Priced by the EIP-4762 draft, these blocks would need 23% more gas, and 35% of transactions would run out of gas at the limit they were sent with. Exempting the coinbase saves the transfers, but not the contract calls: 21% still fail.",
+      "And what would stateless Ethereum cost? Priced by the EIP-4762 draft, these blocks would need 23% more gas, and 36% of transactions would run out of gas at the limit they were sent with. Exempting the coinbase saves the transfers, but not the contract calls: 21% still fail.",
     source: 'site/stateless.html #eip4762 (computed live from data/stateless.json); docs/stateless-findings.md 13 to 15',
     cues: [
       { at: '23% more gas', target: { sel: '#facts4762 > div >> nth=0' } },
-      { at: '35% of transactions', target: { sel: '#facts4762 > div >> nth=2' } },
+      { at: '36% of transactions', target: { sel: '#facts4762 > div >> nth=2' } },
       { at: 'saves the transfers', target: { sel: '#facts4762 > div >> nth=4' } },
       { at: 'not the contract calls', target: { sel: '#facts4762 > div >> nth=5' } },
     ],
@@ -158,16 +157,16 @@ export const scenes: Scene[] = [
   {
     id: 'browser',
     kind: 'page',
-    url: 'verify.html?block=0x193565d',
-    start: { sel: '.g-head' },
+    url: 'verify.html?block=0x19335c4',
+    start: { sel: '.controls' },
     narration:
-      "That is also why the validator compiles to WebAssembly, with fevm inside. Here, in the browser: block 26,433,117, 418 transactions, every root in its header, in about two seconds. Or pick a block near the head, and the page fetches it from public nodes itself.",
-    source: 'verify.html (block 26,433,117: 418/418, every root; live option); README Fe highlight',
+      "That is also why the validator compiles to WebAssembly, with fevm inside. Here it runs in the browser, on a mainnet block with an EIP-7002 withdrawal request: every root in its header holds, and all 286 transactions match, in about two seconds. Or pick a block near the head, and the page fetches it from public nodes itself.",
+    source: 'verify.html (block 26,424,772: 286/286, every root, an EIP-7002 request; live option); README Fe highlight',
     actions: [{ at: '^', do: 'click', target: { sel: '#brun' } }],
     cues: [
-      { at: 'compiles to WebAssembly', target: { sel: '.g-head h1' } },
-      { at: '418 transactions', target: { sel: '#bout', text: '418/418 transactions MATCH' } },
+      { at: 'compiles to WebAssembly', target: { sel: '.controls' } },
       { at: 'every root in its header', target: { sel: '#bverdict' } },
+      { at: 'all 286 transactions', target: { sel: '#bout', text: '286/286 transactions MATCH' } },
       { at: 'pick a block near the head', target: { sel: '#bblock' } },
     ],
   },
@@ -220,7 +219,7 @@ export const scenes: Scene[] = [
         'Mainnet blocks validated statelessly, every root from fevm; fevm_chain and geth agree',
         'The same Fe validates whole blocks in your browser (WebAssembly)',
         "5 Fe ports certified, and all four of Ethereum's system contracts in Fe",
-        'EIP-4762 on mainnet: +23% gas, 35% of transactions short of gas',
+        'EIP-4762 on mainnet: +23% gas, 36% of transactions short of gas',
       ],
     },
     narration:

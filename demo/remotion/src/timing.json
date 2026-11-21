@@ -278,26 +278,26 @@
   }
  },
  "end": {
-  "audio": 11.088,
+  "audio": 12.888,
   "captions": [
    {
     "start": 0.115541,
-    "end": 1.2815,
+    "end": 1.323541,
     "text": "fevm-replay:"
    },
    {
-    "start": 1.2815,
-    "end": 5.556708,
-    "text": "mainnet blocks validated statelessly, Ethereum's own system code in Fe,"
+    "start": 1.323541,
+    "end": 4.979,
+    "text": "mainnet blocks validated statelessly, natively and in your browser,"
    },
    {
-    "start": 5.556708,
-    "end": 7.458,
-    "text": "and what stateless Ethereum would cost."
+    "start": 4.979,
+    "end": 9.170166,
+    "text": "Ethereum's own system code in Fe, and what stateless Ethereum would cost."
    },
    {
-    "start": 7.458,
-    "end": 11.077333000000001,
+    "start": 9.170166,
+    "end": 12.873541,
     "text": "Code on GitHub, results at fevm-replay.vercel.app."
    }
   ],
@@ -365,69 +365,75 @@
   }
  },
  "stateless-page": {
-  "audio": 15.48,
+  "audio": 16.968,
   "captions": [
    {
-    "start": 0.073541,
-    "end": 4.117666,
-    "text": "A follower takes the block two behind the chain head, proves it and validates it."
+    "start": 0.084041,
+    "end": 3.865541,
+    "text": "Blocks near the chain head, proven and validated as they came."
    },
    {
-    "start": 4.117666,
-    "end": 8.834041,
-    "text": "This page lists every block it took, with the witness per transaction and per million gas."
+    "start": 3.865541,
+    "end": 6.764708,
+    "text": "fevm's own chain layer and geth agree on every one."
    },
    {
-    "start": 8.834041,
-    "end": 11.2605,
-    "text": "It also shows whose storage weighs the most:"
+    "start": 6.764708,
+    "end": 11.292,
+    "text": "This page lists each block, with the witness per transaction and per million gas,"
    },
    {
-    "start": 11.2605,
-    "end": 15.468041000000001,
+    "start": 11.292,
+    "end": 13.046208,
+    "text": "and whose storage weighs the most:"
+   },
+   {
+    "start": 13.046208,
+    "end": 16.949124,
     "text": "the deeper a contract's storage trie, the more each slot it touches costs."
    }
   ],
   "cues": {
-   "every block it took": 4.9895,
-   "the witness per": 6.176458,
-   "whose storage": 9.495791
+   "geth agree": 5.178583,
+   "lists each block": 7.226875,
+   "the witness per": 8.708,
+   "whose storage": 11.355041
   }
  },
  "eip4762": {
-  "audio": 18.144,
+  "audio": 17.904,
   "captions": [
    {
     "start": 0.084041,
-    "end": 2.048333,
+    "end": 2.111333,
     "text": "And what would stateless Ethereum cost?"
    },
    {
-    "start": 2.048333,
-    "end": 7.962166,
+    "start": 2.111333,
+    "end": 7.846625,
     "text": "Priced by the EIP-4762 draft, these blocks would need 23% more gas,"
    },
    {
-    "start": 7.962166,
-    "end": 12.100833,
-    "text": "and 35% of transactions would run out of gas at the limit they were sent with."
+    "start": 7.846625,
+    "end": 11.84875,
+    "text": "and 36% of transactions would run out of gas at the limit they were sent with."
    },
    {
-    "start": 12.100833,
-    "end": 16.102958,
+    "start": 11.84875,
+    "end": 16.029416,
     "text": "Exempting the coinbase saves the transfers, but not the contract calls:"
    },
    {
-    "start": 16.102958,
-    "end": 18.115123999999998,
+    "start": 16.029416,
+    "end": 17.905041,
     "text": "21% still fail."
    }
   ],
   "cues": {
-   "23% more gas": 5.966375,
-   "35% of transactions": 8.09875,
-   "saves the transfers": 13.245791,
-   "not the contract calls": 14.42225
+   "23% more gas": 5.724791,
+   "36% of transactions": 7.993708,
+   "saves the transfers": 12.993708,
+   "not the contract calls": 14.40125
   }
  },
  "system": {
@@ -464,6 +470,37 @@
    "two consolidation requests": 11.039916,
    "every root still matches": 13.07775,
    "On 55 blocks": 14.642875
+  }
+ },
+ "browser": {
+  "audio": 19.8,
+  "captions": [
+   {
+    "start": 0.084041,
+    "end": 4.306708,
+    "text": "That is also why the validator compiles to WebAssembly, with fevm inside."
+   },
+   {
+    "start": 4.306708,
+    "end": 10.336125,
+    "text": "Here it runs in the browser, on a mainnet block with an EIP-7002 withdrawal request:"
+   },
+   {
+    "start": 10.336125,
+    "end": 15.798333,
+    "text": "every root in its header holds, and all 286 transactions match, in about two seconds."
+   },
+   {
+    "start": 15.798333,
+    "end": 19.795790999999998,
+    "text": "Or pick a block near the head, and the page fetches it from public nodes itself."
+   }
+  ],
+  "cues": {
+   "compiles to WebAssembly": 1.376041,
+   "every root in its header": 10.336125,
+   "all 286 transactions": 12.079833,
+   "pick a block near the head": 15.871833
   }
  }
 }
