@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>fevm-replay</title>
-<meta name="description" content="fevm, the EVM written in Fe, validates Ethereum mainnet blocks statelessly: every root in the header from the parent's witness, on 77 blocks, agreeing with geth; and it runs in your browser on a block fetched minutes ago. Plus Fe ports of Solidity contracts, shadow-replayed against mainnet.">
+<meta name="description" content="fevm, the EVM written in Fe, validates Ethereum mainnet blocks statelessly: every root in the header from the parent's witness, on 85 blocks, agreeing with geth; and it runs in your browser on a block fetched minutes ago. Plus Fe ports of Solidity contracts, shadow-replayed against mainnet.">
 <meta property="og:title" content="fevm-replay">
-<meta property="og:description" content="fevm, the EVM written in Fe, validates Ethereum mainnet blocks statelessly: every root in the header from the parent's witness, on 77 blocks, agreeing with geth; and it runs in your browser on a block fetched minutes ago. Plus Fe ports of Solidity contracts, shadow-replayed against mainnet.">
+<meta property="og:description" content="fevm, the EVM written in Fe, validates Ethereum mainnet blocks statelessly: every root in the header from the parent's witness, on 85 blocks, agreeing with geth; and it runs in your browser on a block fetched minutes ago. Plus Fe ports of Solidity contracts, shadow-replayed against mainnet.">
 <meta property="og:image" content="https://fevm-replay.vercel.app/tour.jpg">
 <meta property="og:url" content="https://fevm-replay.vercel.app/">
 <meta property="og:type" content="website">
@@ -41,7 +41,7 @@
     <p class="lede">fevm-replay runs mainnet transactions inside <a href="https://github.com/fe-lang/fevm">fevm</a> and checks that each one ends <strong>exactly as it did on chain</strong>: status, gas, logs and every balance, nonce, code byte and storage slot. It validates whole blocks statelessly too: from the parent's Merkle proofs, fevm <a href="#proven">computes every root in the header</a>. Then it swaps a Solidity contract for its Fe port and checks the port against real traffic.</p>
 
     <div class="hero-facts">
-      <div><b>77 / 77</b><span>mainnet blocks validated statelessly, every root in the header from fevm</span></div>
+      <div><b>85 / 85</b><span>mainnet blocks validated statelessly, every root in the header from fevm</span></div>
       <div><b>3 agree</b><span>fevm, fevm's own chain layer and geth's <code>evm t8n</code>, on every one of them</span></div>
       <div><b>In your browser</b><span>the same Fe, compiled to WebAssembly, validates a block fresh from the chain's head</span></div>
     </div>

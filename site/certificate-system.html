@@ -31,13 +31,13 @@ th,td{text-align:left;padding:.45rem .6rem .45rem 0;border-bottom:1px solid var(
 <h2>Each port beside the deployed contract</h2>
 <p><code>fevm_replay system</code> on the block's proven state: the system call each makes (the block's beacon root and parent hash; the end-of-block dequeue of the parent's queue), 8 reads of each of the first two, 5 calls to each request contract (a fee read; requests paying the fee, nothing, three times it; a wrong length) and a queue no block had, one request more than a block takes and two end-of-block calls. Every status, output, log and storage slot must be the deployed contract's.</p>
 <table>
-<tr><th>Blocks</th><td class="n">77</td></tr>
-<tr><th>Blocks where all four did as deployed</th><td class="n">77</td></tr>
+<tr><th>Blocks</th><td class="n">85</td></tr>
+<tr><th>Blocks where all four did as deployed</th><td class="n">85</td></tr>
 </table>
 <h2>Whole blocks on the Fe ports</h2>
 <p><code>fevm_replay chain &lt;dir&gt; --system</code>: the block validated statelessly with its four system calls run by the Fe ports, the deployed code put back before the roots are hashed. The state root and the requests hash must be the header's.</p>
 <table>
-<tr><th>Blocks where every root matched</th><td class="n">77</td></tr>
+<tr><th>Blocks where every root matched</th><td class="n">85</td></tr>
 </table>
 <p class="note">Written by <code>fevm_replay certify-system</code>. Mutation testing of these checks: <code>fevm_replay mutants-system ports/system &lt;dir&gt;...</code>.</p>
 </main>
