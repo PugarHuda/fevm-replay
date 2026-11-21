@@ -353,14 +353,7 @@ uses (files: mut Files, out: mut Stdout)
     Reply::ok(1)
 }
 
-struct Ran {
-    valid: bool,
-    ok: bool,
-    status: i32,
-    invalid: i32,
-    gas: u64,
-    state: u64,
-}
+struct Ran { valid: bool, ok: bool, status: i32, invalid: i32, gas: u64, state: u64 }
 
 impl Copy for Ran {}
 
@@ -387,7 +380,14 @@ fn run_one(
         config.check_base_fee = false
     }
     let r = replay_core::compat::transact(
-        replay_core::replay::build_world(prestate, env, parent, Value::object(), core::MemVec::new(), none.span()),
+        replay_core::replay::build_world(
+            prestate,
+            env,
+            parent,
+            Value::object(),
+            core::MemVec::new(),
+            none.span(),
+        ),
         request,
         env,
         config,
@@ -451,25 +451,65 @@ uses (files: mut Files, out: mut Stdout)
     let prestate = ref doc["prestate"]
     let parent = load::field(header, "parentHash")
     let limit: u64 = load::field(tx, "gas").downcast_truncate()
-    let osaka = run_one(prestate, env, parent, tx, fevm::Config::osaka(), limit, true)
-    let next = run_one(prestate, env, parent, tx, fevm::Config::amsterdam(), limit, true)
+    let osaka = run_one(
+        prestate,
+        env,
+        parent,
+        tx,
+        fevm::Config::osaka(),
+        limit,
+        true,
+    )
+    let next = run_one(
+        prestate,
+        env,
+        parent,
+        tx,
+        fevm::Config::amsterdam(),
+        limit,
+        true,
+    )
     var least: u64 = 0
     var at = next
     if osaka.ok && !next.ok {
         let cap: u64 = 16777216
-        if run_one(prestate, env, parent, tx, fevm::Config::amsterdam(), cap, false).ok {
+        if run_one(
+            prestate,
+            env,
+            parent,
+            tx,
+            fevm::Config::amsterdam(),
+            cap,
+            false,
+        ).ok {
             var lo = limit
             var hi = cap
             while hi - lo > 1 {
                 let mid = lo + (hi - lo) / 2
-                if run_one(prestate, env, parent, tx, fevm::Config::amsterdam(), mid, false).ok {
+                if run_one(
+                    prestate,
+                    env,
+                    parent,
+                    tx,
+                    fevm::Config::amsterdam(),
+                    mid,
+                    false,
+                ).ok {
                     hi = mid
                 } else {
                     lo = mid
                 }
             }
             least = hi
-            at = run_one(prestate, env, parent, tx, fevm::Config::amsterdam(), hi, false)
+            at = run_one(
+                prestate,
+                env,
+                parent,
+                tx,
+                fevm::Config::amsterdam(),
+                hi,
+                false,
+            )
         }
     }
     print!("{\"limit\":", decimal(limit as u256), ",\"osaka\":")
