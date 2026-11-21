@@ -65,7 +65,7 @@ onmessage = async ({ data }) => {
       const hash = JSON.parse(live.files.block).result.hash;
       anchored = { hash, ...await anchor(live.number, hash) };
       try {
-        anchored.light = await lightClient(live.number, hash, headersBetween, step);
+        anchored.light = await lightClient(live.number, hash, headersBetween, step, data.checkpoint);
       } catch (e) {
         anchored.light = { error: e.message };
       }

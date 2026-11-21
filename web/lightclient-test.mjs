@@ -20,7 +20,7 @@ async function run(change = () => {}) {
     const body = path.includes("/bootstrap/") ? beacon[bootstrap] : beacon[path];
     return { ok: !!body, status: body ? 200 : 404, json: async () => body };
   };
-  return lightClient(rec.number, rec.hash, async () => headers, () => {}, rec.result.checkpoint);
+  return lightClient(rec.number, rec.hash, async () => headers, () => {}, rec.result.checkpoint.root);
 }
 
 const flip = (h, at = 10) => h.slice(0, at) + (h[at] === "0" ? "1" : "0") + h.slice(at + 1);

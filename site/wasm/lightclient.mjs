@@ -122,13 +122,17 @@ async function get(path) {
 
 /**
  * Checks that block `number` with hash `hash` is on the chain the sync
- * committee signs, from `checkpoint`. `headers(from, to)` gives execution
+ * committee signs, from the beacon block root `checkpoint` (any finalized
+ * root the caller trusts; by default the one above). `headers(from, to)` gives execution
  * headers `from..to` (eth_getBlockByNumber results).
  */
-export async function lightClient(number, hash, headers, step = () => {}, checkpoint = CHECKPOINT) {
-  step(`Light client: the sync committee at checkpoint ${checkpoint.root.slice(0, 10)}…`);
-  const boot = (await get(`/eth/v1/beacon/light_client/bootstrap/${checkpoint.root}`)).body.data;
-  if (hex(headerRoot(boot.header.beacon)) !== checkpoint.root) throw new Error("the bootstrap header is not the checkpoint");
+export async function lightClient(number, hash, headers, step = () => {}, root = CHECKPOINT.root) {
+  root = root.toLowerCase();
+  if (!/^0x[0-9a-f]{64}$/.test(root)) throw new Error(`a checkpoint is a beacon block root (0x and 64 hex digits), not ${root}`);
+  step(`Light client: the sync committee at checkpoint ${root.slice(0, 10)}…`);
+  const boot = (await get(`/eth/v1/beacon/light_client/bootstrap/${root}`)).body.data;
+  const checkpoint = { root, slot: Number(boot.header.beacon.slot) };
+  if (hex(headerRoot(boot.header.beacon)) !== root) throw new Error("the bootstrap header is not the checkpoint");
   if (!branchHolds(committeeRoot(boot.current_sync_committee), boot.current_sync_committee_branch, CURRENT_SYNC_COMMITTEE, boot.header.beacon.state_root)) {
     throw new Error("the checkpoint's sync committee is not in its state");
   }

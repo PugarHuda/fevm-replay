@@ -6,6 +6,7 @@
 //   node site/wasm/cli.mjs 26461751        that block (within ~100 of the head)
 //   node site/wasm/cli.mjs block.tar.gz    a saved block (fetch + fetch-proofs)
 //   ... --save                             also write the fetched block as <0xnumber>.tar.gz
+//   ... --checkpoint 0x<beacon block root> the light client starts from this finalized root
 //
 // Exits 0 if every transaction matched and every root in the header held.
 import fs from "node:fs";
@@ -18,7 +19,9 @@ const wasm = fs.readFileSync(new URL("fevm_replay_web.wasm", here));
 const manifest = JSON.parse(fs.readFileSync(new URL("fevm_replay_web.manifest.json", here), "utf8"));
 const args = process.argv.slice(2);
 const save = args.includes("--save");
-const arg = args.find((a) => a !== "--save");
+const at = args.indexOf("--checkpoint");
+const checkpoint = at >= 0 ? args[at + 1] : undefined;
+const arg = args.find((a, i) => a !== "--save" && a !== "--checkpoint" && args[i - 1] !== "--checkpoint");
 const step = (text) => process.stderr.write(text + "\n");
 const PARTS = ["chain", "block", "receipts", "prestate", "diff", "delegates", "proofs"];
 const joined = (files) => `{${PARTS.map((p) => `"${p}":${files[p]}`).join(",")}}`;
@@ -49,7 +52,7 @@ if (live) {
     (a.differ.length ? `; DIFFERENT at ${a.differ.join(", ")}` : ""));
   let light;
   try {
-    light = await lightClient(live.number, hash, headersBetween, step);
+    light = await lightClient(live.number, hash, headersBetween, step, checkpoint);
     console.log(`light client: from checkpoint ${light.checkpoint.root.slice(0, 10)}… (slot ${light.checkpoint.slot}), ${light.handoffs.length} sync committee handoff(s), ${light.signers}/512 signed slot ${light.slot} (execution block ${light.top}), ${light.headers} headers hashed back to this block: its hash is the chain's`);
   } catch (e) {
     console.log(`light client: could not confirm the hash (${e.message})`);

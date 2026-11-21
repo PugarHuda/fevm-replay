@@ -615,8 +615,10 @@ light client: from checkpoint 0xa4faecb4… (slot 15704032), 1 sync committee ha
 its hash is the chain's
 ```
 
-Beacon nodes (publicnode and Lodestar, both allow the browser) and RPC
-nodes only supply data. `node web/lightclient-test.mjs` (in CI) replays a
+To start from a checkpoint you trust instead (any finalized beacon block
+root), pass `--checkpoint 0x…` to `node wasm/cli.mjs` or add
+`&checkpoint=0x…` to the page's address. Beacon nodes (publicnode and
+Lodestar, both allow the browser) and RPC nodes only supply data. `node web/lightclient-test.mjs` (in CI) replays a
 recorded run and checks that 13 lies are each caught: a valid signature
 over another header, a signer dropped from the bits, a changed slot,
 execution hash or block number, a changed header field or `parentHash`, a

@@ -67,7 +67,7 @@
     <label><input type="checkbox" id="btamper"> a receipt claims one more gas than the transaction used</label>
     <button class="primary" id="brun">Validate</button>
   </div>
-  <p class="note" id="blive">"Near the head": your browser asks <code>eth.drpc.org</code> for the block, its receipts and its prestate traces, lets the module's <code>witness_keys</code> (the Fe that decides what <code>fetch-proofs</code> fetches natively) say which accounts and slots to prove, asks <code>ethereum-rpc.publicnode.com</code> for those proofs at the parent and at the block, and validates. Then the hash itself: as a light client does (<a href="https://github.com/PugarHuda/fevm-replay/blob/main/site/wasm/lightclient.mjs"><code>lightclient.mjs</code></a>), the page starts from one finalized beacon block written in the code, checks each sync committee handoff since (BLS signatures, 2/3 or more of 512), takes the newest header the committee signed and the execution block proven in it, and hashes the headers back to this block. Beacon nodes (publicnode, Lodestar) only supply data. Afterwards you can save what it fetched and check it natively with <code>fevm_replay chain</code>.</p>
+  <p class="note" id="blive">"Near the head": your browser asks <code>eth.drpc.org</code> for the block, its receipts and its prestate traces, lets the module's <code>witness_keys</code> (the Fe that decides what <code>fetch-proofs</code> fetches natively) say which accounts and slots to prove, asks <code>ethereum-rpc.publicnode.com</code> for those proofs at the parent and at the block, and validates. Then the hash itself: as a light client does (<a href="https://github.com/PugarHuda/fevm-replay/blob/main/site/wasm/lightclient.mjs"><code>lightclient.mjs</code></a>), the page starts from one finalized beacon block written in the code, checks each sync committee handoff since (BLS signatures, 2/3 or more of 512), takes the newest header the committee signed and the execution block proven in it, and hashes the headers back to this block. Beacon nodes (publicnode, Lodestar) only supply data. To trust a checkpoint of your own, add <code>&amp;checkpoint=0x…</code> (a finalized beacon block root) to the address. Afterwards you can save what it fetched and check it natively with <code>fevm_replay chain</code>.</p>
   <p class="note">Or validate your own block: <label>a <code>.tar.gz</code> of a directory written by <code>fevm_replay fetch</code> and <code>fetch-proofs</code> <input type="file" id="bfile" accept=".gz,.tgz,application/gzip"></label>. It stays in your browser.</p>
   <p class="verdict" id="bverdict" aria-live="polite"></p>
   <pre id="bout">fevm runs in a worker, off the page's thread.</pre>
@@ -191,7 +191,7 @@ async function start() {
       const l = a.light;
       const light = !l ? "" : l.error
         ? ` Light client: could not confirm the hash (${l.error}).`
-        : ` Light client: from the checkpoint written in lightclient.mjs (beacon block ${l.checkpoint.root.slice(0, 10)}…, slot ${l.checkpoint.slot.toLocaleString("en")}), ${l.handoffs.length} sync committee handoff${l.handoffs.length === 1 ? "" : "s"} checked; ${l.signers} of 512 of the sync committee signed slot ${l.slot.toLocaleString("en")}, whose execution block ${l.top.toLocaleString("en")} hashes back through ${l.headers} headers to this one. The hash is the chain's, not only the nodes' word.`;
+        : ` Light client: from ${new URLSearchParams(location.search).get("checkpoint") ? "your checkpoint" : "the checkpoint written in lightclient.mjs"} (beacon block ${l.checkpoint.root.slice(0, 10)}…, slot ${l.checkpoint.slot.toLocaleString("en")}), ${l.handoffs.length} sync committee handoff${l.handoffs.length === 1 ? "" : "s"} checked; ${l.signers} of 512 of the sync committee signed slot ${l.slot.toLocaleString("en")}, whose execution block ${l.top.toLocaleString("en")} hashes back through ${l.headers} headers to this one. The hash is the chain's, not only the nodes' word.`;
       bout.textContent = `Block ${data.live.number.toLocaleString("en")}, ${behind} behind the head (${data.live.head.toLocaleString("en")}).${final} ${trust}${light} ${data.live.transactions} transactions; ${data.live.accounts} accounts and ${data.live.slots} slots proven at both ends.
 
 ` + data.out;
@@ -218,7 +218,8 @@ async function start() {
   } else {
     const choice = document.getElementById("bblock").value;
     const wanted = Number(new URLSearchParams(location.search).get("number")) || undefined;
-    worker.postMessage(choice === "live" ? { live: true, number: wanted, tamper } : { archive: choice, tamper });
+    const checkpoint = new URLSearchParams(location.search).get("checkpoint") || undefined;
+    worker.postMessage(choice === "live" ? { live: true, number: wanted, tamper, checkpoint } : { archive: choice, tamper });
   }
 }
 // Each "DIFF  tx <i> <hash>" in the output, with the "  field: chain X, fevm Y"
