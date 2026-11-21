@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
   pages: write
   id-token: write
 
@@ -34,5 +35,17 @@ jobs:
       - uses: actions/upload-pages-artifact@v4
         with:
           path: site
+      # deploy-pages sometimes asks for the artifact before GitHub lists it
+      # ("No artifacts named github-pages"): wait until it is listed.
+      - name: Wait for the artifact to be listed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for i in $(seq 1 30); do
+            n=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" --jq '[.artifacts[] | select(.name == "github-pages")] | length')
+            [ "$n" -gt 0 ] && exit 0
+            sleep 2
+          done
+          echo "the artifact was not listed after 60 s"
       - id: deployment
         uses: actions/deploy-pages@v4
