@@ -1,0 +1,70 @@
+name: fevm on the newest EEST
+
+# fevm's own conformance runner (fevm_tools, built with fevm's own pinned
+# compiler) on an execution-spec-tests release newer than the one fevm's CI
+# pins: state tests and the blockchain tests of the forks fevm implements.
+# A new release's new cases (v21.0.3: Merkle Patricia Trie cases after a reth
+# state root bug, forged BALs at the item cap, EIP-155 chain ids over 64
+# bits) reach fevm here first.
+on:
+  workflow_dispatch:
+    inputs:
+      eest:
+        description: execution-spec-tests release
+        default: tests@v21.0.3
+      fevm:
+        description: fevm ref
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: fe-lang/fevm
+          ref: ${{ inputs.fevm }}
+      - name: Build fevm's pinned Fe compiler and fevm_tools
+        run: |
+          rust=$(python3 -c "import json; print(json.load(open('native/toolchain.json'))['rust_version'])")
+          rustup toolchain install "$rust" --profile minimal
+          python3 native/bootstrap.py --out native/out/toolchain --toolchain "$rust" --target-dir "$RUNNER_TEMP/fe-target"
+          native/out/toolchain/bin/fe build . --ingot fevm_tools --backend native -O 2 --emit executable --out-dir native/out/tools
+          echo "fevm $(git rev-parse --short HEAD), EEST ${{ inputs.eest }}" >> "$GITHUB_STEP_SUMMARY"
+      - name: Download the fixtures
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "${{ inputs.eest }}" -R ethereum/execution-specs -p fixtures.tar.gz -D "$RUNNER_TEMP"
+          mkdir -p ~/eest
+          tar -xzf "$RUNNER_TEMP/fixtures.tar.gz" -C ~/eest fixtures/state_tests \
+            fixtures/blockchain_tests/for_osaka fixtures/blockchain_tests/for_amsterdam \
+            fixtures/blockchain_tests/for_bpo1 fixtures/blockchain_tests/for_bpo2 \
+            fixtures/blockchain_tests/for_osakatobpo1attime15k fixtures/blockchain_tests/for_bpo1tobpo2attime15k \
+            fixtures/blockchain_tests/for_bpo2toamsterdamattime15k \
+            fixtures/blockchain_tests/for_amsterdambpoincrease fixtures/blockchain_tests/for_amsterdambpodecrease \
+            fixtures/blockchain_tests/for_amsterdamtobpoincreaseattime15k \
+            fixtures/blockchain_tests/for_amsterdamtobpodecreaseattime15k
+      - name: State tests
+        if: ${{ !cancelled() }}
+        run: native/out/tools/fevm_tools conformance --fe native/out/toolchain/bin/fe --fixtures ~/eest/fixtures/state_tests --out native/out/conformance 2>&1 | tee state.txt | tail -40
+      - name: Blockchain tests
+        if: ${{ !cancelled() }}
+        run: native/out/tools/fevm_tools conformance --fe native/out/toolchain/bin/fe --fixtures ~/eest/fixtures/blockchain_tests --out native/out/blocks 2>&1 | tee blocks.txt | tail -40
+      - name: Summary
+        if: ${{ !cancelled() }}
+        run: |
+          { echo '```'; tail -8 state.txt; tail -8 blocks.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: conformance
+          path: |
+            state.txt
+            blocks.txt
+            native/out/conformance
+            native/out/blocks
