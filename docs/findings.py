@@ -88,7 +88,7 @@ w(f"*Measured by fevm-replay over {n} mainnet blocks between {num(first)} and {n
   "witness. The live numbers, with every block, are on the "
   "[stateless blocks page](https://fevm-replay.vercel.app/stateless.html). This file is written by "
   "[`docs/findings.py`](findings.py) from the page's data.*\n")
-picked = [r for r in d if r.get("via")]
+picked = [r for r in d if "smallest" in r.get("via", "")]
 if picked:
     w(f"*{len(picked)} of the blocks were taken by the browser's fetcher (`site/wasm/live.mjs`), which "
       "picks the smallest non-empty block of the six behind the head to keep the page's download small, "

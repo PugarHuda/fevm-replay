@@ -132,11 +132,11 @@ export const scenes: Scene[] = [
     url: 'stateless.html',
     start: { sel: '#eip4762' },
     narration:
-      "And what would stateless Ethereum cost? Priced by the EIP-4762 draft, these blocks would need 23% more gas, and 36% of transactions would run out of gas at the limit they were sent with. Exempting the coinbase saves the transfers, but not the contract calls: 21% still fail.",
+      "And what would stateless Ethereum cost? Priced by the EIP-4762 draft, these blocks would need 25% more gas, and 39% of transactions would run out of gas at the limit they were sent with. Exempting the coinbase saves the transfers, but not the contract calls: 23% still fail.",
     source: 'site/stateless.html #eip4762 (computed live from data/stateless.json); docs/stateless-findings.md 13 to 15',
     cues: [
-      { at: '23% more gas', target: { sel: '#facts4762 > div >> nth=0' } },
-      { at: '36% of transactions', target: { sel: '#facts4762 > div >> nth=2' } },
+      { at: '25% more gas', target: { sel: '#facts4762 > div >> nth=0' } },
+      { at: '39% of transactions', target: { sel: '#facts4762 > div >> nth=2' } },
       { at: 'saves the transfers', target: { sel: '#facts4762 > div >> nth=4' } },
       { at: 'not the contract calls', target: { sel: '#facts4762 > div >> nth=5' } },
     ],
@@ -219,7 +219,7 @@ export const scenes: Scene[] = [
         'Mainnet blocks validated statelessly, every root from fevm; fevm_chain and geth agree',
         'The same Fe validates whole blocks in your browser (WebAssembly)',
         "5 Fe ports certified, and all four of Ethereum's system contracts in Fe",
-        'EIP-4762 on mainnet: +23% gas, 36% of transactions short of gas',
+        'EIP-4762 on mainnet: +25% gas, 39% of transactions short of gas',
       ],
     },
     narration:

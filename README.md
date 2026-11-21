@@ -27,15 +27,15 @@ Replaying is fast: those 5,129 transactions take 5.9 seconds once fetched.
 | | |
 | --- | --- |
 | **What** | fevm-replay replays real mainnet history in fevm, validates whole blocks statelessly against every root in their headers (what a stateless light client checks, from nothing but the parent's proofs), and checks Fe ports of Solidity contracts against real traffic. All Fe, from the HTTP call to the verdict. |
-| **fevm on mainnet** | 115,213 transactions replayed, 290 blocks as chains, no fevm bug; against geth itself (`evm t8n` 1.17.10), 3,100 of 3,100 mutated mainnet calls end the same, and 67 of 67 whole blocks (13,837 transactions) give the header's receipts root, gas and bloom and the proven end state ([more](#fevm-against-geth)) |
+| **fevm on mainnet** | 115,213 transactions replayed, 290 blocks as chains, no fevm bug; against geth itself (`evm t8n` 1.17.10), 3,100 of 3,100 mutated mainnet calls end the same, and 77 of 77 whole blocks (16,960 transactions) give the header's receipts root, gas and bloom and the proven end state ([more](#fevm-against-geth)) |
 | **Stateless** | With the parent's proofs as a witness, fevm runs a block's system calls and transactions and *computes* its `stateRoot`; `transactionsRoot`, `receiptsRoot`, `withdrawalsRoot`, `requestsHash`, `logsBloom` and `gasUsed` come out of fevm too. every block validated so far matched every root (the badge above counts them; 3 consecutive ones as one chain), and `follow` keeps taking more from the chain head; one is checked in CI on every push. A MATCH rests on the block hash, not the node ([details](#every-root-in-the-header)) |
-| **For EIP authors** | Measured on 67 mainnet blocks over 5 days ([findings](docs/stateless-findings.md)): code is 44% of a stateless witness; EIP-4762 (Draft) would cost 23% more gas, and 36% of transactions, sent with the same gas limit, would run out of gas. Exempting the coinbase, as the draft exempts the sender and target, brings that to 13%: it saves ETH transfers (52% short, 1.3% exempt) but not contract calls (26%, still 21%: code and storage). Code at half price would bring it to 5.6%, free code to 1.4% |
+| **For EIP authors** | Measured on 77 mainnet blocks over 5 days ([findings](docs/stateless-findings.md)): code is 45% of a stateless witness; EIP-4762 (Draft) would cost 25% more gas, and 39% of transactions, sent with the same gas limit, would run out of gas. Exempting the coinbase, as the draft exempts the sender and target, brings that to 14%: it saves ETH transfers (58% short, 1.6% exempt) but not contract calls (27%, still 23%: code and storage). Code at half price would bring it to 5.8%, free code to 1.4% |
 | **Fe ports** | 5 ports (USDT, every Uniswap V2 pair, WETH9, DAI, USDC's proxy) certified by mainnet replay, mainnet mutations, fuzzing and mutation testing ([verified page](https://fevm-replay.vercel.app/verified.html)). Also all four of Ethereum's system contracts (EIP-4788, EIP-2935, EIP-7002, EIP-7251), ported from assembly: on 55 mainnet blocks they store and return what the deployed ones do, and with all four system calls run by the Fe ports every root in the header still matches; the mainnet transactions that call them run identically ([more](#ethereums-own-system-contracts-in-fe)) |
 | **Gas vs Solidity** | On 57,034 mainnet calls in identical transactions, the five Fe ports used 3.3% less gas than the deployed solc bytecode; 59 of 61 functions are cheaper (USDT −4.4%, WETH9 −4.0%, DAI −1.6%, pair −1.1%, USDC proxy −1.0%). The system contracts go the other way: hand-written assembly beats them by 24 to 2,026 gas a call ([per function](docs/gas.md)) |
-| **Fe-specific** | Effects prove validation needs no file, process or network, so the same Fe compiles to WebAssembly with fevm in it: [validate a whole mainnet block in your browser](https://fevm-replay.vercel.app/verify.html), every root in its header, including a block near the chain's head your browser fetches itself from public nodes (all 67 stateless blocks validate in the module); `const fn` + `static_assert` check the blob fee against a real block; std units, `core::fixed`, `msg`/`recv` ([Fe highlight](#fe-highlight)) |
+| **Fe-specific** | Effects prove validation needs no file, process or network, so the same Fe compiles to WebAssembly with fevm in it: [validate a whole mainnet block in your browser](https://fevm-replay.vercel.app/verify.html), every root in its header, including a block near the chain's head your browser fetches itself from public nodes (all 77 stateless blocks validate in the module); `const fn` + `static_assert` check the blob fee against a real block; std units, `core::fixed`, `msg`/`recv` ([Fe highlight](#fe-highlight)) |
 | **Found** | 4 bugs in the Fe ports (one in our own EIP-7002 port, found by validating a mainnet block on it), 2 node tracer bugs, the transactions the Osaka fork changed, where Fe's code cost more than solc's ([argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002), since fixed in Fe's std), and that Fe's WebAssembly backend emits fevm's tail-call dispatch as plain calls, which overflow a browser's stack ([`web/tailcalls.py`](web/tailcalls.py) works around it), and that even as tail calls each still takes a frame of the module's own 1 MiB stack, so 38 of 51 mainnet blocks trap until it is 64 MiB |
 | **Upstream** | fe#2002 led to `Call::forward_delegatecall` in Fe's std ([argotorg/fe#2004](https://github.com/argotorg/fe/pull/2004), merged); our request in [fevm#26](https://github.com/fe-lang/fevm/issues/26) became the operand stack in `Tracer::step` ([fevm#32](https://github.com/fe-lang/fevm/pull/32)); dRPC is deploying a fix for the tracer bug we reported |
-| **Beside fevm's chain** | fevm now imports blocks itself ([`fevm_chain`](https://github.com/fe-lang/fevm/tree/main/ingots/chain)), on a full world and its conformance fixtures. fevm-replay is the other half: mainnet blocks, a *partial* world from the parent's proofs, the state root computed from that witness, and Fe ports in place of Solidity. It builds on that fevm and runs each block through `fevm_chain` and `fevm::Block` too: both drivers agree with the header on all 67 blocks ([more](#beside-fevms-chain-layer)) |
+| **Beside fevm's chain** | fevm now imports blocks itself ([`fevm_chain`](https://github.com/fe-lang/fevm/tree/main/ingots/chain)), on a full world and its conformance fixtures. fevm-replay is the other half: mainnet blocks, a *partial* world from the parent's proofs, the state root computed from that witness, and Fe ports in place of Solidity. It builds on that fevm and runs each block through `fevm_chain` and `fevm::Block` too: both drivers agree with the header on all 77 blocks ([more](#beside-fevms-chain-layer)) |
 | **Watch** | [3-minute tour](https://fevm-replay.vercel.app/#tour) ([`demo/tour-v5.mp4`](demo/tour-v5.mp4)): the site and real terminal runs, driven like a user, with captions, highlights and a neural voice |
 | **Try** | No Fe needed: [three commands](#try-it-without-fe) with the release binary; with Node.js alone, `node wasm/cli.mjs` (in the release) validates a block near the head, as the browser page does |
 
@@ -142,8 +142,8 @@ the code the tracer saw), the header, its withdrawals and the block hashes
 it may read, and the block's own signed transactions. geth's receipts root,
 logs bloom, gas used and requests hash must be the header's (fevm's are, on
 every validated block), it must reject nothing, and every account and slot
-the block's proofs prove after it must be what geth ends with. On all 67
-stateless blocks: **67 of 67 agree, 13,837 transactions and 164,102 proven
+the block's proofs prove after it must be what geth ends with. On all 77
+stateless blocks: **77 of 77 agree, 16,960 transactions and 198,131 proven
 end values**. The first run differed on one EIP-7702 transaction by 12,500
 gas: the harness had put an account the proofs show absent into geth's
 allocation, and geth refunds an authority that exists. CI runs it on the
@@ -220,7 +220,7 @@ For the block above: 505 to 557 KiB against 1,002 KiB, code left out.
 **Code.** `eth_getProof` carries no code, but a stateless client needs
 every contract a block runs. While `fevm::Block` runs the block a second
 time, a tracer ([`ingots/replay_core/src/chunks.fe`](ingots/replay_core/src/chunks.fe)) notes the 31-byte chunks
-each contract's code runs, as EIP-7864 would carry them. Code is 44% of a
+each contract's code runs, as EIP-7864 would carry them. Code is 45% of a
 full Merkle-Patricia witness (median; 18% to 59%), and a block runs about a
 quarter of the code it touches; with code, the binary tree shrinks the
 witness 2.0 to 3.3 times.
@@ -229,18 +229,18 @@ witness 2.0 to 3.3 times.
 ([`ingots/replay_core/src/gas4762.fe`](ingots/replay_core/src/gas4762.fe)): per transaction, for each stem and
 leaf read and written, code chunk by chunk, in place of EIP-2929's cold
 charges and EIP-2200's SSTORE costs. From each transaction's traces and the
-chunks fevm ran, the same blocks would cost 23% more gas (per block 1% to
-45%); code, free today, is 47% of the new charges. An ETH transfer would pay
-about 5,700 gas more, nearly all for writing the coinbase's balance, which
+chunks fevm ran, the same blocks would cost 25% more gas (per block −10% to
+45%); code, free today, is 49% of the new charges. An ETH transfer would pay
+about 5,800 gas more, nearly all for writing the coinbase's balance, which
 the draft does not exempt. Exempting it, as the draft exempts the sender and
-target, takes the increase to 19%. Sent with the gas limit they had, 36% of
-the transactions would run out of gas under the draft, and 13% with the
+target, takes the increase to 20%. Sent with the gas limit they had, 39% of
+the transactions would run out of gas under the draft, and 14% with the
 coinbase exempt: any contract or bot that hard-codes a gas limit breaks. The
-exemption saves ETH transfers (52% short, 1.3% exempt), most sent with a
-gas limit of exactly 21,000; contract calls stay short (26%, 21% exempt),
-from code chunks and storage, though only 132 of 8,311 were sent with no
-margin. Six of 67 blocks would not fit their gas limit as built. After the
-coinbase, the price of code decides: with code chunks at half price 5.6% of
+exemption saves ETH transfers (58% short, 1.6% exempt), most sent with a
+gas limit of exactly 21,000; contract calls stay short (27%, 23% exempt),
+from code chunks and storage, though only 157 of 10,269 were sent with no
+margin. Eight of 77 blocks would not fit their gas limit as built. After the
+coinbase, the price of code decides: with code chunks at half price 5.8% of
 transactions would run out of gas, with code free 1.4%. A third of the calls
 that stay short go to USDC and USDT: the draft charges for the code chunks
 they run, which today's rules do not.
@@ -413,7 +413,7 @@ transactions, 300 accounts and 843 slots took 28 seconds from the head to
 the verdict; the page offers what it fetched as a `.tar.gz` that
 `fevm_replay chain` and `geth-block` check natively. Either way fevm checks
 every transaction and every root in the header, as
-`fevm_replay chain` prints natively. All 67 blocks of the stateless page
+`fevm_replay chain` prints natively. All 77 blocks of the stateless page
 validate in the module, in 0.3 to 6 seconds each in Node.js. A receipt
 claiming one more gas than its transaction used is caught. Two things stood
 in the way. fevm dispatches opcodes as tail calls (each handler calls the
@@ -426,7 +426,7 @@ module's own stack in linear memory: each handler still takes a frame there
 (the cursor is passed by pointer into the caller's frame), so a long run of
 opcodes outgrows Fe's default 1 MiB. With it 13 of the 51 blocks validate
 and 38 trap with `unreachable`; with `--wasm-stack-size 67108864` all 51
-do, and so do the 16 taken since.
+do, and so do the 26 taken since.
 CI rebuilds the module with the release binary, rewrites it, checks it is
 byte for byte the one the site serves, and validates two blocks with it in
 Node.js (`web/test.mjs`), one of which needs the larger stack. The same page also
@@ -553,8 +553,8 @@ logsBloom, withdrawalsRoot, blobGasUsed, requestsHash and, from the witness, sta
 with the header
 ```
 
-They agree on all 67 mainnet blocks validated statelessly so far (26,424,722
-to 26,460,687, taken on five days), 26,424,772's EIP-7002 withdrawal request among them. One setting is mainnet's own: `Config::osaka()`
+They agree on all 77 mainnet blocks validated statelessly so far (26,424,722
+to 26,461,900, taken on five days), 26,424,772's EIP-7002 withdrawal request among them. One setting is mainnet's own: `Config::osaka()`
 carries Osaka's blob schedule (6/9), and mainnet runs BPO2's (14/21, EIP-7892).
 
 ## Try it without Fe

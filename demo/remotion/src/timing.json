@@ -401,39 +401,39 @@
   }
  },
  "eip4762": {
-  "audio": 17.904,
+  "audio": 18.312,
   "captions": [
    {
     "start": 0.084041,
-    "end": 2.111333,
+    "end": 2.027291,
     "text": "And what would stateless Ethereum cost?"
    },
    {
-    "start": 2.111333,
-    "end": 7.846625,
-    "text": "Priced by the EIP-4762 draft, these blocks would need 23% more gas,"
+    "start": 2.027291,
+    "end": 7.888666,
+    "text": "Priced by the EIP-4762 draft, these blocks would need 25% more gas,"
    },
    {
-    "start": 7.846625,
-    "end": 11.84875,
-    "text": "and 36% of transactions would run out of gas at the limit they were sent with."
+    "start": 7.888666,
+    "end": 12.100833,
+    "text": "and 39% of transactions would run out of gas at the limit they were sent with."
    },
    {
-    "start": 11.84875,
-    "end": 16.029416,
+    "start": 12.100833,
+    "end": 16.271,
     "text": "Exempting the coinbase saves the transfers, but not the contract calls:"
    },
    {
-    "start": 16.029416,
-    "end": 17.905041,
-    "text": "21% still fail."
+    "start": 16.271,
+    "end": 18.304206999999998,
+    "text": "23% still fail."
    }
   ],
   "cues": {
-   "23% more gas": 5.724791,
-   "36% of transactions": 7.993708,
-   "saves the transfers": 12.993708,
-   "not the contract calls": 14.40125
+   "25% more gas": 5.913875,
+   "39% of transactions": 8.004208,
+   "saves the transfers": 13.245791,
+   "not the contract calls": 14.663875
   }
  },
  "system": {
