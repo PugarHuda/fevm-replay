@@ -1,0 +1,170 @@
+// What a block's witness must hold: the keys `fetch-proofs` asks a node to
+// prove, natively and (as `witness_keys`) in the browser. Run with
+// `fe test --backend native` in ingots/replay_core.
+use json::parse
+use fevm::WorldState
+use ingot::proof::{
+    CONSOLIDATION_REQUESTS,
+    REQUEST_SLOTS,
+    WITHDRAWAL_REQUESTS,
+    add_queue_keys,
+    add_request_keys,
+    slots_of,
+    touched,
+}
+use ingot::load::{collect_delegates, delegation_target}
+
+fn slot_count(_ keys: WorldState) -> usize {
+    var n: usize = 0
+    for p in 0 .. keys.storage_slots() {
+        if keys.storage_at(p).occupied {
+            n += 1
+        }
+    }
+    n
+}
+
+#[test]
+fn a_withdrawal_queue_is_read_sixteen_requests_at_most() {
+    // EIP-7002 dequeues at most 16 requests of 3 slots, after 4 bookkeeping
+    // slots: a queue of 100 needs slots 4 to 51 only.
+    var keys = WorldState::empty()
+    add_queue_keys(mut keys, address: WITHDRAWAL_REQUESTS, head: 0, tail: 100)
+    assert!(slots_of(keys, WITHDRAWAL_REQUESTS).len() == 48)
+    assert!(keys.storage_load(WITHDRAWAL_REQUESTS, 4) == 1)
+    assert!(keys.storage_load(WITHDRAWAL_REQUESTS, 51) == 1)
+    assert!(keys.storage_load(WITHDRAWAL_REQUESTS, 52) == 0)
+    assert!(keys.storage_load(WITHDRAWAL_REQUESTS, 3) == 0)
+}
+
+#[test]
+fn a_consolidation_queue_is_read_two_requests_at_most() {
+    // EIP-7251: 2 requests of 4 slots, from the head on.
+    var keys = WorldState::empty()
+    add_queue_keys(
+        mut keys,
+        address: CONSOLIDATION_REQUESTS,
+        head: 10,
+        tail: 15,
+    )
+    assert!(slots_of(keys, CONSOLIDATION_REQUESTS).len() == 8)
+    assert!(keys.storage_load(CONSOLIDATION_REQUESTS, 4 + 10 * 4) == 1)
+    assert!(
+        keys.storage_load(CONSOLIDATION_REQUESTS, 4 + 12 * 4 - 1) == 1,
+    )
+    assert!(keys.storage_load(CONSOLIDATION_REQUESTS, 4 + 12 * 4) == 0)
+}
+
+#[test]
+fn an_empty_queue_needs_no_entry() {
+    var keys = WorldState::empty()
+    add_queue_keys(mut keys, address: WITHDRAWAL_REQUESTS, head: 7, tail: 7)
+    add_queue_keys(
+        mut keys,
+        address: CONSOLIDATION_REQUESTS,
+        head: 0,
+        tail: 0,
+    )
+    assert!(slot_count(keys) == 0)
+}
+
+#[test]
+fn a_short_queue_is_read_to_its_tail() {
+    var keys = WorldState::empty()
+    add_queue_keys(mut keys, address: WITHDRAWAL_REQUESTS, head: 2, tail: 3)
+    // One request: slots 4 + 2 * 3 to 4 + 3 * 3 - 1.
+    assert!(slots_of(keys, WITHDRAWAL_REQUESTS).len() == 3)
+    assert!(keys.storage_load(WITHDRAWAL_REQUESTS, 10) == 1)
+    assert!(keys.storage_load(WITHDRAWAL_REQUESTS, 12) == 1)
+}
+
+#[test]
+fn both_request_contracts_keep_their_bookkeeping_slots() {
+    var keys = WorldState::empty()
+    add_request_keys(mut keys)
+    let n: usize = REQUEST_SLOTS.downcast_unchecked()
+    assert!(slots_of(keys, WITHDRAWAL_REQUESTS).len() == n)
+    assert!(slots_of(keys, CONSOLIDATION_REQUESTS).len() == n)
+    assert!(slot_count(keys) == 2 * n)
+}
+
+#[test]
+fn touched_keys_come_from_prestates_diffs_and_withdrawals() {
+    // Two transactions: the first reads slot 1 of 0xaa, the second's diff
+    // writes slot 2 of 0xbb (an account its prestate does not list); a
+    // withdrawal credits 0xcc.
+    let prestates = parse(
+        "[{\"result\":{\"0x00000000000000000000000000000000000000aa\":{\"balance\":\"0x1\",\"storage\":{\"0x01\":\"0x05\"}}}},{\"result\":{}}]"
+            .span(),
+    )
+        .unwrap()
+    let diffs = parse(
+        "[{\"result\":{\"pre\":{},\"post\":{}}},{\"result\":{\"pre\":{},\"post\":{\"0x00000000000000000000000000000000000000bb\":{\"storage\":{\"0x02\":\"0x09\"}}}}}]"
+            .span(),
+    )
+        .unwrap()
+    let header = parse(
+        "{\"withdrawals\":[{\"address\":\"0x00000000000000000000000000000000000000cc\",\"amount\":\"0x1\"}]}"
+            .span(),
+    )
+        .unwrap()
+    let keys = touched(prestates, diffs, header, recipients: true)
+    assert!(keys.account_count() == 3)
+    assert!(keys.storage_load(0xaa, 1) == 1)
+    assert!(keys.storage_load(0xbb, 2) == 1)
+    assert!(slots_of(keys, 0xcc).len() == 0)
+    // Without the recipients, the withdrawal's account is not a key.
+    let without = touched(prestates, diffs, header, recipients: false)
+    assert!(without.account_count() == 2)
+}
+
+#[test]
+fn slots_of_lists_one_account_only() {
+    var keys = WorldState::empty()
+    let _ = keys.storage_store(0xaa, 1, 1)
+    let _ = keys.storage_store(0xaa, 9, 1)
+    let _ = keys.storage_store(0xbb, 1, 1)
+    let slots = slots_of(keys, 0xaa)
+    assert!(slots.len() == 2)
+    assert!(
+        (slots[0] == 1 && slots[1] == 9) || (slots[0] == 9 && slots[1] == 1),
+    )
+}
+
+#[test]
+fn a_delegation_designator_is_exactly_23_bytes() {
+    let designator = ingot::load::hex_bytes(
+        "0xef0100000000000000000000000000000000000000beef".span(),
+    )
+    assert!(delegation_target(designator.span()) == 0xbeef)
+    // Plain code, a designator with a byte more, and one with the wrong
+    // version byte point nowhere.
+    let code = ingot::load::hex_bytes("0x6080604052".span())
+    assert!(delegation_target(code.span()) == 0)
+    let longer = ingot::load::hex_bytes(
+        "0xef0100000000000000000000000000000000000000beef00".span(),
+    )
+    assert!(delegation_target(longer.span()) == 0)
+    let version = ingot::load::hex_bytes("0xef0101000000000000000000000000000000000000beef".span())
+    assert!(delegation_target(version.span()) == 0)
+}
+
+#[test]
+fn a_delegate_the_prestate_holds_or_names_twice_is_not_fetched_again() {
+    // The authorization names 0x...aa, which the prestate already holds, and
+    // 0x...dd twice; a revoking authorization (to the zero address) names
+    // nothing to run.
+    let tx = parse(
+        "{\"authorizationList\":[{\"address\":\"0x00000000000000000000000000000000000000aa\"},{\"address\":\"0x00000000000000000000000000000000000000dd\"},{\"address\":\"0x00000000000000000000000000000000000000dd\"},{\"address\":\"0x0000000000000000000000000000000000000000\"}]}"
+            .span(),
+    )
+        .unwrap()
+    let prestate = parse(
+        "{\"0x00000000000000000000000000000000000000aa\":{\"balance\":\"0x0\"}}".span(),
+    )
+        .unwrap()
+    var targets: core::MemVec<u256> = core::MemVec::new()
+    collect_delegates(tx, prestate, mut targets)
+    assert!(targets.len() == 1)
+    assert!(targets[0] == 0xdd)
+}
