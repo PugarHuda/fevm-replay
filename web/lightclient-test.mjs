@@ -5,7 +5,7 @@
 //   node web/lightclient-test.mjs
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { fevmPrecompiles, fevmVerifies, lightClient, signingRoot } from "../site/wasm/lightclient.mjs";
+import { fevmHashToG2, fevmPrecompiles, fevmVerifies, lightClient, nobleHashToG2, signingRoot } from "../site/wasm/lightclient.mjs";
 
 const rec = JSON.parse(fs.readFileSync(new URL("../fixtures/lightclient.json", import.meta.url), "utf8"));
 
@@ -70,5 +70,11 @@ const signed = { keys, signingRoot: signingRoot(head.attested_header.beacon, hea
 assert.equal(await fevmVerifies(fevm, signed), true);
 assert.equal(await fevmVerifies(fevm, { ...signed, signature: update.sync_aggregate.sync_committee_signature }), false);
 assert.equal(await fevmVerifies(fevm, { ...signed, keys: keys.slice(1) }), false);
+// Hashing to G2: fevm (MAP_FP2_TO_G2 twice, G2 add) and noble (checked by its
+// authors against RFC 9380's vectors) must give the same point, for the
+// recorded signing roots and a few other messages.
+const messages = [signed.signingRoot, signingRoot(update.attested_header.beacon, update.signature_slot), new Uint8Array(0), new TextEncoder().encode("abc"), new Uint8Array(200).fill(0x61)];
+for (const m of messages) assert.equal(await fevmHashToG2(fevm, m), nobleHashToG2(m));
+console.log(`hash to G2: fevm and noble give the same point for ${messages.length} messages`);
 console.log(`fevm's BLS12-381 precompiles: both recorded signatures verify; another header's signature and a missing signer are refused`);
 console.log(`light client: the recorded run holds, all ${Object.keys(lies).length} changes rejected`);

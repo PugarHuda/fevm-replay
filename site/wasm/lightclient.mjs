@@ -128,19 +128,27 @@ export const fevmPrecompiles = (wasm, manifest) => async (calls) => {
   return JSON.parse(guest.host.stdout);
 };
 
+/** `msg` hashed to G2 (RFC 9380, Ethereum's DST) by fevm's MAP_FP2_TO_G2 and G2 add: 256 bytes as hex, or null. */
+export async function fevmHashToG2(fevm, msg) {
+  const [u0, u1] = hashToFp2(msg);
+  const [m0, m1] = await fevm([{ address: "0x11", input: hex(u0) }, { address: "0x11", input: hex(u1) }]);
+  if (m0[0] !== 0 || m1[0] !== 0) return null;
+  const [h] = await fevm([{ address: "0x0d", input: m0[1] + m1[1].slice(2) }]);
+  return h[0] === 0 ? h[1] : null;
+}
+/** The same by noble, encoded as EIP-2537 does. */
+export const nobleHashToG2 = (msg) => hex(g2(bls12_381.longSignatures.hash(msg, DST).toAffine()));
+
 /** True if fevm's precompiles accept the signature; `fevm(calls)` runs them in the module. */
 export async function fevmVerifies(fevm, { keys, signingRoot, signature }) {
   const G1 = bls12_381.G1.ProjectivePoint ?? bls12_381.G1.Point;
   const one = new Uint8Array(32); one[31] = 1;
   const msm = cat(...keys.map((k) => cat(g1(G1.fromHex(k.slice(2)).toAffine()), one)));
-  const [u0, u1] = hashToFp2(signingRoot);
-  const [sum, m0, m1] = await fevm([{ address: "0x0c", input: hex(msm) }, { address: "0x11", input: hex(u0) }, { address: "0x11", input: hex(u1) }]);
-  if (sum[0] !== 0 || m0[0] !== 0 || m1[0] !== 0) return false;
-  const [h] = await fevm([{ address: "0x0d", input: m0[1] + m1[1].slice(2) }]);
-  if (h[0] !== 0) return false;
+  const [[sum], h] = await Promise.all([fevm([{ address: "0x0c", input: hex(msm) }]), fevmHashToG2(fevm, signingRoot)]);
+  if (sum[0] !== 0 || !h) return false;
   const sig = bls12_381.longSignatures.Signature.fromHex(signature.slice(2)).toAffine();
   const negG1 = g1(G1.BASE.negate().toAffine());
-  const [pair] = await fevm([{ address: "0x0f", input: sum[1] + h[1].slice(2) + hex(negG1).slice(2) + hex(g2(sig)).slice(2) }]);
+  const [pair] = await fevm([{ address: "0x0f", input: sum[1] + h.slice(2) + hex(negG1).slice(2) + hex(g2(sig)).slice(2) }]);
   return pair[0] === 0 && BigInt(pair[1]) === 1n;
 }
 
