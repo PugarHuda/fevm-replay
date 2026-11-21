@@ -132,13 +132,26 @@ export const scenes: Scene[] = [
     url: 'stateless.html',
     start: { sel: '#eip4762' },
     narration:
-      "And what would stateless Ethereum cost? Priced by the EIP-4762 draft, these blocks would need 25% more gas, and 39% of transactions would run out of gas at the limit they were sent with. Exempting the coinbase saves the transfers, but not the contract calls: 23% still fail.",
-    source: 'site/stateless.html #eip4762 (computed live from data/stateless.json); docs/stateless-findings.md 13 to 15',
+      "And what would stateless Ethereum cost? Priced by the EIP-4762 draft, these blocks would need 25% more gas, and 39% of transactions would run out of gas at the limit they were sent with. Exempting the coinbase saves the transfers, but not the contract calls: 23% still fail. An independent implementation, ethereumjs, charges the same gas on all 18,967 transactions.",
+    source: 'site/stateless.html #eip4762 (computed live from data/stateless.json); docs/stateless-findings.md 13 to 15; README (ethereumjs 18,967/18,967)',
     cues: [
       { at: '25% more gas', target: { sel: '#facts4762 > div >> nth=0' } },
       { at: '39% of transactions', target: { sel: '#facts4762 > div >> nth=2' } },
       { at: 'saves the transfers', target: { sel: '#facts4762 > div >> nth=4' } },
       { at: 'not the contract calls', target: { sel: '#facts4762 > div >> nth=5' } },
+    ],
+  },
+  {
+    id: 'amsterdam',
+    kind: 'cast',
+    cast: 'amsterdam.cast',
+    termTitle: 'WSL: fevm-replay, recorded run (asciinema)',
+    narration:
+      "And Glamsterdam, the next fork, whose rules fevm already implements? The same 18,967 transactions, each with the gas limit it was sent with: 6,693 that succeeded would fail, and the rest would use 25% more gas. Over a thousand are plain transfers to new accounts: creating an account now costs state gas.",
+    source: 'demo/casts/amsterdam.cast (real run of fevm_replay amsterdam on the 85 blocks); README Glamsterdam section',
+    cues: [
+      { at: '6,693 that succeeded', target: { sel: '#term', line: 1 } },
+      { at: 'Over a thousand', target: { sel: '#term', line: 2 } },
     ],
   },
   {
@@ -171,6 +184,19 @@ export const scenes: Scene[] = [
     ],
   },
   {
+    id: 'light',
+    kind: 'cast',
+    cast: 'light-client.cast',
+    termTitle: 'WSL: node wasm/cli.mjs, recorded run (asciinema)',
+    narration:
+      "From a terminal, the same module validates a block three behind the head: 223 of 223 transactions match, every root holds. Its hash is checked as a light client checks it: from a finalized checkpoint, through Ethereum's sync committee, 511 of 512 signed, and each signature is verified twice, the second time by fevm's own BLS12-381 precompiles, written in Fe.",
+    source: 'demo/casts/light-client.cast (real run of node wasm/cli.mjs, v0.8.2 release); README "Beside rsp, zeth and light clients"',
+    cues: [
+      { at: '223 of 223', target: { sel: '#term', line: 1 } },
+      { at: 'from a finalized checkpoint', target: { sel: '#term', line: 4 } },
+    ],
+  },
+  {
     id: 'verified',
     kind: 'page',
     url: 'index.html',
@@ -189,13 +215,13 @@ export const scenes: Scene[] = [
     cast: 'system-contracts.cast',
     termTitle: 'WSL: fevm-replay, recorded run (asciinema)',
     narration:
-      "Fe can stand in for Ethereum's own code too. All four system contracts the protocol calls in every block are ported from assembly. Here a mainnet block runs its system calls on the Fe ports: two consolidation requests come out, and every root still matches. On 55 blocks it held, after catching one bug in our own port.",
-    source: 'demo/casts/system-contracts.cast (real run, block 26,425,142); README section on the system contracts (55 blocks, the EIP-7002 amount bug)',
+      "Fe can stand in for Ethereum's own code too. All four system contracts the protocol calls in every block are ported from assembly. Here a mainnet block runs its system calls on the Fe ports: two consolidation requests come out, and every root still matches. On 85 blocks it held, after catching one bug in our own port.",
+    source: 'demo/casts/system-contracts.cast (real run, block 26,425,142); README section on the system contracts (85 blocks, the EIP-7002 amount bug)',
     cues: [
       { at: 'runs its system calls', target: { sel: '#term', line: 1 } },
       { at: 'two consolidation requests', target: { sel: '#term', line: 3 } },
       { at: 'every root still matches', target: { sel: '#term', line: 4 } },
-      { at: 'On 55 blocks', target: { sel: '#term', line: 7 } },
+      { at: 'On 85 blocks', target: { sel: '#term', line: 7 } },
     ],
   },
   {
@@ -216,14 +242,14 @@ export const scenes: Scene[] = [
       sub: 'github.com/PugarHuda/fevm-replay  ·  fevm-replay.vercel.app',
       bullets: [
         '115,213 mainnet transactions replayed in fevm, no fevm bug',
-        'Mainnet blocks validated statelessly, every root from fevm; fevm_chain and geth agree',
-        'The same Fe validates whole blocks in your browser (WebAssembly)',
+        '85 mainnet blocks validated statelessly, every root; fevm_chain and geth agree',
+        'The same Fe in your browser, the hash checked by a light client (BLS in fevm)',
         "5 Fe ports certified, and all four of Ethereum's system contracts in Fe",
-        'EIP-4762 on mainnet: +25% gas, 39% of transactions short of gas',
+        'EIP-4762: +25% gas, 39% short (ethereumjs agrees); Glamsterdam: 35% would fail',
       ],
     },
     narration:
-      "fevm-replay: mainnet blocks validated statelessly, natively and in your browser, Ethereum's own system code in Fe, and what stateless Ethereum would cost. Code on GitHub, results at {fevm-replay.vercel.app|fevm-replay dot vercel dot app}.",
+      "fevm-replay: mainnet blocks validated statelessly, natively and in your browser, with a light client, Ethereum's own system code in Fe, and what stateless Ethereum and Glamsterdam would cost. Code on GitHub, results at {fevm-replay.vercel.app|fevm-replay dot vercel dot app}.",
     source: 'README "For judges: one screen"',
   },
 ];

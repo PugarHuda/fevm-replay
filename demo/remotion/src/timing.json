@@ -278,26 +278,26 @@
   }
  },
  "end": {
-  "audio": 12.888,
+  "audio": 14.664,
   "captions": [
    {
     "start": 0.115541,
-    "end": 1.323541,
+    "end": 1.407583,
     "text": "fevm-replay:"
    },
    {
-    "start": 1.323541,
-    "end": 4.979,
-    "text": "mainnet blocks validated statelessly, natively and in your browser,"
+    "start": 1.407583,
+    "end": 6.050416,
+    "text": "mainnet blocks validated statelessly, natively and in your browser, with a light client,"
    },
    {
-    "start": 4.979,
-    "end": 9.170166,
-    "text": "Ethereum's own system code in Fe, and what stateless Ethereum would cost."
+    "start": 6.050416,
+    "end": 11.176458,
+    "text": "Ethereum's own system code in Fe, and what stateless Ethereum and Glamsterdam would cost."
    },
    {
-    "start": 9.170166,
-    "end": 12.873541,
+    "start": 11.176458,
+    "end": 14.648750000000001,
     "text": "Code on GitHub, results at fevm-replay.vercel.app."
    }
   ],
@@ -401,75 +401,85 @@
   }
  },
  "eip4762": {
-  "audio": 18.312,
+  "audio": 24.792,
   "captions": [
    {
     "start": 0.084041,
-    "end": 2.027291,
+    "end": 2.069333,
     "text": "And what would stateless Ethereum cost?"
    },
    {
-    "start": 2.027291,
-    "end": 7.888666,
+    "start": 2.069333,
+    "end": 7.720583,
     "text": "Priced by the EIP-4762 draft, these blocks would need 25% more gas,"
    },
    {
-    "start": 7.888666,
-    "end": 12.100833,
+    "start": 7.720583,
+    "end": 11.775208,
     "text": "and 39% of transactions would run out of gas at the limit they were sent with."
    },
    {
-    "start": 12.100833,
-    "end": 16.271,
+    "start": 11.775208,
+    "end": 15.850833,
     "text": "Exempting the coinbase saves the transfers, but not the contract calls:"
    },
    {
-    "start": 16.271,
-    "end": 18.304206999999998,
+    "start": 15.850833,
+    "end": 17.899166,
     "text": "23% still fail."
+   },
+   {
+    "start": 17.899166,
+    "end": 20.336125,
+    "text": "An independent implementation, ethereumjs,"
+   },
+   {
+    "start": 20.336125,
+    "end": 24.774791,
+    "text": "charges the same gas on all 18,967 transactions."
    }
   ],
   "cues": {
-   "25% more gas": 5.913875,
-   "39% of transactions": 8.004208,
-   "saves the transfers": 13.245791,
-   "not the contract calls": 14.663875
+   "25% more gas": 5.892875,
+   "39% of transactions": 7.846625,
+   "saves the transfers": 12.888666,
+   "not the contract calls": 14.180666
   }
  },
  "system": {
-  "audio": 18.144,
+  "audio": 18.072,
   "captions": [
    {
     "start": 0.105041,
-    "end": 2.752083,
+    "end": 2.573541,
     "text": "Fe can stand in for Ethereum's own code too."
    },
    {
-    "start": 2.752083,
-    "end": 7.426458,
+    "start": 2.573541,
+    "end": 7.310916,
     "text": "All four system contracts the protocol calls in every block are ported from assembly."
    },
    {
-    "start": 7.426458,
-    "end": 11.039916,
+    "start": 7.310916,
+    "end": 10.63025,
     "text": "Here a mainnet block runs its system calls on the Fe ports:"
    },
    {
-    "start": 11.039916,
-    "end": 14.642875,
+    "start": 10.63025,
+    "end": 14.233208,
     "text": "two consolidation requests come out, and every root still matches."
    },
    {
-    "start": 14.642875,
-    "end": 18.157125,
-    "text": "On 55 blocks it held, after catching one bug in our own port."
+    "start": 14.233208,
+    "end": 18.062583,
+    "text": "On 85 blocks it held, after catching one bug in our own port."
    }
   ],
   "cues": {
-   "runs its system calls": 8.214291,
-   "two consolidation requests": 11.039916,
-   "every root still matches": 13.07775,
-   "On 55 blocks": 14.642875
+   "runs its system calls": 8.15125,
+   "two consolidation requests": 10.63025,
+   "every root still matches": 12.584041,
+   "On 85 blocks": 14.233208
   }
  },
  "browser": {
@@ -501,6 +511,79 @@
    "every root in its header": 10.336125,
    "all 286 transactions": 12.079833,
    "pick a block near the head": 15.871833
+  }
+ },
+ "amsterdam": {
+  "audio": 21.576,
+  "captions": [
+   {
+    "start": 0.073541,
+    "end": 4.222708,
+    "text": "And Glamsterdam, the next fork, whose rules fevm already implements?"
+   },
+   {
+    "start": 4.222708,
+    "end": 9.758416,
+    "text": "The same 18,967 transactions, each with the gas limit it was sent with:"
+   },
+   {
+    "start": 9.758416,
+    "end": 15.903375,
+    "text": "6,693 that succeeded would fail, and the rest would use 25% more gas."
+   },
+   {
+    "start": 15.903375,
+    "end": 18.75,
+    "text": "Over a thousand are plain transfers to new accounts:"
+   },
+   {
+    "start": 18.75,
+    "end": 21.549999000000003,
+    "text": "creating an account now costs state gas."
+   }
+  ],
+  "cues": {
+   "6,693 that succeeded": 9.758416,
+   "Over a thousand": 15.903375
+  }
+ },
+ "light": {
+  "audio": 24.504,
+  "captions": [
+   {
+    "start": 0.084041,
+    "end": 4.170166,
+    "text": "From a terminal, the same module validates a block three behind the head:"
+   },
+   {
+    "start": 4.170166,
+    "end": 8.823541,
+    "text": "223 of 223 transactions match, every root holds."
+   },
+   {
+    "start": 8.823541,
+    "end": 11.712166,
+    "text": "Its hash is checked as a light client checks it:"
+   },
+   {
+    "start": 11.712166,
+    "end": 16.86975,
+    "text": "from a finalized checkpoint, through Ethereum's sync committee, 511 of 512 signed,"
+   },
+   {
+    "start": 16.86975,
+    "end": 23.581916,
+    "text": "and each signature is verified twice, the second time by fevm's own BLS12-381 precompiles,"
+   },
+   {
+    "start": 23.581916,
+    "end": 24.501666,
+    "text": "written in Fe."
+   }
+  ],
+  "cues": {
+   "223 of 223": 4.170166,
+   "from a finalized checkpoint": 11.712166
   }
  }
 }

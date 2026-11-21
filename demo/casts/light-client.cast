@@ -1,0 +1,5 @@
+{"version": 2, "width": 150, "height": 14, "timestamp": 1795281748, "env": {"SHELL": "/bin/bash", "TERM": "xterm-256color"}}
+[0.003924, "o", "\u001b[1;32m$\u001b[0m node wasm/cli.mjs | grep -E \"transactions MATCH|stateRoot|behind the head|light client|every root\"\r\r\n"]
+[44.054778, "o", "chain block: 223/223 transactions MATCH (100%)\r\nstate root: fevm's end state (428 accounts and 1852 slots written) on the parent's witness (10943 nodes, 3677 KiB) hashes to the header's stateRoot\r\n"]
+[45.642053, "o", "block 26464938 (3 behind the head): hash 0x6bce784361d2078880ee31e034b4495e2953b58f46eefd4074b3395b85b72406 given by eth.drpc.org, ethereum-rpc.publicnode.com, rpc.flashbots.net, mainnet.gateway.tenderly.co\r\n"]
+[50.156926, "o", "light client: from the built-in checkpoint 0xa4faecb4… (slot 15704032), 1 sync committee handoff(s), 511/512 signed slot 15704813 (BLS checked by noble and by fevm's own BLS12-381 precompiles, 2 signature(s)) (execution block 26464944), 7 headers hashed back to this block: its hash is the chain's\r\nevery root holds (3.78 s in WebAssembly)\r\n"]

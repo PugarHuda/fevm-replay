@@ -5,7 +5,7 @@
 
 **Site and documentation:** https://fevm-replay.vercel.app (mirror: https://pugarhuda.github.io/fevm-replay/)
 
-**Try it first (no install):** [validate a block fresh from the chain's head in your browser](https://fevm-replay.vercel.app/verify.html?block=live): fevm, compiled from Fe to WebAssembly, proves it against every root in its header, and a light client checks its hash: Ethereum's sync committee signed a header that hashes back to it. Or [watch the 3-minute tour](https://fevm-replay.vercel.app/#tour).
+**Try it first (no install):** [validate a block fresh from the chain's head in your browser](https://fevm-replay.vercel.app/verify.html?block=live): fevm, compiled from Fe to WebAssembly, proves it against every root in its header, and a light client checks its hash: Ethereum's sync committee signed a header that hashes back to it. Or [watch the 4-minute tour](https://fevm-replay.vercel.app/#tour).
 
 **Pitch:** Replay real Ethereum mainnet transactions inside
 [fevm](https://github.com/fe-lang/fevm), the EVM written in Fe, and prove
@@ -36,7 +36,7 @@ Replaying is fast: those 5,129 transactions take 5.9 seconds once fetched.
 | **Found** | 4 bugs in the Fe ports (one in our own EIP-7002 port, found by validating a mainnet block on it), 2 node tracer bugs, the transactions the Osaka fork changed, where Fe's code cost more than solc's ([argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002), since fixed in Fe's std), and that Fe's WebAssembly backend emits fevm's tail-call dispatch as plain calls, which overflow a browser's stack ([`web/tailcalls.py`](web/tailcalls.py) works around it), and that even as tail calls each still takes a frame of the module's own 1 MiB stack, so 38 of 51 mainnet blocks trap until it is 64 MiB |
 | **Upstream** | fe#2002 led to `Call::forward_delegatecall` in Fe's std ([argotorg/fe#2004](https://github.com/argotorg/fe/pull/2004), merged); our request in [fevm#26](https://github.com/fe-lang/fevm/issues/26) became the operand stack in `Tracer::step` ([fevm#32](https://github.com/fe-lang/fevm/pull/32)); dRPC is deploying a fix for the tracer bug we reported |
 | **Beside fevm's chain** | fevm now imports blocks itself ([`fevm_chain`](https://github.com/fe-lang/fevm/tree/main/ingots/chain)), on a full world and its conformance fixtures. fevm-replay is the other half: mainnet blocks, a *partial* world from the parent's proofs, the state root computed from that witness, and Fe ports in place of Solidity. It builds on that fevm and runs each block through `fevm_chain` and `fevm::Block` too: both drivers agree with the header on all 85 blocks ([more](#beside-fevms-chain-layer)) |
-| **Watch** | [3-minute tour](https://fevm-replay.vercel.app/#tour) ([`demo/tour-v5.mp4`](demo/tour-v5.mp4)): the site and real terminal runs, driven like a user, with captions, highlights and a neural voice |
+| **Watch** | [4-minute tour](https://fevm-replay.vercel.app/#tour) ([`demo/tour-v6.mp4`](demo/tour-v6.mp4)): the site and real terminal runs, driven like a user, with captions, highlights and a neural voice |
 | **Try** | No Fe needed: [three commands](#try-it-without-fe) with the release binary; with Node.js alone, `node wasm/cli.mjs` (in the release) validates a block near the head, as the browser page does |
 
 The rest of this README is the full account: [problem](#the-problem),
@@ -751,7 +751,7 @@ the free `https://eth.drpc.org`; pass another URL as the last argument.
 ![fevm-replay fetching and replaying a mainnet transaction, a negative fixture, a whole block and a shadow replay of Fe WETH9](demo/demo.svg)
 
 The recording is [`demo/demo.sh`](demo/demo.sh) (asciinema, svg-term).
-Videos: [`demo/tour-v5.mp4`](demo/tour-v5.mp4), the current tour (2:51: a block validated in the browser, geth and fevm_chain agreeing; [`demo/tour-v2.mp4`](demo/tour-v2.mp4) is the one before the system contracts and EIP-4762): Playwright drives the
+Videos: [`demo/tour-v6.mp4`](demo/tour-v6.mp4), the current tour (3:48: a block validated in the browser, the light client with fevm's BLS precompiles, Glamsterdam on 85 blocks, geth and fevm_chain agreeing; [`demo/tour-v5.mp4`](demo/tour-v5.mp4) is the one before the light client; [`demo/tour-v2.mp4`](demo/tour-v2.mp4) is the one before the system contracts and EIP-4762): Playwright drives the
 site like a user, real asciinema recordings of the tool ([`demo/casts`](demo/casts)) play
 as terminals, and Remotion adds highlights, zooms, captions and an `edge-tts` voice
 ([`demo/remotion`](demo/remotion)); [`demo/tour-narrated.mp4`](demo/tour-narrated.mp4) and

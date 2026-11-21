@@ -3,7 +3,7 @@ name: Site
 on:
   push:
     branches: [main]
-    paths: [site/**, demo/tour-v5.mp4, .github/workflows/pages.yml]
+    paths: [site/**, demo/tour-v6.mp4, .github/workflows/pages.yml]
   # The follower's commits come from GITHUB_TOKEN, which starts no push
   # workflow: deploy when it finishes.
   workflow_run:
@@ -31,7 +31,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/configure-pages@v5
       # The tour is served from the site too; it lives once, in demo/.
-      - run: cp demo/tour-v5.mp4 site/tour.mp4
+      - run: cp demo/tour-v6.mp4 site/tour.mp4
       - uses: actions/upload-pages-artifact@v4
         with:
           path: site
