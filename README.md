@@ -7,6 +7,17 @@
 
 **Try it first (no install):** [validate a block fresh from the chain's head in your browser](https://fevm-replay.vercel.app/verify.html?block=live): fevm, compiled from Fe to WebAssembly, proves it against every root in its header, and a light client checks its hash: Ethereum's sync committee signed a header that hashes back to it. Or [watch the 4-minute tour](https://fevm-replay.vercel.app/#tour).
 
+**Also try:** [would your transaction survive Glamsterdam?](https://fevm-replay.vercel.app/glamsterdam.html) Paste a recent transaction, or check a whole block near the head.
+
+**What it found**, each reproducible from this repository:
+
+1. fevm agrees with mainnet on 115,213 transactions and, statelessly, on every root of 85 blocks; fevm_chain and geth agree on all 85 ([results](#results), [roots](#every-root-in-the-header)).
+2. Glamsterdam's execution rules would make 35% of today's transactions fail as sent, 64% of those for EIP-8037's state gas: a plain transfer to a new account needs 204,600 gas, not 21,000. geth's Amsterdam rules agree with fevm's on 3,398 of 3,398 transactions ([more](#every-root-in-the-header)).
+3. EIP-4762 (Draft) would cost 25% more gas and leave 39% of transactions short; exempting the coinbase saves transfers, not calls. ethereumjs charges the same on all 18,967 ([findings](docs/stateless-findings.md)).
+4. Fe's WebAssembly backend keeps fevm's tail calls as plain calls; the cause is Sonatina's `tail_call_sites` filter (aggregate arguments built in the caller's frame), with a repro ([argotorg/fe#2056](https://github.com/argotorg/fe/issues/2056)). Fe's std has no INVALID ([#2059](https://github.com/argotorg/fe/issues/2059)); an earlier gas map led to `Call::forward_delegatecall` ([#2004](https://github.com/argotorg/fe/pull/2004)).
+5. Four bugs in the Fe ports, one in our EIP-7002 port found only by validating a mainnet block on it; two node tracer bugs ([Fe ports](#fe-ports-shadow-replayed)).
+6. fevm passes execution-spec-tests v21.0.3, released 20 Nov, including its new trie cases ([fe-lang/fevm#33](https://github.com/fe-lang/fevm/pull/33)).
+
 **Pitch:** Replay real Ethereum mainnet transactions inside
 [fevm](https://github.com/fe-lang/fevm), the EVM written in Fe, and prove
 that each one ends exactly as it did on chain: status, gas, logs and every
