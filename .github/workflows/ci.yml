@@ -109,6 +109,7 @@ jobs:
           node web/test.mjs out/web/fevm_replay_web.wasm
           node site/wasm/cli.mjs fixtures/proven/0x19335e5.tar.gz | grep "every root holds"
           node web/lightclient-test.mjs
+          (cd docs/eip4762-check && npm ci --ignore-scripts && WASM=../../out/web/fevm_replay_web.wasm MANIFEST=../../out/web/fevm_replay_web.manifest.json node compare.mjs ../../fixtures/proven/0x19335e5.tar.gz ../../fixtures/proven/0x192f56b.tar.gz)
 
       - name: Build fevm-replay
         run: fe build --backend native -O 2 --emit executable --out-dir out .

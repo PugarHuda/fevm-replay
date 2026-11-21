@@ -243,3 +243,73 @@ uses (files: mut Files, out: mut Stdout)
     println!("]}")
     Reply::ok(1)
 }
+
+/// EIP-4762's witness charges for each transaction of a block, as the
+/// native tool computes them (`replay_core::gas4762::charge`), for an
+/// independent implementation to be checked against: `name` holds the
+/// node's `block`, `receipts`, `prestate` and `diff` answers and, if given,
+/// `chunks`: per transaction, `{address: ["0x" chunk...]}` of code run. Prints
+/// one `[witness, code, writes, coinbase, today]` per transaction.
+#[unsafe(export)]
+pub fn witness_gas(name: HostText) -> Reply
+uses (files: mut Files, out: mut Stdout)
+{
+    let data = match read_all(name) {
+        Result::Ok(data) => data,
+        Result::Err(code) => {
+            return Reply::error(code)
+        },
+    }
+    let Result::Ok(doc) = parse(data.as_slice()) else {
+        return Reply::error(100)
+    }
+    let header = ref doc["block"]["result"]
+    let txs = header["transactions"].items()
+    let receipts = doc["receipts"]["result"].items()
+    let prestates = doc["prestate"]["result"].items()
+    let diffs = doc["diff"]["result"].items()
+    print!("[")
+    for t in 0 .. txs.len() {
+        var chunks = fevm::WorldState::empty()
+        if doc.has("chunks") {
+            for ref ran in doc["chunks"].items()[t].members() {
+                let address = parse_hex_uint(ran.key.span()).unwrap_or(default: 0)
+                let _ = chunks.ensure_account(address)
+                for ref c in ran.value.items() {
+                    let _ = chunks.storage_store(address, number(c), 1)
+                }
+            }
+        }
+        let created = load::field(receipts[t], "contractAddress")
+        let charged = replay_core::gas4762::charge(
+            prestates[t]["result"],
+            diffs[t]["result"]["pre"],
+            diffs[t]["result"]["post"],
+            chunks,
+            origin: load::field(txs[t], "from"),
+            target: if created != 0 {
+                created
+            } else {
+                load::field(txs[t], "to")
+            },
+            value: load::field(txs[t], "value"),
+            coinbase: load::field(header, "miner"),
+        )
+        if t > 0 { print!(",") }
+        print!(
+            "[",
+            decimal(charged.witness as u256),
+            ",",
+            decimal(charged.code as u256),
+            ",",
+            decimal(charged.writes as u256),
+            ",",
+            decimal(charged.coinbase as u256),
+            ",",
+            decimal(charged.today as u256),
+            "]",
+        )
+    }
+    println!("]")
+    Reply::ok(1)
+}

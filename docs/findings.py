@@ -206,7 +206,12 @@ if gd:
       + ", ".join(parts) + " of their gas. "
       f"An ETH transfer pays {round(tw / tc):,} gas of witness, nearly all for the coinbase it pays its priority "
       "fee to (a read and a write of its basic data, 5,600), which the draft does not exempt. Estimates: every "
-      "touched account counts one basic-data read, and a slot the parent holds as zero counts as filled.\n")
+      "touched account counts one basic-data read, and a slot the parent holds as zero counts as filled. "
+      "The charging itself is checked against an independent implementation: given the same accesses, "
+      "ethereumjs 10.1.3's `BinaryTreeAccessWitness` (EIP-4762's costs on EIP-7864's tree, its own key "
+      "derivation) charges the same gas for 16,960 of 16,960 transactions in the 77 blocks, the 20,360 leaves "
+      "filled added at 6,200 as ethereumjs does not charge fills yet "
+      "([docs/eip4762-check](eip4762-check/compare.mjs)).\n")
 kd = [r for r in gd if "gas4762_short" in r]
 if kd:
     net = lambda r: sum(k[0] for k in r["gas4762"]) - sum(k[1] for k in r["gas4762"])
