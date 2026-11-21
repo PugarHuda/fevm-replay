@@ -62,17 +62,20 @@ fn kind_name(_ k: usize) -> String<24> {
     }
 }
 
-struct Run {
-    ok: bool,
-    gas: u64,
-    state: u64,
-}
+struct Run { ok: bool, gas: u64, state: u64 }
 
 impl Copy for Run {}
 
 // The transaction under Amsterdam with gas limit `limit`, priced at zero so
 // that its sender can afford any limit (the base fee check is off for it).
-fn run_at(_ prestate: Value, _ env: BlockEnv, _ parent: u256, _ extras: Value, _ tx: Value, _ limit: u64) -> Run {
+fn run_at(
+    _ prestate: Value,
+    _ env: BlockEnv,
+    _ parent: u256,
+    _ extras: Value,
+    _ tx: Value,
+    _ limit: u64,
+) -> Run {
     let none = MemBuffer::empty()
     var tracer = ()
     var buffers = Buffers::new()
@@ -82,21 +85,39 @@ fn run_at(_ prestate: Value, _ env: BlockEnv, _ parent: u256, _ extras: Value, _
     var config = Config::amsterdam()
     config.check_base_fee = false
     let r = compat::transact(
-        replay::build_world(prestate, env, parent, extras, core::MemVec::new(), none.span()),
+        replay::build_world(
+            prestate,
+            env,
+            parent,
+            extras,
+            core::MemVec::new(),
+            none.span(),
+        ),
         request,
         env,
         config,
         mut buffers,
         mut tracer,
     )
-    Run { ok: r.receipt.invalid == VALID && r.receipt.status == OK, gas: r.receipt.gas_used, state: r.receipt.state_gas_used }
+    Run {
+        ok: r.receipt.invalid == VALID && r.receipt.status == OK,
+        gas: r.receipt.gas_used,
+        state: r.receipt.state_gas_used,
+    }
 }
 
 const CAP: u64 = 16777216
 
 // The least gas limit under which the transaction succeeds under Amsterdam
 // (binary search up to EIP-7825's cap), or 0 if none does.
-fn least_limit(_ prestate: Value, _ env: BlockEnv, _ parent: u256, _ extras: Value, _ tx: Value, _ from: u64) -> u64 {
+fn least_limit(
+    _ prestate: Value,
+    _ env: BlockEnv,
+    _ parent: u256,
+    _ extras: Value,
+    _ tx: Value,
+    _ from: u64,
+) -> u64 {
     if !run_at(prestate, env, parent, extras, tx, CAP).ok {
         return 0
     }
@@ -227,7 +248,8 @@ uses (args: std::env::Args, fs: mut Fs, out: mut Stdout)
             }
             count[k] += 1
             let limit: u64 = field(txs[index], "gas").downcast_truncate()
-            if osaka.receipt.status == OK && (next.receipt.invalid != VALID || next.receipt.status != OK) {
+            if osaka.receipt.status == OK
+                && (next.receipt.invalid != VALID || next.receipt.status != OK) {
                 let parent = field(header, "parentHash")
                 let least = least_limit(prestate, env, parent, extras, txs[index], limit)
                 if least == 0 {
@@ -242,7 +264,13 @@ uses (args: std::env::Args, fs: mut Fs, out: mut Stdout)
                     }
                     let at = run_at(prestate, env, parent, extras, txs[index], least)
                     let execution = at.gas - at.state
-                    if at.state >= execution - (if execution > osaka.receipt.gas_used { osaka.receipt.gas_used } else { execution }) {
+                    if at.state
+                        >= execution -
+                            (if execution > osaka.receipt.gas_used {
+                                osaka.receipt.gas_used
+                            } else {
+                                execution
+                            }) {
                         by_state += 1
                     } else {
                         by_execution += 1

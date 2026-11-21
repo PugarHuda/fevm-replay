@@ -128,7 +128,9 @@ uses (args: Args, fs: mut std::fs::Fs, proc: mut std::process::Spawn, out: mut S
         )
         println!("       fevm-replay geth-block <geth-evm> <dir>...")
         println!("       fevm-replay amsterdam <dir>...")
-        println!("       fevm-replay geth-amsterdam <geth-evm> <dir> <runs> <seed>")
+        println!(
+            "       fevm-replay geth-amsterdam <geth-evm> <dir> <runs> <seed>",
+        )
         println!(
             "       fevm-replay certify-system <out-dir> <certificate.html> <dir>...",
         )
