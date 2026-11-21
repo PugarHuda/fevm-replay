@@ -10,7 +10,8 @@
 // Exits 0 if every transaction matched and every root in the header held.
 import fs from "node:fs";
 import { bundle, untar, validate } from "./block.mjs";
-import { anchor, archive, atNumber, fetchBlock, olderHashes, pickBlock } from "./live.mjs";
+import { anchor, archive, atNumber, fetchBlock, headersBetween, olderHashes, pickBlock } from "./live.mjs";
+import { lightClient } from "./lightclient.mjs";
 
 const here = new URL("./", import.meta.url);
 const wasm = fs.readFileSync(new URL("fevm_replay_web.wasm", here));
@@ -46,6 +47,13 @@ if (live) {
   const a = await anchor(live.number, hash);
   console.log(`block ${live.number} (${live.head - live.number} behind the head${a.finalized != null && a.finalized >= live.number ? ", finalized" : ""}): hash ${hash} given by eth.drpc.org${a.agree.map((n) => ", " + n).join("")}` +
     (a.differ.length ? `; DIFFERENT at ${a.differ.join(", ")}` : ""));
+  let light;
+  try {
+    light = await lightClient(live.number, hash, headersBetween, step);
+    console.log(`light client: from checkpoint ${light.checkpoint.root.slice(0, 10)}… (slot ${light.checkpoint.slot}), ${light.handoffs.length} sync committee handoff(s), ${light.signers}/512 signed slot ${light.slot} (execution block ${light.top}), ${light.headers} headers hashed back to this block: its hash is the chain's`);
+  } catch (e) {
+    console.log(`light client: could not confirm the hash (${e.message})`);
+  }
   if (save) {
     const name = "0x" + live.number.toString(16);
     fs.writeFileSync(`${name}.tar.gz`, Buffer.from(await (await archive(name, live.files)).arrayBuffer()));

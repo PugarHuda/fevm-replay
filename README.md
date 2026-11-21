@@ -5,7 +5,7 @@
 
 **Site and documentation:** https://fevm-replay.vercel.app (mirror: https://pugarhuda.github.io/fevm-replay/)
 
-**Try it first (no install):** [validate a block fresh from the chain's head in your browser](https://fevm-replay.vercel.app/verify.html?block=live): fevm, compiled from Fe to WebAssembly, proves it against every root in its header, and three independent nodes vouch for its hash. Or [watch the 3-minute tour](https://fevm-replay.vercel.app/#tour).
+**Try it first (no install):** [validate a block fresh from the chain's head in your browser](https://fevm-replay.vercel.app/verify.html?block=live): fevm, compiled from Fe to WebAssembly, proves it against every root in its header, and a light client checks its hash: Ethereum's sync committee signed a header that hashes back to it. Or [watch the 3-minute tour](https://fevm-replay.vercel.app/#tour).
 
 **Pitch:** Replay real Ethereum mainnet transactions inside
 [fevm](https://github.com/fe-lang/fevm), the EVM written in Fe, and prove
@@ -32,7 +32,7 @@ Replaying is fast: those 5,129 transactions take 5.9 seconds once fetched.
 | **For EIP authors** | Measured on 77 mainnet blocks over 5 days ([findings](docs/stateless-findings.md)): code is 45% of a stateless witness; EIP-4762 (Draft) would cost 25% more gas, and 39% of transactions, sent with the same gas limit, would run out of gas. Exempting the coinbase, as the draft exempts the sender and target, brings that to 14%: it saves ETH transfers (58% short, 1.6% exempt) but not contract calls (27%, still 23%: code and storage). Code at half price would bring it to 5.8%, free code to 1.4% |
 | **Fe ports** | 5 ports (USDT, every Uniswap V2 pair, WETH9, DAI, USDC's proxy) certified by mainnet replay, mainnet mutations, fuzzing and mutation testing ([verified page](https://fevm-replay.vercel.app/verified.html)). Also all four of Ethereum's system contracts (EIP-4788, EIP-2935, EIP-7002, EIP-7251), ported from assembly: on 77 mainnet blocks they store and return what the deployed ones do, and with all four system calls run by the Fe ports every root in the header still matches; the mainnet transactions that call them run identically ([more](#ethereums-own-system-contracts-in-fe)) |
 | **Gas vs Solidity** | On 57,034 mainnet calls in identical transactions, the five Fe ports used 3.3% less gas than the deployed solc bytecode; 59 of 61 functions are cheaper (USDT −4.4%, WETH9 −4.0%, DAI −1.6%, pair −1.1%, USDC proxy −1.0%). The system contracts go the other way: hand-written assembly beats them by 24 to 2,026 gas a call ([per function](docs/gas.md)) |
-| **Fe-specific** | Effects prove validation needs no file, process or network, so the same Fe compiles to WebAssembly with fevm in it: [validate a whole mainnet block in your browser](https://fevm-replay.vercel.app/verify.html), every root in its header, including a block near the chain's head your browser fetches itself from public nodes (all 77 stateless blocks validate in the module); `const fn` + `static_assert` check the blob fee against a real block; std units, `core::fixed`, `msg`/`recv` ([Fe highlight](#fe-highlight)) |
+| **Fe-specific** | Effects prove validation needs no file, process or network, so the same Fe compiles to WebAssembly with fevm in it: [validate a whole mainnet block in your browser](https://fevm-replay.vercel.app/verify.html), every root in its header, including a block near the chain's head your browser fetches itself from public nodes, its hash checked by a light client against Ethereum's sync committee signatures (all 77 stateless blocks validate in the module); `const fn` + `static_assert` check the blob fee against a real block; std units, `core::fixed`, `msg`/`recv` ([Fe highlight](#fe-highlight)) |
 | **Found** | 4 bugs in the Fe ports (one in our own EIP-7002 port, found by validating a mainnet block on it), 2 node tracer bugs, the transactions the Osaka fork changed, where Fe's code cost more than solc's ([argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002), since fixed in Fe's std), and that Fe's WebAssembly backend emits fevm's tail-call dispatch as plain calls, which overflow a browser's stack ([`web/tailcalls.py`](web/tailcalls.py) works around it), and that even as tail calls each still takes a frame of the module's own 1 MiB stack, so 38 of 51 mainnet blocks trap until it is 64 MiB |
 | **Upstream** | fe#2002 led to `Call::forward_delegatecall` in Fe's std ([argotorg/fe#2004](https://github.com/argotorg/fe/pull/2004), merged); our request in [fevm#26](https://github.com/fe-lang/fevm/issues/26) became the operand stack in `Tracer::step` ([fevm#32](https://github.com/fe-lang/fevm/pull/32)); dRPC is deploying a fix for the tracer bug we reported |
 | **Beside fevm's chain** | fevm now imports blocks itself ([`fevm_chain`](https://github.com/fe-lang/fevm/tree/main/ingots/chain)), on a full world and its conformance fixtures. fevm-replay is the other half: mainnet blocks, a *partial* world from the parent's proofs, the state root computed from that witness, and Fe ports in place of Solidity. It builds on that fevm and runs each block through `fevm_chain` and `fevm::Block` too: both drivers agree with the header on all 77 blocks ([more](#beside-fevms-chain-layer)) |
@@ -565,10 +565,36 @@ Rust) inside a guest with no I/O, and check the header's roots. fevm-replay
 does the same with an EVM written in Fe, and Fe's effects make "no I/O"
 something the compiler checks rather than a convention: the validation
 (`ingots/replay_core`) asks for no capability, which is why the same code
-builds to WebAssembly and runs in a browser tab. What it does not do yet is
-what a light client like Helios adds: the block's hash comes from public
-nodes that must agree (four, for a live block), not from the beacon chain's
-sync committee.
+builds to WebAssembly and runs in a browser tab.
+
+What rsp and zeth leave to the caller, the block's hash, the browser and
+`node wasm/cli.mjs` check as a light client like Helios does
+([`site/wasm/lightclient.mjs`](site/wasm/lightclient.mjs), the Altair light
+client protocol):
+
+1. Start from one finalized beacon block root written in the code (slot
+   15,704,032, 21 Nov 2026), the only thing trusted, and its sync
+   committee, proven against that block's state root.
+2. Follow each sync committee handoff since: the next committee is proven
+   against a header the current one signed (BLS, 2/3 or more of 512).
+3. Take the newest header the committee signed (the optimistic update),
+   and the execution block proven against its body root.
+4. Hash execution headers back from that block to the validated one; each
+   header's keccak256 must be the next one's `parentHash`.
+
+```
+light client: from checkpoint 0xa4faecb4… (slot 15704032), 1 sync committee handoff(s),
+511/512 signed slot 15704132 (execution block 26464265), 9 headers hashed back to this block:
+its hash is the chain's
+```
+
+Beacon nodes (publicnode and Lodestar, both allow the browser) and RPC
+nodes only supply data. `node web/lightclient-test.mjs` (in CI) replays a
+recorded run and checks that 13 lies are each caught: a valid signature
+over another header, a signer dropped from the bits, a changed slot,
+execution hash or block number, a changed header field or `parentHash`, a
+wrong key in either committee, a changed finalized header or checkpoint.
+BLS and keccak come from noble (MIT), bundled into `site/wasm/noble.mjs`.
 
 ## Try it without Fe
 
@@ -662,6 +688,13 @@ What a MATCH or a clean certificate rests on:
   block hash alone. fevm's receipts, logs and gas, the transactions and the
   withdrawals are checked against the header for every saved block, with
   or without proofs.
+- **A live block's hash rests on a light client.** The browser and
+  `node wasm/cli.mjs` check it from one finalized beacon block root in
+  `site/wasm/lightclient.mjs` through Ethereum's sync committee signatures
+  ([more](#beside-rsp-zeth-and-light-clients)). A checkpoint older than the
+  weak subjectivity period (about two weeks of validator churn) should be
+  replaced; the native `chain` checks a saved block's headers against each
+  other but takes the newest hash from the node.
 - **A load-balanced endpoint can mix nodes** near the chain head. Fetch a
   few blocks behind it.
 - **Fixtures are trusted input.** A replay reads only the fixture file, and

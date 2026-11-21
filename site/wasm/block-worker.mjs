@@ -2,7 +2,8 @@
 // block (or, with `live`, a block near the head straight from public
 // nodes), and posts back progress, then the module's verdict and output.
 import { bundle, tamper, untar, validate } from "./block.mjs";
-import { anchor, archive, atNumber, fetchBlock, olderHashes, pickBlock } from "./live.mjs";
+import { anchor, archive, atNumber, fetchBlock, headersBetween, olderHashes, pickBlock } from "./live.mjs";
+import { lightClient } from "./lightclient.mjs";
 
 // The saved block the page validates when the public nodes will not serve a live one.
 const FALLBACK = "block-0x19335c4.tar.gz";
@@ -63,6 +64,11 @@ onmessage = async ({ data }) => {
       step("Asking independent nodes for the block's hash…");
       const hash = JSON.parse(live.files.block).result.hash;
       anchored = { hash, ...await anchor(live.number, hash) };
+      try {
+        anchored.light = await lightClient(live.number, hash, headersBetween, step);
+      } catch (e) {
+        anchored.light = { error: e.message };
+      }
       saved = await archive(hex(live.number), live.files);
     }
     postMessage({ done: true, reply, out, ms, size: bytes.byteLength, live: live && { number: live.number, head: live.head, transactions: live.transactions, accounts: live.accounts, slots: live.slots }, anchored, saved, fallback });

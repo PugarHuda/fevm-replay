@@ -161,6 +161,14 @@ export async function olderHashes(number, step) {
   return Object.fromEntries(headers.map((h) => [h.number, h.hash]));
 }
 
+/** Execution headers `from..to`, in order (for the light client's hash chain). */
+export async function headersBetween(from, to) {
+  const numbers = Array.from({ length: to - from + 1 }, (_, i) => from + i);
+  const groups = [];
+  for (let i = 0; i < numbers.length; i += 3) groups.push(numbers.slice(i, i + 3));
+  return (await pool(groups, 4, (g) => batch(PROOF_NODES, g.map((n) => ["eth_getBlockByNumber", [hex(n), false]])))).flat();
+}
+
 /** `files` as a gzipped tar of `dir/<name>.json`, the layout `fevm_replay chain <dir>` reads. */
 export async function archive(dir, files) {
   const enc = new TextEncoder();

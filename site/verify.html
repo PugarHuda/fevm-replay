@@ -67,7 +67,7 @@
     <label><input type="checkbox" id="btamper"> a receipt claims one more gas than the transaction used</label>
     <button class="primary" id="brun">Validate</button>
   </div>
-  <p class="note" id="blive">"Near the head": your browser asks <code>eth.drpc.org</code> for the block, its receipts and its prestate traces, lets the module's <code>witness_keys</code> (the Fe that decides what <code>fetch-proofs</code> fetches natively) say which accounts and slots to prove, asks <code>ethereum-rpc.publicnode.com</code> for those proofs at the parent and at the block, and validates. Afterwards you can save what it fetched and check it natively with <code>fevm_replay chain</code>.</p>
+  <p class="note" id="blive">"Near the head": your browser asks <code>eth.drpc.org</code> for the block, its receipts and its prestate traces, lets the module's <code>witness_keys</code> (the Fe that decides what <code>fetch-proofs</code> fetches natively) say which accounts and slots to prove, asks <code>ethereum-rpc.publicnode.com</code> for those proofs at the parent and at the block, and validates. Then the hash itself: as a light client does (<a href="https://github.com/PugarHuda/fevm-replay/blob/main/site/wasm/lightclient.mjs"><code>lightclient.mjs</code></a>), the page starts from one finalized beacon block written in the code, checks each sync committee handoff since (BLS signatures, 2/3 or more of 512), takes the newest header the committee signed and the execution block proven in it, and hashes the headers back to this block. Beacon nodes (publicnode, Lodestar) only supply data. Afterwards you can save what it fetched and check it natively with <code>fevm_replay chain</code>.</p>
   <p class="note">Or validate your own block: <label>a <code>.tar.gz</code> of a directory written by <code>fevm_replay fetch</code> and <code>fetch-proofs</code> <input type="file" id="bfile" accept=".gz,.tgz,application/gzip"></label>. It stays in your browser.</p>
   <p class="verdict" id="bverdict" aria-live="polite"></p>
   <pre id="bout">fevm runs in a worker, off the page's thread.</pre>
@@ -188,7 +188,11 @@ async function start() {
       const trust = a.differ.length
         ? `WARNING: ${a.differ.join(", ")} gave a different hash for this height (a reorg, or a node on another chain).`
         : `Its hash ${a.hash.slice(0, 10)}… is what ${["eth.drpc.org", ...a.agree].join(", ")} all give for this height${a.silent.length ? ` (${a.silent.join(", ")} did not answer)` : ""}: fevm proved the block against that hash, nothing else from the nodes is trusted.`;
-      bout.textContent = `Block ${data.live.number.toLocaleString("en")}, ${behind} behind the head (${data.live.head.toLocaleString("en")}).${final} ${trust} ${data.live.transactions} transactions; ${data.live.accounts} accounts and ${data.live.slots} slots proven at both ends.
+      const l = a.light;
+      const light = !l ? "" : l.error
+        ? ` Light client: could not confirm the hash (${l.error}).`
+        : ` Light client: from the checkpoint written in lightclient.mjs (beacon block ${l.checkpoint.root.slice(0, 10)}…, slot ${l.checkpoint.slot.toLocaleString("en")}), ${l.handoffs.length} sync committee handoff${l.handoffs.length === 1 ? "" : "s"} checked; ${l.signers} of 512 of the sync committee signed slot ${l.slot.toLocaleString("en")}, whose execution block ${l.top.toLocaleString("en")} hashes back through ${l.headers} headers to this one. The hash is the chain's, not only the nodes' word.`;
+      bout.textContent = `Block ${data.live.number.toLocaleString("en")}, ${behind} behind the head (${data.live.head.toLocaleString("en")}).${final} ${trust}${light} ${data.live.transactions} transactions; ${data.live.accounts} accounts and ${data.live.slots} slots proven at both ends.
 
 ` + data.out;
       bverdict.after(Object.assign(document.createElement("p"), { className: "note", id: "bsave" }));
@@ -199,7 +203,7 @@ async function start() {
     }
     const s = (data.ms / 1000).toFixed(2);
     if (data.reply.ok && data.reply.value === 1) {
-      bverdict.textContent = `Every root holds: fevm validated the block in ${s} s in your browser.` + (!data.anchored ? "" : data.anchored.differ.length ? " But the nodes do not agree on its hash: see below." : ` Its hash is the one ${1 + data.anchored.agree.length} independent nodes give.`);
+      bverdict.textContent = `Every root holds: fevm validated the block in ${s} s in your browser.` + (!data.anchored ? "" : data.anchored.differ.length ? " But the nodes do not agree on its hash: see below." : data.anchored.light && !data.anchored.light.error ? ` Its hash is signed by ${data.anchored.light.signers} of 512 of Ethereum's sync committee (light client), and ${1 + data.anchored.agree.length} nodes give it.` : ` Its hash is the one ${1 + data.anchored.agree.length} independent nodes give.`);
       bverdict.classList.add("ok");
     } else {
       bverdict.textContent = `The block does not validate as given (${s} s).`;
