@@ -310,7 +310,9 @@ Any recent mainnet transaction can be checked the same way in the browser:
 node for its prestate trace and runs it in the WebAssembly module (the
 `amsterdam_tx` export) under both forks, then searches the least gas limit
 that would do. A plain transfer to a new account, sent with 21,000, would
-need 204,600, of which 183,600 is state gas.
+need 204,600, of which 183,600 is state gas. The page also checks a whole block
+two behind the head, every transaction from its prestate trace, in a few
+seconds (one at 26,465,300: 91 of 209 would not survive as sent).
 
 geth agrees. `fevm_replay geth-amsterdam <geth-evm> <dir> <runs> <seed>`
 gives the same signed mainnet transactions, on the same pre-state, to

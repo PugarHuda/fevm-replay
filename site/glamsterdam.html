@@ -61,7 +61,12 @@
     <button class="primary" id="go">Check</button>
   </div>
   <p class="note">Examples from block 26,424,805: <a href="#0xd1163b9a4766267495dd7f4989552f22108fc05d1fcfb4b436ce7ecf656999aa" class="ex">a transfer to a new account, sent with 21,000 gas</a>, <a href="#0x821f49c7fd909e8e511e3de1a3371a9e6f23944973eed0b73c19799da644b575" class="ex">a contract call</a>.</p>
+  <div class="controls">
+    <button id="blockgo">Check a whole block near the head</button>
+    <span class="note">every transaction of the block two behind the head, one after another</span>
+  </div>
   <p class="verdict" id="verdict" aria-live="polite"></p>
+  <table id="failing" style="display:none;border-collapse:collapse;font-family:'JetBrains Mono',monospace;font-size:0.85rem;margin:0 0 1rem;overflow-x:auto;max-width:100%"><thead><tr><th style="text-align:left;padding-right:1rem">Tx</th><th style="text-align:right;padding-right:1rem">Sent with</th><th style="text-align:right;padding-right:1rem">Needs</th><th style="text-align:right">State gas</th></tr></thead><tbody></tbody></table>
   <pre id="out">fevm runs in your browser; only the node's questions leave it.</pre>
 </main>
 
@@ -124,6 +129,48 @@ async function check(hash) {
   } catch (e) { out.textContent = "Could not check it: " + e.message; }
   go.disabled = false;
 }
+async function checkBlock() {
+  const blockgo = document.getElementById("blockgo"), table = document.getElementById("failing"), rows = table.tBodies[0];
+  blockgo.disabled = go.disabled = true; verdict.textContent = ""; verdict.className = "verdict"; rows.replaceChildren(); table.style.display = "none";
+  try {
+    out.textContent = "Asking a node for the head…";
+    const head = Number(await rpc("eth_blockNumber", []));
+    const number = "0x" + (head - 2).toString(16);
+    const [bytes, manifest, block, chain] = await Promise.all([
+      fetch("wasm/fevm_replay_web.wasm").then((r) => r.arrayBuffer()),
+      fetch("wasm/fevm_replay_web.manifest.json").then((r) => r.json()),
+      rpc("eth_getBlockByNumber", [number, true]),
+      rpc("eth_chainId", []),
+    ]);
+    out.textContent = "Tracing the pre-state of each of its " + block.transactions.length + " transactions (debug_traceBlockByNumber, eth.drpc.org)…";
+    const traces = await rpc("debug_traceBlockByNumber", [number, { tracer: "prestateTracer" }], [NODES[0]]);
+    const header = { ...block, transactions: [] };
+    let ok = 0, failing = 0, invalid = 0, either = 0, gasOsaka = 0, gasAmsterdam = 0;
+    for (let i = 0; i < block.transactions.length; i++) {
+      if (i % 10 === 0) out.textContent = "Block " + n(Number(number)) + ": transaction " + (i + 1) + " of " + block.transactions.length + " in fevm (WebAssembly), under Osaka and Glamsterdam…";
+      const guest = await instantiate(new Uint8Array(bytes), { manifest, files: { "tx.json": JSON.stringify({ chain, block: header, tx: block.transactions[i], prestate: traces[i].result }) } });
+      const reply = guest.callReply("amsterdam_tx", "tx.json");
+      if (!reply.ok || reply.value !== 1) continue;
+      const r = JSON.parse(guest.host.stdout);
+      if (!r.osaka.ok) { either++; continue; }
+      gasOsaka += r.osaka.gas;
+      if (r.amsterdam.ok) { ok++; gasAmsterdam += r.amsterdam.gas; continue; }
+      if (r.amsterdam.valid) failing++; else invalid++;
+      const tr = rows.insertRow();
+      const a = Object.assign(document.createElement("a"), { href: "#" + block.transactions[i].hash, textContent: block.transactions[i].hash.slice(0, 14) + "…" });
+      a.addEventListener("click", (e) => { e.preventDefault(); input.value = block.transactions[i].hash; location.hash = a.hash; check(input.value); });
+      tr.insertCell().append(a);
+      for (const v of [n(r.limit), r.least ? n(r.least) : "never", r.least ? n(r.at_least.state) : "–"]) { const c = tr.insertCell(); c.textContent = v; c.style.textAlign = "right"; c.style.paddingRight = "1rem"; }
+    }
+    const total = ok + failing + invalid;
+    out.textContent = "Block " + n(Number(number)) + " (" + (head - Number(number)) + " behind the head): " + block.transactions.length + " transactions; of the " + total + " that succeeded under Osaka, " + ok + " survive Glamsterdam as sent, " + failing + " would fail and " + invalid + " would no longer be valid" + (either ? "; " + either + " had already failed under Osaka" : "") + ".";
+    verdict.textContent = total ? Math.round(100 * (failing + invalid) / total) + "% of this block's transactions would not survive Glamsterdam as sent." : "";
+    verdict.classList.add(failing + invalid ? "bad" : "ok");
+    if (rows.rows.length) table.style.display = "block";
+  } catch (e) { out.textContent = "Could not check the block: " + e.message; }
+  blockgo.disabled = go.disabled = false;
+}
+document.getElementById("blockgo").addEventListener("click", checkBlock);
 go.addEventListener("click", () => { location.hash = input.value.trim(); check(input.value.trim()); });
 for (const a of document.querySelectorAll("a.ex")) a.addEventListener("click", (e) => { e.preventDefault(); input.value = a.hash.slice(1); location.hash = a.hash; check(input.value); });
 if (location.hash.length === 67) { input.value = location.hash.slice(1); check(input.value); }
