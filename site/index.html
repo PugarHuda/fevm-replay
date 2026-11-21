@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=2">
+<link rel="stylesheet" href="style.css?v=6">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='3' fill='%23f2f4f3' stroke='%231f2624' stroke-width='2'/%3E%3Ctext x='16' y='22' font-family='sans-serif' font-weight='700' font-size='14' text-anchor='middle' fill='%231f2624'%3EFe%3C/text%3E%3C/svg%3E">
 </head>
 <body>
@@ -34,6 +34,12 @@
     <h1>Real Ethereum history, replayed through an EVM written in Fe.</h1>
     <p class="lede">fevm-replay runs mainnet transactions inside <a href="https://github.com/fe-lang/fevm">fevm</a> and checks that each one ends <strong>exactly as it did on chain</strong>: status, gas, logs and every balance, nonce, code byte and storage slot. It validates whole blocks statelessly too: from the parent's Merkle proofs, fevm <a href="#proven">computes every root in the header</a>. Then it swaps a Solidity contract for its Fe port and checks the port against real traffic.</p>
 
+    <div class="hero-facts">
+      <div><b>67 / 67</b><span>mainnet blocks validated statelessly, every root in the header from fevm</span></div>
+      <div><b>3 agree</b><span>fevm, fevm's own chain layer and geth's <code>evm t8n</code>, on every one of them</span></div>
+      <div><b>In your browser</b><span>the same Fe, compiled to WebAssembly, validates a block fresh from the chain's head</span></div>
+    </div>
+
     <figure class="block-figure">
       <div class="mosaic" role="group" aria-label="Mainnet block 26,393,604: one cell per transaction, sized by gas used. Select a cell to open it on Etherscan."></div>
       <figcaption class="block-caption">
@@ -44,10 +50,22 @@
     </figure>
 
     <div class="actions">
-      <a class="btn primary" href="docs.html#quickstart">Run it yourself</a>
+      <a class="btn primary" href="verify.html?block=live">Validate a block in your browser</a>
+      <a class="btn" href="#tour">Watch the 3-minute tour</a>
+      <a class="btn" href="docs.html#quickstart">Run it yourself</a>
       <a class="btn" href="https://github.com/PugarHuda/fevm-replay">Source on GitHub</a>
     </div>
   </div>
+
+  <section id="tour" class="wrap">
+    <h2>The tour, in three minutes</h2>
+    <p class="intro">The site and real terminal runs, driven like a user: a mainnet block validated statelessly, in the terminal and in the browser, what EIP-4762 would cost, and Ethereum's own system contracts in Fe.</p>
+    <video class="tour" controls preload="none" poster="tour.jpg" width="1280" height="720">
+      <source src="tour.mp4" type="video/mp4">
+      <source src="https://raw.githubusercontent.com/PugarHuda/fevm-replay/main/demo/tour-v5.mp4" type="video/mp4">
+      <a href="https://github.com/PugarHuda/fevm-replay/blob/main/demo/tour-v5.mp4">demo/tour-v5.mp4</a>
+    </video>
+  </section>
 
   <section id="how" class="wrap">
     <h2>How a replay works</h2>

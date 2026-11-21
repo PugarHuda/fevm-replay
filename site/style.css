@@ -170,9 +170,10 @@ p { max-width: var(--measure); }
   .pipeline { grid-template-columns: 1fr 1fr; row-gap: 1.75rem; }
   .pipeline li:nth-child(3) { padding-left: 0; border-left: 0; }
   .story, .split { grid-template-columns: 1fr; }
-  .docs { grid-template-columns: 1fr; gap: 1.5rem; }
+  .docs { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; }
   .toc { position: static; }
-  .toc ol { grid-template-columns: 1fr 1fr; }
+  .toc ol { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .toc a { overflow-wrap: anywhere; }
   .mosaic button { height: 22px; }
 }
 
@@ -190,3 +191,13 @@ p { max-width: var(--measure); }
 }
 
 .subhead { margin-top: 3rem; }
+
+.hero-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(13rem, 100%), 1fr)); min-width: 0; width: 100%; gap: 1rem 2rem; margin: 1.75rem 0 0.5rem; max-width: 62rem; }
+.hero-facts div { border-left: 3px solid var(--diff); padding-left: 0.9rem; }
+.hero-facts b { display: block; font-size: 1.7rem; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.hero-facts span { color: var(--steel); font-size: 0.92rem; }
+video.tour { display: block; width: 100%; max-width: 64rem; height: auto; border: 1px solid var(--rule); border-radius: 6px; background: #000; }
+
+.hero > * { min-width: 0; }
+select { max-width: 100%; }
+.docs table { display: block; overflow-x: auto; max-width: 100%; }

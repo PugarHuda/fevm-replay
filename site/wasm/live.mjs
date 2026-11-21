@@ -6,7 +6,11 @@
 import { instantiate } from "./host.mjs";
 
 export const TRACES = "https://eth.drpc.org";
-export const PROOFS = "https://ethereum-rpc.publicnode.com";
+// Proofs: the first that answers; a batch a node refuses goes to the next.
+export const PROOF_NODES = ["https://ethereum-rpc.publicnode.com", "https://eth.rpc.blxrbdn.com", "https://eth.drpc.org"];
+export const PROOFS = PROOF_NODES[0];
+// Independent nodes asked for the block's hash: the one hash the check rests on.
+export const WITNESSES = ["https://ethereum-rpc.publicnode.com", "https://rpc.flashbots.net", "https://mainnet.gateway.tenderly.co"];
 const SYSTEM = [
   "0x00000961ef480eb55e80d19ad83579a64c007002",
   "0x0000bbddc7ce488642fb579f8b00f3a590007251",
@@ -17,18 +21,25 @@ const SLOTS_PER_PROOF = 200; // nodes refuse more than 1,024
 const hex = (n) => "0x" + BigInt(n).toString(16);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** The response text of one call or batch, retried on rate limits and errors. */
+/**
+ * The response text of one call or batch, retried on rate limits and errors.
+ * `url` may be a list: each retry goes to the next node in it.
+ */
 async function post(url, body, tries = 10) {
+  const urls = Array.isArray(url) ? url : [url];
+  let last = "";
   for (let t = 1; ; t++) {
+    const at = urls[(t - 1) % urls.length];
     try {
-      const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body });
+      const r = await fetch(at, { method: "POST", headers: { "content-type": "application/json" }, body });
       const text = await r.text();
       if (r.ok && !/"error"\s*:/.test(text.slice(0, 400))) return text;
-      if (t >= tries) throw new Error(`${url}: HTTP ${r.status} ${text.slice(0, 160)}`);
+      last = `${new URL(at).host}: HTTP ${r.status} ${text.slice(0, 120)}`;
     } catch (e) {
-      if (t >= tries) throw e;
+      last = `${new URL(at).host}: ${e.message}`;
     }
-    await sleep(400 * t);
+    if (t >= tries) throw new Error(last);
+    await sleep(Math.min(400 * t, 3000));
   }
 }
 const call = (url, method, params) => post(url, JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }));
@@ -51,11 +62,11 @@ async function pool(items, width, work) {
 /** The smallest non-empty block of the few before the head (small blocks have small traces). */
 export async function pickBlock(step) {
   step("Asking a node for the chain's head…");
-  const head = Number(JSON.parse(await call(PROOFS, "eth_blockNumber", [])).result);
+  const head = Number(JSON.parse(await call(PROOF_NODES, "eth_blockNumber", [])).result);
   const numbers = Array.from({ length: 6 }, (_, i) => head - 2 - i);
   const headers = [];
   for (let i = 0; i < numbers.length; i += 3) {
-    headers.push(...await batch(PROOFS, numbers.slice(i, i + 3).map((n) => ["eth_getBlockByNumber", [hex(n), false]])));
+    headers.push(...await batch(PROOF_NODES, numbers.slice(i, i + 3).map((n) => ["eth_getBlockByNumber", [hex(n), false]])));
   }
   const usable = headers.filter((h) => h && h.transactions.length > 0);
   usable.sort((a, b) => a.transactions.length - b.transactions.length);
@@ -76,9 +87,9 @@ export async function fetchBlock(number, wasm, manifest, step) {
   ]);
   step("The request queues at the parent, and the parent's header…");
   const [queues, [parentHeader]] = await Promise.all([
-    batch(PROOFS, [[ "eth_getStorageAt", [SYSTEM[0], "0x2", parent]], ["eth_getStorageAt", [SYSTEM[0], "0x3", parent]], ["eth_getStorageAt", [SYSTEM[1], "0x2", parent]]])
-      .then(async (three) => [...three, ...await batch(PROOFS, [["eth_getStorageAt", [SYSTEM[1], "0x3", parent]]])]),
-    batch(PROOFS, [["eth_getBlockByNumber", [parent, false]]]),
+    batch(PROOF_NODES, [[ "eth_getStorageAt", [SYSTEM[0], "0x2", parent]], ["eth_getStorageAt", [SYSTEM[0], "0x3", parent]], ["eth_getStorageAt", [SYSTEM[1], "0x2", parent]]])
+      .then(async (three) => [...three, ...await batch(PROOF_NODES, [["eth_getStorageAt", [SYSTEM[1], "0x3", parent]]])]),
+    batch(PROOF_NODES, [["eth_getBlockByNumber", [parent, false]]]),
   ]);
   step("fevm-replay's witness_keys (Fe, in this module) reads the traces: what must be proven…");
   const keysDoc = `{"block":${block},"prestate":${prestate},"diff":${diff},"queues":${JSON.stringify(queues)}}`;
@@ -99,7 +110,7 @@ export async function fetchBlock(number, wasm, manifest, step) {
     for (let i = 0; i < pieces.length; i += 3) groups.push(pieces.slice(i, i + 3));
     let done = 0;
     const answers = await pool(groups, 4, async (group) => {
-      const results = await batch(PROOFS, group.map(([a, s]) => ["eth_getProof", [a, s, blockTag]]));
+      const results = await batch(PROOF_NODES, group.map(([a, s]) => ["eth_getProof", [a, s, blockTag]]));
       done += group.length;
       step(`Proofs of ${keys.accounts.length} accounts and ${slotCount} slots at ${label} (${PROOFS}): ${Math.min(done, pieces.length)} of ${pieces.length}…`);
       return results;
@@ -112,7 +123,7 @@ export async function fetchBlock(number, wasm, manifest, step) {
   const codeOf = async (addresses) => {
     const out = {};
     for (let i = 0; i < addresses.length; i += 3) {
-      const codes = await batch(PROOFS, addresses.slice(i, i + 3).map((a) => ["eth_getCode", [a, parent]]));
+      const codes = await batch(PROOF_NODES, addresses.slice(i, i + 3).map((a) => ["eth_getCode", [a, parent]]));
       addresses.slice(i, i + 3).forEach((a, k) => { out[a] = codes[k]; });
     }
     return out;
@@ -133,7 +144,7 @@ export async function olderHashes(number, step) {
   const numbers = Array.from({ length: 256 }, (_, i) => number - 257 + i);
   const groups = [];
   for (let i = 0; i < numbers.length; i += 3) groups.push(numbers.slice(i, i + 3));
-  const headers = (await pool(groups, 4, (g) => batch(PROOFS, g.map((n) => ["eth_getBlockByNumber", [hex(n), false]])))).flat();
+  const headers = (await pool(groups, 4, (g) => batch(PROOF_NODES, g.map((n) => ["eth_getBlockByNumber", [hex(n), false]])))).flat();
   return Object.fromEntries(headers.map((h) => [h.number, h.hash]));
 }
 
@@ -158,4 +169,31 @@ export async function archive(dir, files) {
   parts.push(new Uint8Array(1024));
   const stream = new Blob(parts).stream().pipeThrough(new CompressionStream("gzip"));
   return new Response(stream).blob();
+}
+
+/**
+ * What the block's hash rests on: the hash each independent node gives for
+ * `number`, and how far the block is from the head and from finality.
+ * Validation proves the block against its header, and the header against
+ * this hash; agreeing nodes are what a light client would have instead.
+ */
+export async function anchor(number, hash) {
+  const asked = await Promise.all(WITNESSES.map(async (url) => {
+    try {
+      const h = JSON.parse(await call(url, "eth_getBlockByNumber", [hex(number), false])).result;
+      return { node: new URL(url).host, hash: h && h.hash };
+    } catch (e) {
+      return { node: new URL(url).host, hash: null };
+    }
+  }));
+  let finalized = null;
+  try {
+    finalized = Number(JSON.parse(await call(PROOF_NODES, "eth_getBlockByNumber", ["finalized", false])).result.number);
+  } catch (e) { /* only shown when known */ }
+  return {
+    agree: asked.filter((a) => a.hash === hash).map((a) => a.node),
+    differ: asked.filter((a) => a.hash && a.hash !== hash).map((a) => a.node),
+    silent: asked.filter((a) => !a.hash).map((a) => a.node),
+    finalized,
+  };
 }

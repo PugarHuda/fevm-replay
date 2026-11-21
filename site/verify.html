@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=2">
+<link rel="stylesheet" href="style.css?v=6">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='3' fill='%23f2f4f3' stroke='%231f2624' stroke-width='2'/%3E%3Ctext x='16' y='22' font-family='sans-serif' font-weight='700' font-size='14' text-anchor='middle' fill='%231f2624'%3EFe%3C/text%3E%3C/svg%3E">
 <style>
   .g-head { padding-block: 1.5rem 0.5rem; }
@@ -162,13 +162,24 @@ async function start() {
     brun.disabled = false;
     if (data.error) { bout.textContent = data.error; return; }
     bout.textContent = data.out;
+    if (data.fallback) {
+      bout.textContent = `The public nodes did not serve a live block just now (${data.fallback}); free endpoints rate-limit at times, so try again in a minute. Validated instead: saved mainnet block 26,424,772.
+
+` + data.out;
+    }
     if (data.live) {
       const name = "0x" + data.live.number.toString(16);
       const link = document.createElement("a");
       link.href = URL.createObjectURL(data.saved);
       link.download = `${name}.tar.gz`;
       link.textContent = `save block ${data.live.number.toLocaleString("en")} as ${name}.tar.gz`;
-      bout.textContent = `Block ${data.live.number.toLocaleString("en")} (the head was ${data.live.head.toLocaleString("en")}): ${data.live.transactions} transactions; ${data.live.accounts} accounts and ${data.live.slots} slots proven at both ends.
+      const a = data.anchored;
+      const behind = data.live.head - data.live.number;
+      const final = a.finalized == null ? "" : a.finalized >= data.live.number ? " It is finalized." : ` Not finalized yet (the finalized block is ${a.finalized.toLocaleString("en")}, ${(data.live.number - a.finalized)} before it).`;
+      const trust = a.differ.length
+        ? `WARNING: ${a.differ.join(", ")} gave a different hash for this height (a reorg, or a node on another chain).`
+        : `Its hash ${a.hash.slice(0, 10)}… is what ${["eth.drpc.org", ...a.agree].join(", ")} all give for this height${a.silent.length ? ` (${a.silent.join(", ")} did not answer)` : ""}: fevm proved the block against that hash, nothing else from the nodes is trusted.`;
+      bout.textContent = `Block ${data.live.number.toLocaleString("en")}, ${behind} behind the head (${data.live.head.toLocaleString("en")}).${final} ${trust} ${data.live.transactions} transactions; ${data.live.accounts} accounts and ${data.live.slots} slots proven at both ends.
 
 ` + data.out;
       bverdict.after(Object.assign(document.createElement("p"), { className: "note", id: "bsave" }));
@@ -176,7 +187,7 @@ async function start() {
     }
     const s = (data.ms / 1000).toFixed(2);
     if (data.reply.ok && data.reply.value === 1) {
-      bverdict.textContent = `Every root holds: fevm validated the block in ${s} s in your browser.`;
+      bverdict.textContent = `Every root holds: fevm validated the block in ${s} s in your browser.` + (!data.anchored ? "" : data.anchored.differ.length ? " But the nodes do not agree on its hash: see below." : ` Its hash is the one ${1 + data.anchored.agree.length} independent nodes give.`);
       bverdict.classList.add("ok");
     } else {
       bverdict.textContent = `The block does not validate as given (${s} s).`;

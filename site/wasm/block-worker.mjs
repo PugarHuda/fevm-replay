@@ -2,7 +2,10 @@
 // block (or, with `live`, a block near the head straight from public
 // nodes), and posts back progress, then the module's verdict and output.
 import { bundle, tamper, untar, validate } from "./block.mjs";
-import { archive, fetchBlock, olderHashes, pickBlock } from "./live.mjs";
+import { anchor, archive, fetchBlock, olderHashes, pickBlock } from "./live.mjs";
+
+// The saved block the page validates when the public nodes will not serve a live one.
+const FALLBACK = "block-0x19335c4.tar.gz";
 
 const PARTS = ["chain", "block", "receipts", "prestate", "diff", "delegates", "proofs"];
 const joined = (files) => `{${PARTS.map((p) => `"${p}":${files[p]}`).join(",")}}`;
@@ -17,13 +20,22 @@ onmessage = async ({ data }) => {
     ]);
     let text;
     let live;
+    let fallback;
     if (data.live) {
-      const picked = await pickBlock(step);
-      const fetched = await fetchBlock(picked.number, bytes, manifest, step);
-      live = { ...picked, accounts: fetched.accounts, slots: fetched.slots, files: fetched.files };
-      text = joined(fetched.files);
-    } else {
-      const archived = data.bytes ?? await fetch(data.archive).then((r) => {
+      try {
+        const picked = await pickBlock(step);
+        const fetched = await fetchBlock(picked.number, bytes, manifest, step);
+        live = { ...picked, accounts: fetched.accounts, slots: fetched.slots, files: fetched.files };
+        text = joined(fetched.files);
+      } catch (e) {
+        // A free public node refused (rate limits come and go): say so, and
+        // validate a saved mainnet block instead of showing nothing.
+        fallback = e.message;
+        step(`The public nodes did not serve a live block (${e.message}). Validating a saved mainnet block instead…`);
+      }
+    }
+    if (!data.live || fallback) {
+      const archived = data.bytes ?? await fetch(fallback ? FALLBACK : data.archive).then((r) => {
         if (!r.ok) throw new Error(`${data.archive}: HTTP ${r.status}`);
         return r.arrayBuffer();
       });
@@ -46,9 +58,14 @@ onmessage = async ({ data }) => {
       result = await validate(bytes, manifest, text);
     }
     const { reply, out, ms } = result;
-    let saved;
-    if (live) saved = await archive(hex(live.number), live.files);
-    postMessage({ done: true, reply, out, ms, size: bytes.byteLength, live: live && { number: live.number, head: live.head, transactions: live.transactions, accounts: live.accounts, slots: live.slots }, saved });
+    let saved, anchored;
+    if (live) {
+      step("Asking independent nodes for the block's hash…");
+      const hash = JSON.parse(live.files.block).result.hash;
+      anchored = { hash, ...await anchor(live.number, hash) };
+      saved = await archive(hex(live.number), live.files);
+    }
+    postMessage({ done: true, reply, out, ms, size: bytes.byteLength, live: live && { number: live.number, head: live.head, transactions: live.transactions, accounts: live.accounts, slots: live.slots }, anchored, saved, fallback });
   } catch (e) {
     postMessage({ done: true, error: `${e.name}: ${e.message}` });
   }
