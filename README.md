@@ -747,6 +747,8 @@ mkdir proven && tar xzf fixtures/proven/0x19335e5.tar.gz -C proven
                                                  # the same block with its four system calls run by the Fe ports
 cd ports/system && ../../fevm_replay system ../../proven/0x19335e5 BeaconRoots.runtime.bin   HistoryStorage.runtime.bin WithdrawalRequests.runtime.bin ConsolidationRequests.runtime.bin
                                                  # each Fe system contract beside the deployed one
+cd ../.. && ./fevm_replay amsterdam proven/0x19335e5
+                                                 # the same block under Glamsterdam's rules: what would fail, and why
 node wasm/cli.mjs --save                         # Node.js 22+ only: a block near the head, fetched from public
                                                  # nodes and validated by the WebAssembly module the browser runs;
                                                  # --save keeps it, for ./fevm_replay chain
