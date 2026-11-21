@@ -3,7 +3,7 @@
 // nodes), and posts back progress, then the module's verdict and output.
 import { bundle, tamper, untar, validate } from "./block.mjs";
 import { anchor, archive, atNumber, fetchBlock, headersBetween, olderHashes, pickBlock } from "./live.mjs";
-import { lightClient } from "./lightclient.mjs";
+import { fevmPrecompiles, lightClient } from "./lightclient.mjs";
 
 // The saved block the page validates when the public nodes will not serve a live one.
 const FALLBACK = "block-0x19335c4.tar.gz";
@@ -65,7 +65,7 @@ onmessage = async ({ data }) => {
       const hash = JSON.parse(live.files.block).result.hash;
       anchored = { hash, ...await anchor(live.number, hash) };
       try {
-        anchored.light = await lightClient(live.number, hash, headersBetween, step, data.checkpoint);
+        anchored.light = await lightClient(live.number, hash, headersBetween, step, data.checkpoint, fevmPrecompiles(bytes, manifest));
       } catch (e) {
         anchored.light = { error: e.message };
       }

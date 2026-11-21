@@ -313,3 +313,42 @@ uses (files: mut Files, out: mut Stdout)
     println!("]")
     Reply::ok(1)
 }
+
+/// fevm's own precompiles, called directly: `name` holds `{"calls":
+/// [{"address", "input"}...]}` (hex). Prints one `[status, "0x" output]` per
+/// call. The browser's light client checks each sync committee signature
+/// here too, with EIP-2537's BLS12-381 precompiles as fevm implements them
+/// in Fe (G1 MSM to aggregate the keys, map to G2, the pairing check).
+#[unsafe(export)]
+pub fn precompiles(name: HostText) -> Reply
+uses (files: mut Files, out: mut Stdout)
+{
+    let data = match read_all(name) {
+        Result::Ok(data) => data,
+        Result::Err(code) => {
+            return Reply::error(code)
+        },
+    }
+    let Result::Ok(doc) = parse(data.as_slice()) else {
+        return Reply::error(100)
+    }
+    print!("[")
+    var first = true
+    for ref call in doc["calls"].items() {
+        let address = number(call["address"])
+        if !fevm_precompiles::is_precompile(address) {
+            return Reply::error(101)
+        }
+        let input = load::hex_bytes(call["input"].text())
+        let result = fevm_precompiles::run(address, input, gas: 1000000000000)
+        if !first { print!(",") }
+        first = false
+        print!("[", decimal(result.status as u256), ",\"0x")
+        for i in 0 .. result.output.len() {
+            print!(hex(result.output[i] as u256, 1))
+        }
+        print!("\"]")
+    }
+    println!("]")
+    Reply::ok(1)
+}

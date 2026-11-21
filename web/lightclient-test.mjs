@@ -5,11 +5,11 @@
 //   node web/lightclient-test.mjs
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { lightClient } from "../site/wasm/lightclient.mjs";
+import { fevmPrecompiles, fevmVerifies, lightClient, signingRoot } from "../site/wasm/lightclient.mjs";
 
 const rec = JSON.parse(fs.readFileSync(new URL("../fixtures/lightclient.json", import.meta.url), "utf8"));
 
-async function run(change = () => {}) {
+async function run(change = () => {}, fevm) {
   const beacon = structuredClone(rec.beacon);
   const headers = structuredClone(rec.headers);
   const bootstrap = Object.keys(beacon).find((p) => p.includes("/bootstrap/"));
@@ -20,7 +20,7 @@ async function run(change = () => {}) {
     const body = path.includes("/bootstrap/") ? beacon[bootstrap] : beacon[path];
     return { ok: !!body, status: body ? 200 : 404, json: async () => body };
   };
-  return lightClient(rec.number, rec.hash, async () => headers, () => {}, rec.result.checkpoint.root);
+  return lightClient(rec.number, rec.hash, async () => headers, () => {}, rec.result.checkpoint.root, fevm);
 }
 
 const flip = (h, at = 10) => h.slice(0, at) + (h[at] === "0" ? "1" : "0") + h.slice(at + 1);
@@ -50,4 +50,25 @@ for (const [what, change] of Object.entries(lies)) {
   assert.ok(e, `accepted with a changed ${what}`);
   console.log(`rejected: ${what} (${e.message})`);
 }
+
+// fevm's BLS12-381 precompiles (EIP-2537, in Fe, in the module) on the same
+// signatures: the recorded run holds with both checked by fevm too, and fevm
+// alone refuses a valid signature over another header and a key set with one
+// signer left out.
+const wasmDir = new URL("../site/wasm/", import.meta.url);
+const fevm = fevmPrecompiles(
+  fs.readFileSync(process.env.WASM ?? new URL("fevm_replay_web.wasm", wasmDir)),
+  JSON.parse(fs.readFileSync(process.env.MANIFEST ?? new URL("fevm_replay_web.manifest.json", wasmDir), "utf8")),
+);
+const both = await run(() => {}, fevm);
+assert.equal(both.byFevm, 2);
+const head = rec.beacon["/eth/v1/beacon/light_client/optimistic_update"].data;
+const update = rec.beacon[Object.keys(rec.beacon).find((p) => p.includes("/updates"))][0].data;
+const bits = Uint8Array.from(head.sync_aggregate.sync_committee_bits.slice(2).match(/../g), (b) => parseInt(b, 16));
+const keys = update.next_sync_committee.pubkeys.filter((_, i) => (bits[i >> 3] >> (i & 7)) & 1);
+const signed = { keys, signingRoot: signingRoot(head.attested_header.beacon, head.signature_slot), signature: head.sync_aggregate.sync_committee_signature };
+assert.equal(await fevmVerifies(fevm, signed), true);
+assert.equal(await fevmVerifies(fevm, { ...signed, signature: update.sync_aggregate.sync_committee_signature }), false);
+assert.equal(await fevmVerifies(fevm, { ...signed, keys: keys.slice(1) }), false);
+console.log(`fevm's BLS12-381 precompiles: both recorded signatures verify; another header's signature and a missing signer are refused`);
 console.log(`light client: the recorded run holds, all ${Object.keys(lies).length} changes rejected`);

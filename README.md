@@ -32,7 +32,7 @@ Replaying is fast: those 5,129 transactions take 5.9 seconds once fetched.
 | **For EIP authors** | Measured on 85 mainnet blocks over 5 days ([findings](docs/stateless-findings.md)): code is 45% of a stateless witness; EIP-4762 (Draft) would cost 25% more gas, and 39% of transactions, sent with the same gas limit, would run out of gas. Exempting the coinbase, as the draft exempts the sender and target, brings that to 15%: it saves ETH transfers (60% short, 1.7% exempt) but not contract calls (27%, still 23%: code and storage). Code at half price would bring it to 5.9%, free code to 1.5%. The charges match ethereumjs's independent EIP-4762 implementation on all 18,967 transactions |
 | **Fe ports** | 5 ports (USDT, every Uniswap V2 pair, WETH9, DAI, USDC's proxy) certified by mainnet replay, mainnet mutations, fuzzing and mutation testing ([verified page](https://fevm-replay.vercel.app/verified.html)). Also all four of Ethereum's system contracts (EIP-4788, EIP-2935, EIP-7002, EIP-7251), ported from assembly: on 85 mainnet blocks they store and return what the deployed ones do, and with all four system calls run by the Fe ports every root in the header still matches; the mainnet transactions that call them run identically ([more](#ethereums-own-system-contracts-in-fe)) |
 | **Gas vs Solidity** | On 57,034 mainnet calls in identical transactions, the five Fe ports used 3.3% less gas than the deployed solc bytecode; 59 of 61 functions are cheaper (USDT −4.4%, WETH9 −4.0%, DAI −1.6%, pair −1.1%, USDC proxy −1.0%). The system contracts go the other way: hand-written assembly beats them by 24 to 2,026 gas a call ([per function](docs/gas.md)) |
-| **Fe-specific** | Effects prove validation needs no file, process or network, so the same Fe compiles to WebAssembly with fevm in it: [validate a whole mainnet block in your browser](https://fevm-replay.vercel.app/verify.html), every root in its header, including a block near the chain's head your browser fetches itself from public nodes, its hash checked by a light client against Ethereum's sync committee signatures (all 85 stateless blocks validate in the module); `const fn` + `static_assert` check the blob fee against a real block; std units, `core::fixed`, `msg`/`recv` ([Fe highlight](#fe-highlight)) |
+| **Fe-specific** | Effects prove validation needs no file, process or network, so the same Fe compiles to WebAssembly with fevm in it: [validate a whole mainnet block in your browser](https://fevm-replay.vercel.app/verify.html), every root in its header, including a block near the chain's head your browser fetches itself from public nodes, its hash checked by a light client against Ethereum's sync committee signatures, which fevm's own BLS12-381 precompiles verify too (all 85 stateless blocks validate in the module); `const fn` + `static_assert` check the blob fee against a real block; std units, `core::fixed`, `msg`/`recv` ([Fe highlight](#fe-highlight)) |
 | **Found** | 4 bugs in the Fe ports (one in our own EIP-7002 port, found by validating a mainnet block on it), 2 node tracer bugs, the transactions the Osaka fork changed, where Fe's code cost more than solc's ([argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002), since fixed in Fe's std), and that Fe's WebAssembly backend emits fevm's tail-call dispatch as plain calls, which overflow a browser's stack ([`web/tailcalls.py`](web/tailcalls.py) works around it), and that even as tail calls each still takes a frame of the module's own 1 MiB stack, so 38 of 51 mainnet blocks trap until it is 64 MiB |
 | **Upstream** | fe#2002 led to `Call::forward_delegatecall` in Fe's std ([argotorg/fe#2004](https://github.com/argotorg/fe/pull/2004), merged); our request in [fevm#26](https://github.com/fe-lang/fevm/issues/26) became the operand stack in `Tracer::step` ([fevm#32](https://github.com/fe-lang/fevm/pull/32)); dRPC is deploying a fix for the tracer bug we reported |
 | **Beside fevm's chain** | fevm now imports blocks itself ([`fevm_chain`](https://github.com/fe-lang/fevm/tree/main/ingots/chain)), on a full world and its conformance fixtures. fevm-replay is the other half: mainnet blocks, a *partial* world from the parent's proofs, the state root computed from that witness, and Fe ports in place of Solidity. It builds on that fevm and runs each block through `fevm_chain` and `fevm::Block` too: both drivers agree with the header on all 85 blocks ([more](#beside-fevms-chain-layer)) |
@@ -435,7 +435,7 @@ claiming one more gas than its transaction used is caught. Two things stood
 in the way. fevm dispatches opcodes as tail calls (each handler calls the
 next), which Fe's WebAssembly backend emits as plain calls, so a single
 transaction overflowed the browser's stack.
-[`web/tailcalls.py`](web/tailcalls.py) rewrites the 66,145 calls that are in
+[`web/tailcalls.py`](web/tailcalls.py) rewrites the 66,142 calls that are in
 tail position into `return_call` in place, proving from the control flow
 that nothing follows them. That frees the engine's stack but not the
 module's own stack in linear memory: each handler still takes a frame there
@@ -610,9 +610,9 @@ client protocol):
    header's keccak256 must be the next one's `parentHash`.
 
 ```
-light client: from checkpoint 0xa4faecb4… (slot 15704032), 1 sync committee handoff(s),
-511/512 signed slot 15704132 (execution block 26464265), 9 headers hashed back to this block:
-its hash is the chain's
+light client: from the built-in checkpoint 0xa4faecb4… (slot 15704032), 1 sync committee handoff(s),
+393/512 signed slot 15704490 (BLS checked by noble and by fevm's own BLS12-381 precompiles,
+2 signature(s)) (execution block 26464622), 8 headers hashed back to this block: its hash is the chain's
 ```
 
 To start from a checkpoint you trust instead (any finalized beacon block
@@ -623,7 +623,15 @@ recorded run and checks that 13 lies are each caught: a valid signature
 over another header, a signer dropped from the bits, a changed slot,
 execution hash or block number, a changed header field or `parentHash`, a
 wrong key in either committee, a changed finalized header or checkpoint.
-BLS and keccak come from noble (MIT), bundled into `site/wasm/noble.mjs`.
+Each sync committee signature is checked twice: by noble (MIT, bundled
+into `site/wasm/noble.mjs`), and by fevm itself, with the BLS12-381
+precompiles of EIP-2537 that fevm implements in Fe, called through the
+module's `precompiles` export: G1 MSM sums the signers' keys,
+MAP_FP2_TO_G2 and G2 add hash the signing root to G2, and the pairing
+check tests e(keys, H(root)) · e(−G1, signature) = 1. Only what EIP-2537
+leaves out runs in JavaScript: decompressing points and hashing to the
+field (RFC 9380). The test also has fevm alone refuse a valid signature
+over another header and a key set with one signer left out.
 
 ## Try it without Fe
 

@@ -12,7 +12,7 @@
 import fs from "node:fs";
 import { bundle, untar, validate } from "./block.mjs";
 import { anchor, archive, atNumber, fetchBlock, headersBetween, olderHashes, pickBlock } from "./live.mjs";
-import { lightClient } from "./lightclient.mjs";
+import { fevmPrecompiles, lightClient } from "./lightclient.mjs";
 
 const here = new URL("./", import.meta.url);
 const wasm = fs.readFileSync(new URL("fevm_replay_web.wasm", here));
@@ -52,8 +52,8 @@ if (live) {
     (a.differ.length ? `; DIFFERENT at ${a.differ.join(", ")}` : ""));
   let light;
   try {
-    light = await lightClient(live.number, hash, headersBetween, step, checkpoint);
-    console.log(`light client: from ${light.builtIn ? "the built-in " : "YOUR "}checkpoint ${light.checkpoint.root.slice(0, 10)}… (slot ${light.checkpoint.slot}), ${light.handoffs.length} sync committee handoff(s), ${light.signers}/512 signed slot ${light.slot} (execution block ${light.top}), ${light.headers} headers hashed back to this block${light.builtIn ? ": its hash is the chain's" : ""}`);
+    light = await lightClient(live.number, hash, headersBetween, step, checkpoint, fevmPrecompiles(wasm, manifest));
+    console.log(`light client: from ${light.builtIn ? "the built-in " : "YOUR "}checkpoint ${light.checkpoint.root.slice(0, 10)}… (slot ${light.checkpoint.slot}), ${light.handoffs.length} sync committee handoff(s), ${light.signers}/512 signed slot ${light.slot} (BLS checked by noble and by fevm's own BLS12-381 precompiles, ${light.byFevm} signature(s)) (execution block ${light.top}), ${light.headers} headers hashed back to this block${light.builtIn ? ": its hash is the chain's" : ""}`);
   } catch (e) {
     console.log(`light client: could not confirm the hash (${e.message})`);
   }

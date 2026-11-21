@@ -12,6 +12,7 @@
 // Beacon nodes and RPC nodes only supply data here; every piece is checked.
 // The one thing trusted is the checkpoint, as in any light client.
 import { bls12_381, keccak_256, sha256 } from "./noble.mjs";
+import { instantiate } from "./host.mjs";
 
 export const BEACONS = ["https://ethereum-beacon-api.publicnode.com", "https://lodestar-mainnet.chainsafe.io"];
 // A finalized epoch-boundary block, 21 Nov 2026 (slot 15,704,032, epoch 490,751).
@@ -76,21 +77,71 @@ function execution(header) {
   return header.execution;
 }
 
-/** How many of the committee signed `header` at `signatureSlot`, after checking the aggregate signature. */
-function signed(committee, aggregate, header, signatureSlot) {
-  const bits = bytes(aggregate.sync_committee_bits);
-  const keys = committee.pubkeys.filter((_, i) => (bits[i >> 3] >> (i & 7)) & 1);
-  if (keys.length * 3 < committee.pubkeys.length * 2) throw new Error(`only ${keys.length} of ${committee.pubkeys.length} of the sync committee signed slot ${header.slot}`);
+/** What the sync committee signs for `header` at `signatureSlot`: its root under the sync committee domain. */
+export function signingRoot(header, signatureSlot) {
   const epoch = Math.floor((Math.max(Number(signatureSlot), 1) - 1) / 32);
   const fork = FORKS.find(([at]) => epoch >= at);
   if (!fork) throw new Error(`no fork version for epoch ${epoch}`);
   const forkDataRoot = merkleize([pad32(bytes(fork[1])), bytes(GENESIS_VALIDATORS_ROOT)]);
   const domain = cat(bytes(DOMAIN_SYNC_COMMITTEE), forkDataRoot.slice(0, 28));
-  const signingRoot = merkleize([headerRoot(header), domain]);
+  return merkleize([headerRoot(header), domain]);
+}
+
+/** How many of the committee signed `header` at `signatureSlot`, after checking the aggregate signature. */
+function signed(committee, aggregate, header, signatureSlot) {
+  const bits = bytes(aggregate.sync_committee_bits);
+  const keys = committee.pubkeys.filter((_, i) => (bits[i >> 3] >> (i & 7)) & 1);
+  if (keys.length * 3 < committee.pubkeys.length * 2) throw new Error(`only ${keys.length} of ${committee.pubkeys.length} of the sync committee signed slot ${header.slot}`);
+  const root = signingRoot(header, signatureSlot);
   const sigs = bls12_381.longSignatures;
-  const ok = sigs.verify(sigs.Signature.fromHex(aggregate.sync_committee_signature.slice(2)), sigs.hash(signingRoot, DST), sigs.aggregatePublicKeys(keys.map((k) => k.slice(2))));
+  const ok = sigs.verify(sigs.Signature.fromHex(aggregate.sync_committee_signature.slice(2)), sigs.hash(root, DST), sigs.aggregatePublicKeys(keys.map((k) => k.slice(2))));
   if (!ok) throw new Error(`the sync committee's signature over slot ${header.slot} does not verify`);
-  return keys.length;
+  return { count: keys.length, keys, signingRoot: root, signature: aggregate.sync_committee_signature, slot: header.slot };
+}
+
+// --- the same signature check again, by fevm (Fe) ---
+// EIP-2537's BLS12-381 precompiles as fevm implements them: G1 MSM sums the
+// keys, MAP_FP2_TO_G2 and G2 add hash the signing root to G2, and the pairing
+// check tests e(keys, H(root)) * e(-G1, signature) = 1. Here, only what
+// EIP-2537 leaves out: decompressing points and hashing to the field.
+const P = 0x1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaabn;
+const fp = (v) => { const b = new Uint8Array(64); let x = v; for (let i = 63; i >= 16; i--) { b[i] = Number(x & 0xffn); x >>= 8n; } return b; };
+const g1 = (p) => cat(fp(p.x), fp(p.y));
+const g2 = (p) => cat(fp(p.x.c0), fp(p.x.c1), fp(p.y.c0), fp(p.y.c1));
+const big = (b) => b.reduce((v, x) => (v << 8n) | BigInt(x), 0n);
+/** RFC 9380's expand_message_xmd with SHA-256, then hash_to_field for Fp2: two elements. */
+function hashToFp2(msg) {
+  const dst = new TextEncoder().encode(DST);
+  const dstPrime = cat(dst, Uint8Array.of(dst.length));
+  const b0 = sha256(cat(new Uint8Array(64), msg, Uint8Array.of(1, 0), Uint8Array.of(0), dstPrime));
+  const blocks = [sha256(cat(b0, Uint8Array.of(1), dstPrime))];
+  for (let i = 2; i <= 8; i++) blocks.push(sha256(cat(b0.map((x, k) => x ^ blocks[i - 2][k]), Uint8Array.of(i), dstPrime)));
+  const uniform = cat(...blocks);
+  const e = (k) => big(uniform.slice(64 * k, 64 * k + 64)) % P;
+  return [cat(fp(e(0)), fp(e(1))), cat(fp(e(2)), fp(e(3)))];
+}
+/** `calls` run by the module's `precompiles` export: fevm's own precompiles, in Fe. */
+export const fevmPrecompiles = (wasm, manifest) => async (calls) => {
+  const guest = await instantiate(new Uint8Array(wasm), { manifest, files: { "calls.json": JSON.stringify({ calls }) } });
+  const reply = guest.callReply("precompiles", "calls.json");
+  if (!reply.ok || reply.value !== 1) throw new Error("precompiles failed: " + JSON.stringify(reply));
+  return JSON.parse(guest.host.stdout);
+};
+
+/** True if fevm's precompiles accept the signature; `fevm(calls)` runs them in the module. */
+export async function fevmVerifies(fevm, { keys, signingRoot, signature }) {
+  const G1 = bls12_381.G1.ProjectivePoint ?? bls12_381.G1.Point;
+  const one = new Uint8Array(32); one[31] = 1;
+  const msm = cat(...keys.map((k) => cat(g1(G1.fromHex(k.slice(2)).toAffine()), one)));
+  const [u0, u1] = hashToFp2(signingRoot);
+  const [sum, m0, m1] = await fevm([{ address: "0x0c", input: hex(msm) }, { address: "0x11", input: hex(u0) }, { address: "0x11", input: hex(u1) }]);
+  if (sum[0] !== 0 || m0[0] !== 0 || m1[0] !== 0) return false;
+  const [h] = await fevm([{ address: "0x0d", input: m0[1] + m1[1].slice(2) }]);
+  if (h[0] !== 0) return false;
+  const sig = bls12_381.longSignatures.Signature.fromHex(signature.slice(2)).toAffine();
+  const negG1 = g1(G1.BASE.negate().toAffine());
+  const [pair] = await fevm([{ address: "0x0f", input: sum[1] + h[1].slice(2) + hex(negG1).slice(2) + hex(g2(sig)).slice(2) }]);
+  return pair[0] === 0 && BigInt(pair[1]) === 1n;
 }
 
 // --- execution headers: keccak256(rlp(header)) ---
@@ -127,7 +178,15 @@ async function get(path) {
  * root the caller trusts; by default the one above). `headers(from, to)` gives execution
  * headers `from..to` (eth_getBlockByNumber results).
  */
-export async function lightClient(number, hash, headers, step = () => {}, root = CHECKPOINT.root) {
+export async function lightClient(number, hash, headers, step = () => {}, root = CHECKPOINT.root, fevm) {
+  let byFevm = 0;
+  const alsoFevm = async (s) => {
+    if (!fevm) return s.count;
+    step(`Light client: fevm (Fe) checks the signature over slot ${s.slot} again with its BLS12-381 precompiles…`);
+    if (!(await fevmVerifies(fevm, s))) throw new Error(`fevm's BLS12-381 precompiles reject the signature over slot ${s.slot}`);
+    byFevm++;
+    return s.count;
+  };
   root = root.toLowerCase();
   if (!/^0x[0-9a-f]{64}$/.test(root)) throw new Error(`a checkpoint is a beacon block root (0x and 64 hex digits), not ${root}`);
   step(`Light client: the sync committee at checkpoint ${root.slice(0, 10)}…`);
@@ -147,7 +206,7 @@ export async function lightClient(number, hash, headers, step = () => {}, root =
     const updates = (await get(`/eth/v1/beacon/light_client/updates?start_period=${at}&count=${now - at}`)).body;
     for (const { data: u } of updates) {
       if (period(u.signature_slot) !== at) throw new Error(`an update for period ${period(u.signature_slot)} where ${at} was expected`);
-      const n = signed(committee, u.sync_aggregate, u.attested_header.beacon, u.signature_slot);
+      const n = await alsoFevm(signed(committee, u.sync_aggregate, u.attested_header.beacon, u.signature_slot));
       if (!branchHolds(committeeRoot(u.next_sync_committee), u.next_sync_committee_branch, NEXT_SYNC_COMMITTEE, u.attested_header.beacon.state_root)) {
         throw new Error(`the next sync committee is not in the state at slot ${u.attested_header.beacon.slot}`);
       }
@@ -167,7 +226,7 @@ export async function lightClient(number, hash, headers, step = () => {}, root =
   if (root !== CHECKPOINT.root && Number(u.signature_slot) - checkpoint.slot > WEAK_SUBJECTIVITY_SLOTS) {
     throw new Error(`checkpoint ${root.slice(0, 10)}… (slot ${checkpoint.slot}) is older than about two weeks; use a recent finalized root`);
   }
-  const signers = signed(committee, u.sync_aggregate, u.attested_header.beacon, u.signature_slot);
+  const signers = await alsoFevm(signed(committee, u.sync_aggregate, u.attested_header.beacon, u.signature_slot));
   const top = execution(u.attested_header);
   const topNumber = Number(top.block_number);
   if (topNumber < number) throw new Error(`the signed head (${topNumber}) is behind block ${number}; try again in a few seconds`);
@@ -181,5 +240,5 @@ export async function lightClient(number, hash, headers, step = () => {}, root =
     expect = h.parentHash;
   }
   if (blockHash(chain[0]) !== hash) throw new Error(`block ${number}'s header does not hash to the validated block's hash`);
-  return { checkpoint, builtIn: root === CHECKPOINT.root, handoffs, slot: Number(u.attested_header.beacon.slot), signers, top: topNumber, headers: chain.length, node: optimistic.node };
+  return { checkpoint, builtIn: root === CHECKPOINT.root, byFevm, handoffs, slot: Number(u.attested_header.beacon.slot), signers, top: topNumber, headers: chain.length, node: optimistic.node };
 }

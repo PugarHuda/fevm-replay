@@ -2,8 +2,8 @@
   "manifest_version": 1,
   "module": {
     "file": "fevm_replay_web.wasm",
-    "sha256": "cb6dfca239bedcff7280870dd15f06c5335c210126914fb35bcff916ca2e5e15",
-    "size": 3976990,
+    "sha256": "881021a8404152449d08a4d781b9ee41ced646db3437675a315425554fc777f3",
+    "size": 4084858,
     "initial_memory_pages": 1026
   },
   "contract_version": 3,
@@ -143,6 +143,26 @@
     {
       "name": "memory",
       "kind": "memory"
+    },
+    {
+      "name": "precompiles",
+      "kind": "function",
+      "params": [
+        {
+          "name": "name",
+          "type": "HostText",
+          "wasm": [
+            "i32",
+            "i32"
+          ]
+        }
+      ],
+      "result": {
+        "type": "Reply",
+        "wasm": [
+          "i64"
+        ]
+      }
     },
     {
       "name": "validate_block",
