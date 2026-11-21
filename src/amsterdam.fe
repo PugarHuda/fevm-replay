@@ -1,0 +1,286 @@
+//! `amsterdam <dir>...`: what Glamsterdam's execution rules (fevm's
+//! `Config::amsterdam()`: EIP-8037 and EIP-8038 state gas and repricing,
+//! EIP-2780, EIP-7976 and EIP-7981 transaction repricing, EIP-7708 transfer
+//! logs, EIP-7954 code size) would do to mainnet transactions as they were
+//! sent. Each transaction of each saved block runs twice in fevm, on the
+//! pre-state the node traced for it, with the gas limit it was sent with:
+//! under Osaka, the rules it ran under, and under Amsterdam. The count is of
+//! what changes: transactions no longer valid, transactions that succeeded and
+//! would now fail, the gas they would use, the state gas, the logs added.
+use core::{MemBuffer, MemSpan}
+use std::fs::Fs
+use std::io::Stdout
+use json::{Value, parse}
+use fevm::{Buffers, Config, OK}
+use fevm::status::VALID
+use replay_core::{compat, load, replay}
+use load::{field, load_block, load_tx}
+use ingot::fetch::{header_blob_fee, join}
+
+const KINDS: usize = 5
+const TRANSFER: usize = 0
+const CALL: usize = 1
+const CREATE: usize = 2
+const BLOB: usize = 3
+const SET_CODE: usize = 4
+
+// A transfer is a call with no input to an account with no code.
+fn has_code(_ prestate: Value, _ tx: Value) -> bool {
+    match prestate.get(tx["to"].text()) {
+        Option::Some(ref account) => account.has("code") && account["code"].text().len() > 2,
+        Option::None => false,
+    }
+}
+
+fn kind_of(_ tx: Value, _ prestate: Value) -> usize {
+    let kind = field(tx, "type")
+    if kind == 3 { return BLOB }
+    if kind == 4 {
+        return SET_CODE
+    }
+    if field(tx, "to") == 0 {
+        return CREATE
+    }
+    if tx["input"].text().len() <= 2 && !has_code(prestate, tx) {
+        TRANSFER
+    } else {
+        CALL
+    }
+}
+
+fn kind_name(_ k: usize) -> String<24> {
+    if k == TRANSFER {
+        "ETH transfers"
+    } else if k == CALL {
+        "contract calls"
+    } else if k == CREATE {
+        "contract creations"
+    } else if k == BLOB {
+        "blob transactions"
+    } else {
+        "set-code transactions"
+    }
+}
+
+fn read_doc(_ dir: MemSpan, _ name: String<16>) -> Option<Value>
+uses (fs: Fs)
+{
+    let Result::Ok(bytes) = fs.read(join(dir, name)) else {
+        return Option::None
+    }
+    let Result::Ok(doc) = parse(bytes.span()) else {
+        return Option::None
+    }
+    Option::Some(doc)
+}
+
+pub fn amsterdam_command() -> i32
+uses (args: std::env::Args, fs: mut Fs, out: mut Stdout)
+{
+    if args.count() < 3 {
+        println!("usage: fevm-replay amsterdam <dir>...")
+        return 2
+    }
+    var count: [u64; 5] = [0; 5]
+    var invalid: [u64; 5] = [0; 5]
+    var newly_failed: [u64; 5] = [0; 5]
+    var newly_ok: [u64; 5] = [0; 5]
+    var gas_osaka: [u64; 5] = [0; 5]
+    var gas_amsterdam: [u64; 5] = [0; 5]
+    var state_gas: [u64; 5] = [0; 5]
+    var more_gas: [u64; 5] = [0; 5]
+    var less_gas: [u64; 5] = [0; 5]
+    var shown: [u64; 5] = [0; 5]
+    var logs_added: u64 = 0
+    var with_logs_added: u64 = 0
+    var osaka_invalid: u64 = 0
+    var blocks: u64 = 0
+    for a in 2 .. args.count() {
+        let dir = args.get(a).span()
+        let Option::Some(chain) = read_doc(dir, "chain.json") else {
+            println!("ERROR ", args.get(a), ": no chain.json")
+            continue
+        }
+        let Option::Some(block) = read_doc(dir, "block.json") else {
+            println!("ERROR ", args.get(a), ": no block.json")
+            continue
+        }
+        let Option::Some(prestates) = read_doc(dir, "prestate.json") else {
+            println!("ERROR ", args.get(a), ": no prestate.json")
+            continue
+        }
+        let extras = match read_doc(dir, "delegates.json") {
+            Option::Some(doc) => doc,
+            Option::None => Value::object(),
+        }
+        let header = ref block["result"]
+        let env = load_block(
+            header,
+            chain_id: field(chain, "result"),
+            blobbasefee: header_blob_fee(header).as_wei(),
+        )
+        blocks += 1
+        let txs = header["transactions"].items()
+        for index in 0 .. txs.len() {
+            let entry = ref prestates["result"][index]
+            if !entry.as_object().is_some() || !entry.has("result") {
+                continue
+            }
+            let prestate = ref entry["result"]
+            let k = kind_of(txs[index], prestate)
+            let none = MemBuffer::empty()
+            var tracer = ()
+            var buffers = Buffers::new()
+            let osaka = compat::transact(
+                replay::build_world(
+                    prestate,
+                    env,
+                    field(header, "parentHash"),
+                    extras,
+                    core::MemVec::new(),
+                    none.span(),
+                ),
+                load_tx(txs[index]),
+                env,
+                Config::osaka(),
+                mut buffers,
+                mut tracer,
+            )
+            var again = Buffers::new()
+            let next = compat::transact(
+                replay::build_world(
+                    prestate,
+                    env,
+                    field(header, "parentHash"),
+                    extras,
+                    core::MemVec::new(),
+                    none.span(),
+                ),
+                load_tx(txs[index]),
+                env,
+                Config::amsterdam(),
+                mut again,
+                mut tracer,
+            )
+            if osaka.receipt.invalid != VALID {
+                // fevm's Osaka run should be the chain's: count, do not compare.
+                osaka_invalid += 1
+                continue
+            }
+            count[k] += 1
+            if next.receipt.invalid != VALID {
+                invalid[k] += 1
+                println!(
+                    "  invalid under Amsterdam: ",
+                    kind_name(k),
+                    " ",
+                    txs[index]["hash"].text(),
+                    " (code ",
+                    next.receipt.invalid,
+                    ")",
+                )
+                continue
+            }
+            let was_ok = osaka.receipt.status == OK
+            let is_ok = next.receipt.status == OK
+            if was_ok && !is_ok {
+                newly_failed[k] += 1
+                if shown[k] < 3 {
+                    shown[k] += 1
+                    println!(
+                        "  fails under Amsterdam: ",
+                        kind_name(k),
+                        " ",
+                        txs[index]["hash"].text(),
+                        " (gas limit ",
+                        field(txs[index], "gas"),
+                        ", Osaka used ",
+                        osaka.receipt.gas_used,
+                        ", state gas ",
+                        next.receipt.state_gas_used,
+                        ")",
+                    )
+                }
+            }
+            if !was_ok && is_ok {
+                newly_ok[k] += 1
+            }
+            gas_osaka[k] += osaka.receipt.gas_used
+            gas_amsterdam[k] += next.receipt.gas_used
+            state_gas[k] += next.receipt.state_gas_used
+            if next.receipt.gas_used > osaka.receipt.gas_used {
+                more_gas[k] += 1
+            } else if next.receipt.gas_used < osaka.receipt.gas_used {
+                less_gas[k] += 1
+            }
+            if next.receipt.logs.len() > osaka.receipt.logs.len() {
+                logs_added += next.receipt.logs.len() - osaka.receipt.logs.len()
+                with_logs_added += 1
+            }
+        }
+    }
+    var total: u64 = 0
+    var total_invalid: u64 = 0
+    var total_failed: u64 = 0
+    var total_osaka: u64 = 0
+    var total_amsterdam: u64 = 0
+    for k in 0 .. KINDS {
+        total += count[k]
+        total_invalid += invalid[k]
+        total_failed += newly_failed[k]
+        total_osaka += gas_osaka[k]
+        total_amsterdam += gas_amsterdam[k]
+    }
+    println!(
+        "Amsterdam on ",
+        blocks,
+        " mainnet blocks: ",
+        total,
+        " transactions, each on its own traced pre-state and its own gas limit; ",
+        total_invalid,
+        " no longer valid, ",
+        total_failed,
+        " that succeeded would fail; the rest would use ",
+        total_amsterdam,
+        " gas against ",
+        total_osaka,
+        "; ",
+        logs_added,
+        " transfer logs added (EIP-7708) in ",
+        with_logs_added,
+        " transactions",
+    )
+    for k in 0 .. KINDS {
+        if count[k] == 0 { continue }
+        println!(
+            "  ",
+            kind_name(k),
+            ": ",
+            count[k],
+            "; invalid ",
+            invalid[k],
+            ", now failing ",
+            newly_failed[k],
+            ", now succeeding ",
+            newly_ok[k],
+            "; gas ",
+            gas_osaka[k],
+            " -> ",
+            gas_amsterdam[k],
+            " (more ",
+            more_gas[k],
+            ", less ",
+            less_gas[k],
+            "), state gas ",
+            state_gas[k],
+        )
+    }
+    if osaka_invalid > 0 {
+        println!(
+            "  (",
+            osaka_invalid,
+            " transactions fevm found invalid under Osaka too, left out)",
+        )
+    }
+    0
+}

@@ -29,7 +29,7 @@ Replaying is fast: those 5,129 transactions take 5.9 seconds once fetched.
 | **What** | fevm-replay replays real mainnet history in fevm, validates whole blocks statelessly against every root in their headers (what a stateless light client checks, from nothing but the parent's proofs), and checks Fe ports of Solidity contracts against real traffic. All Fe, from the HTTP call to the verdict. |
 | **fevm on mainnet** | 115,213 transactions replayed, 290 blocks as chains, no fevm bug; against geth itself (`evm t8n` 1.17.10), 3,100 of 3,100 mutated mainnet calls end the same, and 85 of 85 whole blocks (18,967 transactions) give the header's receipts root, gas and bloom and the proven end state ([more](#fevm-against-geth)) |
 | **Stateless** | With the parent's proofs as a witness, fevm runs a block's system calls and transactions and *computes* its `stateRoot`; `transactionsRoot`, `receiptsRoot`, `withdrawalsRoot`, `requestsHash`, `logsBloom` and `gasUsed` come out of fevm too. every block validated so far matched every root (the badge above counts them; 3 consecutive ones as one chain), and `follow` keeps taking more from the chain head; one is checked in CI on every push. A MATCH rests on the block hash, not the node ([details](#every-root-in-the-header)) |
-| **For EIP authors** | Measured on 85 mainnet blocks over 5 days ([findings](docs/stateless-findings.md)): code is 45% of a stateless witness; EIP-4762 (Draft) would cost 25% more gas, and 39% of transactions, sent with the same gas limit, would run out of gas. Exempting the coinbase, as the draft exempts the sender and target, brings that to 15%: it saves ETH transfers (60% short, 1.7% exempt) but not contract calls (27%, still 23%: code and storage). Code at half price would bring it to 5.9%, free code to 1.5%. The charges match ethereumjs's independent EIP-4762 implementation on all 18,967 transactions |
+| **For EIP authors** | Measured on 85 mainnet blocks over 5 days ([findings](docs/stateless-findings.md)): code is 45% of a stateless witness; EIP-4762 (Draft) would cost 25% more gas, and 39% of transactions, sent with the same gas limit, would run out of gas. Exempting the coinbase, as the draft exempts the sender and target, brings that to 15%: it saves ETH transfers (60% short, 1.7% exempt) but not contract calls (27%, still 23%: code and storage). Code at half price would bring it to 5.9%, free code to 1.5%. The charges match ethereumjs's independent EIP-4762 implementation on all 18,967 transactions. Under Glamsterdam's execution rules (fevm's `Config::amsterdam()`), the same transactions sent with the same gas limits: 35% would fail, 25% more gas ([more](#every-root-in-the-header)) |
 | **Fe ports** | 5 ports (USDT, every Uniswap V2 pair, WETH9, DAI, USDC's proxy) certified by mainnet replay, mainnet mutations, fuzzing and mutation testing ([verified page](https://fevm-replay.vercel.app/verified.html)). Also all four of Ethereum's system contracts (EIP-4788, EIP-2935, EIP-7002, EIP-7251), ported from assembly: on 85 mainnet blocks they store and return what the deployed ones do, and with all four system calls run by the Fe ports every root in the header still matches; the mainnet transactions that call them run identically ([more](#ethereums-own-system-contracts-in-fe)) |
 | **Gas vs Solidity** | On 57,034 mainnet calls in identical transactions, the five Fe ports used 3.3% less gas than the deployed solc bytecode; 59 of 61 functions are cheaper (USDT −4.4%, WETH9 −4.0%, DAI −1.6%, pair −1.1%, USDC proxy −1.0%). The system contracts go the other way: hand-written assembly beats them by 24 to 2,026 gas a call ([per function](docs/gas.md)) |
 | **Fe-specific** | Effects prove validation needs no file, process or network, so the same Fe compiles to WebAssembly with fevm in it: [validate a whole mainnet block in your browser](https://fevm-replay.vercel.app/verify.html), every root in its header, including a block near the chain's head your browser fetches itself from public nodes, its hash checked by a light client against Ethereum's sync committee signatures, which fevm's own BLS12-381 precompiles verify too (all 85 stateless blocks validate in the module); `const fn` + `static_assert` check the blob fee against a real block; std units, `core::fixed`, `msg`/`recv` ([Fe highlight](#fe-highlight)) |
@@ -260,6 +260,37 @@ ethereumjs does not charge the 6,200 for filling a leaf yet, so the leaves
 filled are counted from the diff and added. What both sides share is which
 accesses the traces show (the approximations above); CI runs the check on
 the two fixture blocks.
+
+**Glamsterdam, on today's transactions.** fevm implements Glamsterdam's
+execution rules (`Config::amsterdam()`: EIP-8037 and EIP-8038 state gas and
+repricing, EIP-2780, EIP-7976 and EIP-7981 transaction repricing, EIP-7708
+transfer logs), checked by fevm's CI against execution-spec-tests.
+`fevm_replay amsterdam <dir>...` ([`src/amsterdam.fe`](src/amsterdam.fe))
+runs every transaction of the saved blocks twice, on the pre-state the node
+traced for it and with the gas limit it was sent with: under Osaka, as it
+ran, and under Amsterdam.
+
+```
+Amsterdam on 85 mainnet blocks: 18967 transactions, each on its own traced pre-state and its own
+gas limit; 125 no longer valid, 6693 that succeeded would fail; the rest would use 3007656686 gas
+against 2398584215; 8948 transfer logs added (EIP-7708) in 7110 transactions
+  ETH transfers: 6625; invalid 0, now failing 1028, ...
+  contract calls: 11857; invalid 125, now failing 5503, ...
+  contract creations: 25; invalid 0, now failing 21, ...
+  blob transactions: 176; invalid 0, now failing 25, ...
+  set-code transactions: 284; invalid 0, now failing 116, ...
+```
+
+Sent as they were, 35% of these transactions would fail and the rest would
+use 25% more gas. The ETH transfers that fail pay a new account into
+existence: creating an account is state gas under EIP-8037, and a transfer
+sent with exactly 21,000 (or 25,000) cannot cover it
+([0xd1163b9a…](https://etherscan.io/tx/0xd1163b9a4766267495dd7f4989552f22108fc05d1fcfb4b436ce7ecf656999aa)).
+The 125 no longer valid are contract calls whose gas limit falls below the
+new intrinsic cost (the calldata floor of EIP-7976 and EIP-7981). Wallets
+that estimate gas would adapt; contracts, bots and scripts that hard-code a
+gas limit would not, as with EIP-4762 above. CI checks the count on the
+fixture block (1 invalid, 20 now failing of 71).
 
 **Block access lists.** EIP-7928's list for the same blocks, built from
 each transaction's traces ([`ingots/replay_core/src/bal.fe`](ingots/replay_core/src/bal.fe)), is 82 KiB a block

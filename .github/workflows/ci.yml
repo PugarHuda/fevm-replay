@@ -148,6 +148,13 @@ jobs:
           assert s["heaviest"][0]["address"] == "0xdac17f958d2ee523a2206206994597c13d831ec7", s["heaviest"][0]
           PY
 
+      - name: The same block under Glamsterdam's execution rules (fevm's Config::amsterdam())
+        run: |
+          out=$(./out/fevm_replay amsterdam proven/0x19335e5)
+          echo "$out"
+          echo "$out" | grep -q "71 transactions, each on its own traced pre-state and its own gas limit; 1 no longer valid, 20 that succeeded would fail"
+          echo "$out" | grep -q "fails under Amsterdam: ETH transfers 0xd1163b9a4766267495dd7f4989552f22108fc05d1fcfb4b436ce7ecf656999aa (gas limit 21000"
+
       - name: The Fe system contracts do on a mainnet block what the deployed ones do
         run: |
           out=$(./out/fevm_replay system proven/0x19335e5 out/system/BeaconRoots.runtime.bin out/system/HistoryStorage.runtime.bin out/system/WithdrawalRequests.runtime.bin out/system/ConsolidationRequests.runtime.bin)
