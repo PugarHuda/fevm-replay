@@ -53,7 +53,7 @@ if (live) {
   let light;
   try {
     light = await lightClient(live.number, hash, headersBetween, step, checkpoint);
-    console.log(`light client: from checkpoint ${light.checkpoint.root.slice(0, 10)}… (slot ${light.checkpoint.slot}), ${light.handoffs.length} sync committee handoff(s), ${light.signers}/512 signed slot ${light.slot} (execution block ${light.top}), ${light.headers} headers hashed back to this block: its hash is the chain's`);
+    console.log(`light client: from ${light.builtIn ? "the built-in " : "YOUR "}checkpoint ${light.checkpoint.root.slice(0, 10)}… (slot ${light.checkpoint.slot}), ${light.handoffs.length} sync committee handoff(s), ${light.signers}/512 signed slot ${light.slot} (execution block ${light.top}), ${light.headers} headers hashed back to this block${light.builtIn ? ": its hash is the chain's" : ""}`);
   } catch (e) {
     console.log(`light client: could not confirm the hash (${e.message})`);
   }

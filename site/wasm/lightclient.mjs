@@ -22,6 +22,7 @@ const FORKS = [[411392, "0x06000000"]];
 const DOMAIN_SYNC_COMMITTEE = "0x07000000";
 const DST = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
 const SLOTS_PER_PERIOD = 8192;
+const WEAK_SUBJECTIVITY_SLOTS = 14 * 7200; // about two weeks
 // Generalized indices since Electra (the state has 64 leaves); the body's is older.
 const CURRENT_SYNC_COMMITTEE = 86, NEXT_SYNC_COMMITTEE = 87, FINALIZED_ROOT = 169, EXECUTION_PAYLOAD = 25;
 
@@ -160,6 +161,12 @@ export async function lightClient(number, hash, headers, step = () => {}, root =
     if (at !== now) throw new Error(`the nodes gave updates up to period ${at}, not ${now}`);
   }
   const u = optimistic.body.data;
+  // A checkpoint other than the one written above must be recent: past the
+  // weak subjectivity period (about two weeks), validators who have since
+  // left could have signed another history.
+  if (root !== CHECKPOINT.root && Number(u.signature_slot) - checkpoint.slot > WEAK_SUBJECTIVITY_SLOTS) {
+    throw new Error(`checkpoint ${root.slice(0, 10)}… (slot ${checkpoint.slot}) is older than about two weeks; use a recent finalized root`);
+  }
   const signers = signed(committee, u.sync_aggregate, u.attested_header.beacon, u.signature_slot);
   const top = execution(u.attested_header);
   const topNumber = Number(top.block_number);
@@ -174,5 +181,5 @@ export async function lightClient(number, hash, headers, step = () => {}, root =
     expect = h.parentHash;
   }
   if (blockHash(chain[0]) !== hash) throw new Error(`block ${number}'s header does not hash to the validated block's hash`);
-  return { checkpoint, handoffs, slot: Number(u.attested_header.beacon.slot), signers, top: topNumber, headers: chain.length, node: optimistic.node };
+  return { checkpoint, builtIn: root === CHECKPOINT.root, handoffs, slot: Number(u.attested_header.beacon.slot), signers, top: topNumber, headers: chain.length, node: optimistic.node };
 }

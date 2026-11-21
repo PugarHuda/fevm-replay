@@ -191,7 +191,7 @@ async function start() {
       const l = a.light;
       const light = !l ? "" : l.error
         ? ` Light client: could not confirm the hash (${l.error}).`
-        : ` Light client: from ${new URLSearchParams(location.search).get("checkpoint") ? "your checkpoint" : "the checkpoint written in lightclient.mjs"} (beacon block ${l.checkpoint.root.slice(0, 10)}…, slot ${l.checkpoint.slot.toLocaleString("en")}), ${l.handoffs.length} sync committee handoff${l.handoffs.length === 1 ? "" : "s"} checked; ${l.signers} of 512 of the sync committee signed slot ${l.slot.toLocaleString("en")}, whose execution block ${l.top.toLocaleString("en")} hashes back through ${l.headers} headers to this one. The hash is the chain's, not only the nodes' word.`;
+        : ` Light client: from ${l.builtIn ? "the checkpoint written in lightclient.mjs" : "a checkpoint given in this page's address, NOT the one written in lightclient.mjs: the verdict is only as good as that root"} (beacon block ${l.checkpoint.root.slice(0, 10)}…, slot ${l.checkpoint.slot.toLocaleString("en")}), ${l.handoffs.length} sync committee handoff${l.handoffs.length === 1 ? "" : "s"} checked; ${l.signers} of 512 of the sync committee signed slot ${l.slot.toLocaleString("en")}, whose execution block ${l.top.toLocaleString("en")} hashes back through ${l.headers} headers to this one.${l.builtIn ? " The hash is the chain's, not only the nodes' word." : ""}`;
       bout.textContent = `Block ${data.live.number.toLocaleString("en")}, ${behind} behind the head (${data.live.head.toLocaleString("en")}).${final} ${trust}${light} ${data.live.transactions} transactions; ${data.live.accounts} accounts and ${data.live.slots} slots proven at both ends.
 
 ` + data.out;
@@ -203,7 +203,7 @@ async function start() {
     }
     const s = (data.ms / 1000).toFixed(2);
     if (data.reply.ok && data.reply.value === 1) {
-      bverdict.textContent = `Every root holds: fevm validated the block in ${s} s in your browser.` + (!data.anchored ? "" : data.anchored.differ.length ? " But the nodes do not agree on its hash: see below." : data.anchored.light && !data.anchored.light.error ? ` Its hash is signed by ${data.anchored.light.signers} of 512 of Ethereum's sync committee (light client), and ${1 + data.anchored.agree.length} nodes give it.` : ` Its hash is the one ${1 + data.anchored.agree.length} independent nodes give.`);
+      bverdict.textContent = `Every root holds: fevm validated the block in ${s} s in your browser.` + (!data.anchored ? "" : data.anchored.differ.length ? " But the nodes do not agree on its hash: see below." : data.anchored.light && !data.anchored.light.error ? ` Its hash is signed by ${data.anchored.light.signers} of 512 of Ethereum's sync committee (light client${data.anchored.light.builtIn ? "" : ", from the address's checkpoint"}), and ${1 + data.anchored.agree.length} nodes give it.` : ` Its hash is the one ${1 + data.anchored.agree.length} independent nodes give.`);
       bverdict.classList.add("ok");
     } else {
       bverdict.textContent = `The block does not validate as given (${s} s).`;
