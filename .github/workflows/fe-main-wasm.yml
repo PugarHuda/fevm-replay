@@ -21,10 +21,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Build Fe's latest main (wasm backend)
+      - name: Build Fe's latest (default branch) (wasm backend)
         run: |
-          head=$(git ls-remote https://github.com/argotorg/fe refs/heads/main | cut -f1)
+          head=$(git ls-remote https://github.com/argotorg/fe HEAD | cut -f1)
+          test -n "$head"
           echo "FE_HEAD=$head" >> "$GITHUB_ENV"
+          npm config set allow-scripts=tree-sitter-cli --location=user || true
           npm install -g tree-sitter-cli@0.24.7
           cargo install --locked --root ~/fe-main --git https://github.com/argotorg/fe --rev "$head" --features wasm fe
           ~/fe-main/bin/fe --version
