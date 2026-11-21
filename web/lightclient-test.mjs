@@ -1,26 +1,29 @@
-// The light client on a recorded mainnet run (fixtures/lightclient.json):
-// it must accept the run as recorded, and reject it after any one change a
-// lying beacon or RPC node could make.
+// The light client on recorded mainnet runs (fixtures/lightclient.json, one
+// sync committee handoff; fixtures/lightclient-handoffs.json, four): each must
+// hold as recorded, and fail after any one change a lying beacon or RPC node
+// could make.
 //
 //   node web/lightclient-test.mjs
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { fevmHashToG2, fevmPrecompiles, fevmVerifies, lightClient, nobleHashToG2, signingRoot } from "../site/wasm/lightclient.mjs";
 
-const rec = JSON.parse(fs.readFileSync(new URL("../fixtures/lightclient.json", import.meta.url), "utf8"));
+const load = (name) => JSON.parse(fs.readFileSync(new URL(`../fixtures/${name}`, import.meta.url), "utf8"));
+const rec = load("lightclient.json");
 
-async function run(change = () => {}, fevm) {
-  const beacon = structuredClone(rec.beacon);
-  const headers = structuredClone(rec.headers);
+async function run(change = () => {}, fevm, from = rec) {
+  const beacon = structuredClone(from.beacon);
+  const headers = structuredClone(from.headers);
   const bootstrap = Object.keys(beacon).find((p) => p.includes("/bootstrap/"));
-  change({ boot: beacon[bootstrap].data, update: beacon[Object.keys(beacon).find((p) => p.includes("/updates"))][0].data, head: beacon["/eth/v1/beacon/light_client/optimistic_update"].data, headers });
+  const updates = beacon[Object.keys(beacon).find((p) => p.includes("/updates"))];
+  change({ boot: beacon[bootstrap].data, update: updates[0].data, updates, head: beacon["/eth/v1/beacon/light_client/optimistic_update"].data, headers });
   // A node answers every bootstrap with the recorded one, whatever root is asked.
   globalThis.fetch = async (url) => {
     const path = new URL(url).pathname + new URL(url).search;
     const body = path.includes("/bootstrap/") ? beacon[bootstrap] : beacon[path];
     return { ok: !!body, status: body ? 200 : 404, json: async () => body };
   };
-  return lightClient(rec.number, rec.hash, async () => headers, () => {}, rec.result.checkpoint.root, fevm);
+  return lightClient(from.number, from.hash, async () => headers, () => {}, from.result.checkpoint.root, fevm);
 }
 
 const flip = (h, at = 10) => h.slice(0, at) + (h[at] === "0" ? "1" : "0") + h.slice(at + 1);
@@ -50,6 +53,23 @@ for (const [what, change] of Object.entries(lies)) {
   assert.ok(e, `accepted with a changed ${what}`);
   console.log(`rejected: ${what} (${e.message})`);
 }
+
+// Four handoffs: the run holds, and so does every lie above fail on it; and
+// the handoffs must come in order, none left out.
+const four = load("lightclient-handoffs.json");
+const held = await run(() => {}, undefined, four);
+assert.equal(held.handoffs.length, 4);
+console.log(`recorded run: ${held.handoffs.length} handoffs (periods ${held.handoffs.map((h) => h.period).join(", ")}), ${held.signers}/512 signed slot ${held.slot}`);
+const order = {
+  "two handoffs swapped": ({ updates }) => { [updates[0], updates[1]] = [updates[1], updates[0]]; },
+  "a handoff left out": ({ updates }) => { updates.splice(1, 1); },
+  "a later handoff's next committee": ({ updates }) => { updates[2].data.next_sync_committee.pubkeys[0] = updates[2].data.next_sync_committee.pubkeys[1]; },
+};
+for (const [what, change] of Object.entries({ ...lies, ...order })) {
+  const e = await run(change, undefined, four).then(() => null, (e) => e);
+  assert.ok(e, `four handoffs: accepted with ${what}`);
+}
+console.log(`four handoffs: all ${Object.keys(lies).length + Object.keys(order).length} changes rejected, out-of-order and missing handoffs among them`);
 
 // fevm's BLS12-381 precompiles (EIP-2537, in Fe, in the module) on the same
 // signatures: the recorded run holds with both checked by fevm too, and fevm

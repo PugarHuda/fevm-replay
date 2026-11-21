@@ -628,6 +628,11 @@ checkpoint 0xa4faecb4… (slot 15704032) -> 0x710a27f2e15b… (slot 15704416): 1
 sync providers give the same finalized root
 ```
 
+The rest of the check is what Lodestar's prover does for RPC answers:
+every `eth_getProof` answer is proven against a state root in a header
+whose hash the light client has just tied to the sync committee's
+signatures.
+
 To start from a checkpoint you trust instead (any finalized beacon block
 root), pass `--checkpoint 0x…` to `node wasm/cli.mjs` or add
 `&checkpoint=0x…` to the page's address. Beacon nodes (publicnode and
