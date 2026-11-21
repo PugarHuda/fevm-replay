@@ -88,6 +88,14 @@ w(f"*Measured by fevm-replay over {n} mainnet blocks between {num(first)} and {n
   "witness. The live numbers, with every block, are on the "
   "[stateless blocks page](https://fevm-replay.vercel.app/stateless.html). This file is written by "
   "[`docs/findings.py`](findings.py) from the page's data.*\n")
+picked = [r for r in d if r.get("via")]
+if picked:
+    w(f"*{len(picked)} of the blocks were taken by the browser's fetcher (`site/wasm/live.mjs`), which "
+      "picks the smallest non-empty block of the six behind the head to keep the page's download small, "
+      "and were then validated natively by `chain`; the rest are the block two behind the head, as "
+      "`follow` takes it. Per-block figures lean a little toward smaller blocks; the "
+      f"{len(picked)} blocks hold {num(sum(r['transactions'] for r in picked))} of the "
+      f"{num(tx)} transactions.*\n")
 w("## How it was measured\n")
 w("For each block, `chain` takes the parent's Merkle proofs (EIP-1186) of every account and slot the "
   "block touched as the witness, runs the block's system calls and transactions in fevm, writes fevm's "

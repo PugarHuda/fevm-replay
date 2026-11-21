@@ -113,30 +113,16 @@ export const scenes: Scene[] = [
     ],
   },
   {
-    id: 'chain',
-    kind: 'cast',
-    cast: 'chain-of-three.cast',
-    termTitle: 'WSL: fevm-replay, recorded run (asciinema)',
-    narration:
-      "Three consecutive mainnet blocks, in one run. Block one: 230 transactions, all matching. Block two: 256. Block three: 186. And the links hold: each block's parent is the one before it, its pre-state proven against the state root fevm computed.",
-    source: 'demo/casts/chain-of-three.cast (real run, blocks 26,424,861 to 26,424,863); README "Consecutive blocks as one chain"',
-    cues: [
-      { at: 'Block one', target: { sel: '#term', line: 1, toLine: 3 } },
-      { at: 'Block two', target: { sel: '#term', line: 4, toLine: 6 } },
-      { at: 'Block three', target: { sel: '#term', line: 7, toLine: 9 } },
-      { at: 'the links hold', target: { sel: '#term', line: 10 } },
-    ],
-  },
-  {
     id: 'stateless-page',
     kind: 'page',
     url: 'stateless.html',
     start: { sel: '.g-head .intro' },
     narration:
-      "A follower takes the block two behind the chain head, proves it and validates it. This page lists every block it took, with the witness per transaction and per million gas. It also shows whose storage weighs the most: the deeper a contract's storage trie, the more each slot it touches costs.",
-    source: 'site/stateless.html; README "Following the chain" (follow.py)',
+      "Blocks near the chain head, proven and validated as they came. fevm's own chain layer and geth agree on every one. This page lists each block, with the witness per transaction and per million gas, and whose storage weighs the most: the deeper a contract's storage trie, the more each slot it touches costs.",
+    source: 'site/stateless.html intro (fevm_chain and geth-block agree on all 51); README "Whole blocks through geth"',
     cues: [
-      { at: 'every block it took', target: { sel: '#facts' } },
+      { at: 'geth agree', target: { sel: '.g-head .intro', text: 'Two other implementations agree' } },
+      { at: 'lists each block', target: { sel: '#facts' } },
       { at: 'the witness per', target: { sel: '.charts' } },
       { at: 'whose storage', target: { sel: 'h2:has-text("Whose storage weighs the most")' } },
     ],
@@ -170,6 +156,22 @@ export const scenes: Scene[] = [
     ],
   },
   {
+    id: 'browser',
+    kind: 'page',
+    url: 'verify.html?block=0x193565d',
+    start: { sel: '.g-head' },
+    narration:
+      "That is also why the validator compiles to WebAssembly, with fevm inside. Here, in the browser: block 26,433,117, 418 transactions, every root in its header, in about two seconds. Or pick a block near the head, and the page fetches it from public nodes itself.",
+    source: 'verify.html (block 26,433,117: 418/418, every root; live option); README Fe highlight',
+    actions: [{ at: '^', do: 'click', target: { sel: '#brun' } }],
+    cues: [
+      { at: 'compiles to WebAssembly', target: { sel: '.g-head h1' } },
+      { at: '418 transactions', target: { sel: '#bout', text: '418/418 transactions MATCH' } },
+      { at: 'every root in its header', target: { sel: '#bverdict' } },
+      { at: 'pick a block near the head', target: { sel: '#bblock' } },
+    ],
+  },
+  {
     id: 'verified',
     kind: 'page',
     url: 'index.html',
@@ -180,21 +182,6 @@ export const scenes: Scene[] = [
     cues: [
       { at: 'Ask mainnet', target: { sel: '.v-head p' } },
       { at: '21,230', target: { sel: '.port:has(h2:text-is("USDT")) dl' } },
-    ],
-  },
-  {
-    id: 'certificate',
-    kind: 'page',
-    url: 'verified.html',
-    start: { sel: '.port:has(h2:text-is("DAI"))' },
-    narration:
-      "DAI's certificate: 10,562 mainnet transactions, 211,240 mutated runs, none different, all 21 planted mutants caught.",
-    source: 'certificate-dai.html; verified.html',
-    actions: [{ at: '^', do: 'click', target: { sel: '.port:has(h2:text-is("DAI")) a:has-text("Certificate")' } }],
-    cues: [
-      { at: '10,562', target: { sel: 'tr:has(th:text-is("Transactions that ran the port"))' } },
-      { at: '211,240', target: { sel: 'tr:has(th:text-is("Runs"))' } },
-      { at: 'all 21', target: { sel: 'h2:has-text("How sharp the checks are") ~ table' } },
     ],
   },
   {
@@ -230,13 +217,14 @@ export const scenes: Scene[] = [
       sub: 'github.com/PugarHuda/fevm-replay  ·  fevm-replay.vercel.app',
       bullets: [
         '115,213 mainnet transactions replayed in fevm, no fevm bug',
-        'Mainnet blocks validated statelessly: every root in the header from fevm',
+        'Mainnet blocks validated statelessly, every root from fevm; fevm_chain and geth agree',
+        'The same Fe validates whole blocks in your browser (WebAssembly)',
         "5 Fe ports certified, and all four of Ethereum's system contracts in Fe",
         'EIP-4762 on mainnet: +23% gas, 35% of transactions short of gas',
       ],
     },
     narration:
-      "fevm-replay: mainnet blocks validated statelessly, Ethereum's own system code in Fe, and what stateless Ethereum would cost. Code on GitHub, results at {fevm-replay.vercel.app|fevm-replay dot vercel dot app}.",
+      "fevm-replay: mainnet blocks validated statelessly, natively and in your browser, Ethereum's own system code in Fe, and what stateless Ethereum would cost. Code on GitHub, results at {fevm-replay.vercel.app|fevm-replay dot vercel dot app}.",
     source: 'README "For judges: one screen"',
   },
 ];

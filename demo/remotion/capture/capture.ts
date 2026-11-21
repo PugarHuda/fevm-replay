@@ -276,6 +276,8 @@ async function run(sc: Scene, browser: any) {
     while (!castFinished && target.line != null &&
       (await page.locator('#term .ln').count()) <= (target.toLine ?? target.line) + 1) await sleep(40);
     let b = await measure(page, target);
+    // A target the page is still making (a verdict after a run): wait for it, up to the cue's time.
+    if (!b) { await until(ev.t - 0.6); for (let i = 0; !b && i < 40; i++) { await sleep(100); b = await measure(page, target); } }
     if (!b) { console.warn(`  ! ${sc.id}: target not found: ${JSON.stringify(target)}`); continue; }
     const dy = scrollFor(b);
     if (dy) {
