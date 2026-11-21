@@ -1,3 +1,4 @@
+// From argotorg/fe at e6e6342 (Fe 26.7), examples/wasm/host.mjs (Apache-2.0), unchanged below this line.
 // A host for WebAssembly modules built from Fe with `--backend wasm`.
 //
 // It supplies the imports of `std::wasm` (the four scalar operations, the

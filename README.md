@@ -809,11 +809,24 @@ What a MATCH or a clean certificate rests on:
   [fe-lang/builders-challenge-starter](https://github.com/fe-lang/builders-challenge-starter)
   at `f9d9aa9`. Everything after that commit was written during the
   contest.
-- **Third-party code:** none copied. Dependencies are referenced, not
-  vendored:
+- **Third-party code:** Fe dependencies are referenced, not vendored:
   - [fe-lang/fevm](https://github.com/fe-lang/fevm): the Fe team states it
     will be Apache-2.0.
   - [fe-lang/json](https://github.com/fe-lang/json) (Apache-2.0).
+
+  Two files in `site/wasm/` are copied from others, unchanged:
+  - `host.mjs`: Fe's WebAssembly host, argotorg/fe's
+    `examples/wasm/host.mjs` at `e6e6342` (Fe 26.7, Apache-2.0); one line
+    added on top saying so.
+  - `noble.mjs`: an esbuild bundle of
+    [@noble/curves](https://github.com/paulmillr/noble-curves) 1.9.7 and
+    [@noble/hashes](https://github.com/paulmillr/noble-hashes) 1.8.0
+    (MIT, Paul Miller; license headers kept), for the light client's BLS,
+    SHA-256 and keccak.
+
+  `docs/eip4762-check` installs
+  [@ethereumjs/evm and @ethereumjs/util](https://github.com/ethereumjs/ethereumjs-monorepo)
+  10.1.3 (MPL-2.0) from npm to compare against; nothing of it is copied.
 - **AI assistance:** written with Claude (Anthropic) as a pair programmer.
   It drafted the code, which was then checked against the compiler, the
   mainnet results and the negative fixtures. All design choices and results
