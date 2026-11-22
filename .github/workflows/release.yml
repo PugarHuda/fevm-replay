@@ -83,6 +83,17 @@ jobs:
             --title "fevm-replay $GITHUB_REF_NAME" \
             --notes "fevm-replay for x86-64 Linux (built on ubuntu-latest; see LINKED.txt for the libraries it needs), the five ports' and the system contracts' runtime bytecode, the fixtures (one block validated statelessly: mkdir proven && tar xzf fixtures/proven/0x19335e5.tar.gz -C proven && ./fevm_replay chain proven/0x19335e5). Built from ${GITHUB_SHA} with Fe ${FE_REVISION}."
 
+      # The provenance as a release asset too (<archive>.intoto.jsonl), for
+      # tools that look for it beside the archive (OpenSSF Scorecard).
+      - name: Attach the provenance bundle
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh attestation download "$ARCHIVE" -R "$GITHUB_REPOSITORY"
+          mv "sha256-$(shasum -a 256 "$ARCHIVE" | cut -d' ' -f1).jsonl" "$ARCHIVE.intoto.jsonl"
+          gh release upload "$GITHUB_REF_NAME" "$ARCHIVE.intoto.jsonl"
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fevm-replay
@@ -151,6 +162,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$GITHUB_REF_NAME" "$ARCHIVE"
+
+      # The provenance as a release asset too (<archive>.intoto.jsonl), for
+      # tools that look for it beside the archive (OpenSSF Scorecard).
+      - name: Attach the provenance bundle
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh attestation download "$ARCHIVE" -R "$GITHUB_REPOSITORY"
+          mv "sha256-$(shasum -a 256 "$ARCHIVE" | cut -d' ' -f1).jsonl" "$ARCHIVE.intoto.jsonl"
+          gh release upload "$GITHUB_REF_NAME" "$ARCHIVE.intoto.jsonl"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

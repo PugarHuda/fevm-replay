@@ -1,0 +1,15 @@
+# Weekly updates for the pinned actions and the test tools' npm packages.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /e2e
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /docs/eip4762-check
+    schedule:
+      interval: weekly

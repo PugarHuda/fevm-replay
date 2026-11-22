@@ -15,10 +15,6 @@ on:
 
 permissions:
   contents: read
-  actions: read
-  pages: write
-  id-token: write
-  attestations: write
 
 concurrency:
   group: pages
@@ -26,6 +22,12 @@ concurrency:
 
 jobs:
   deploy:
+    permissions:
+      contents: read
+      actions: read
+      pages: write
+      id-token: write
+      attestations: write
     if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
     environment:
