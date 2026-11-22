@@ -14,7 +14,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=7">
+<link rel="stylesheet" href="style.css?v=8">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='3' fill='%23f2f4f3' stroke='%231f2624' stroke-width='2'/%3E%3Ctext x='16' y='22' font-family='sans-serif' font-weight='700' font-size='14' text-anchor='middle' fill='%231f2624'%3EFe%3C/text%3E%3C/svg%3E">
 <style>
   .g-head { padding-block: 1.5rem 0.5rem; }
@@ -67,7 +67,7 @@
     </select>
     <label><input type="checkbox" id="btamper"> a receipt claims one more gas than the transaction used</label>
     <label title="built with Fe at 61fc4ee, which fixed the tail calls fevm-replay reported (argotorg/fe#2060): no return_call rewrite, the default 1 MiB stack"><input type="checkbox" id="bnext"> with the module from Fe's latest commit (the #2060 fix)</label>
-    <button class="primary" id="brun">Validate</button>
+    <button type="button" class="primary" id="brun">Validate</button>
   </div>
   <p class="note" id="blive">"Near the head": your browser asks <code>eth.drpc.org</code> for the block, its receipts and its prestate traces, lets the module's <code>witness_keys</code> (the Fe that decides what <code>fetch-proofs</code> fetches natively) say which accounts and slots to prove, asks <code>ethereum-rpc.publicnode.com</code> for those proofs at the parent and at the block, and validates. Then the hash itself: as a light client does (<a href="https://github.com/PugarHuda/fevm-replay/blob/main/site/wasm/lightclient.mjs"><code>lightclient.mjs</code></a>), the page starts from one finalized beacon block written in the code, checks each sync committee handoff since (BLS signatures, 2/3 or more of 512), takes the newest header the committee signed and the execution block proven in it, and hashes the headers back to this block. Beacon nodes (publicnode, Lodestar) only supply data. To trust a checkpoint of your own, add <code>&amp;checkpoint=0x…</code> (a finalized beacon block root) to the address. Afterwards you can save what it fetched and check it natively with <code>fevm_replay chain</code>.</p>
   <p class="note">Or validate your own block: <label>a <code>.tar.gz</code> of a directory written by <code>fevm_replay fetch</code> and <code>fetch-proofs</code> <input type="file" id="bfile" accept=".gz,.tgz,application/gzip"></label>. It stays in your browser.</p>
@@ -89,7 +89,7 @@
   <div class="controls">
     <label>Proof <select id="which"><option value="usdt.json">USDT</option><option value="usdc.json">USDC (its proxy)</option></select></label>
     <label><input type="checkbox" id="tamper"> claim a different value for the first slot</label>
-    <button class="primary" id="run" disabled>Verify with Fe (WebAssembly)</button>
+    <button type="button" class="primary" id="run" disabled>Verify with Fe (WebAssembly)</button>
   </div>
   <p class="verdict" id="verdict" aria-live="polite"></p>
   <pre id="out">Loading the module…</pre>

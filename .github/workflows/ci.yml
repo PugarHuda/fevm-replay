@@ -28,6 +28,9 @@ jobs:
       - name: The workflows themselves (zizmor, no medium or high finding)
         run: pipx run zizmor==1.32.0 --offline --min-severity medium .github/workflows/
 
+      - name: Every page is valid HTML (html-validate)
+        run: cd site && npx -y html-validate@9.7.1 --config ../e2e/htmlvalidate.json *.html
+
       - name: Restore the Fe compiler
         id: fe-cache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4

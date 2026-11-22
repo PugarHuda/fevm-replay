@@ -102,7 +102,7 @@ pre {
 }
 .tally { font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
 .tally .ok { color: var(--match); }
-.picked { font-family: var(--mono); font-size: 0.8rem; min-height: 1.4em; }
+.picked { display: block; flex-basis: 100%; color: var(--ink); font-family: var(--mono); font-size: 0.8rem; min-height: 1.4em; }
 
 .actions { display: flex; flex-wrap: wrap; gap: 0.75rem; }
 .btn {

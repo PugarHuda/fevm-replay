@@ -14,7 +14,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=7">
+<link rel="stylesheet" href="style.css?v=8">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='3' fill='%23f2f4f3' stroke='%231f2624' stroke-width='2'/%3E%3Ctext x='16' y='22' font-family='sans-serif' font-weight='700' font-size='14' text-anchor='middle' fill='%231f2624'%3EFe%3C/text%3E%3C/svg%3E">
 <style>
   .g-head { padding-block: 1.5rem 0.5rem; }
@@ -57,12 +57,12 @@
   </section>
   <div class="controls">
     <label for="hash">Transaction</label>
-    <input id="hash" size="70" spellcheck="false" placeholder="0x…" style="font:inherit;font-family:'JetBrains Mono',monospace;padding:0.45rem;max-width:100%">
-    <button class="primary" id="go">Check</button>
+    <input id="hash" type="text" size="70" spellcheck="false" placeholder="0x…" style="font:inherit;font-family:'JetBrains Mono',monospace;padding:0.45rem;max-width:100%">
+    <button type="button" class="primary" id="go">Check</button>
   </div>
   <p class="note">Examples from block 26,424,805: <a href="#0xd1163b9a4766267495dd7f4989552f22108fc05d1fcfb4b436ce7ecf656999aa" class="ex">a transfer to a new account, sent with 21,000 gas</a>, <a href="#0x821f49c7fd909e8e511e3de1a3371a9e6f23944973eed0b73c19799da644b575" class="ex">a contract call</a>.</p>
   <div class="controls">
-    <button id="blockgo">Check a whole block near the head</button>
+    <button type="button" id="blockgo">Check a whole block near the head</button>
     <span class="note">every transaction of the block two behind the head, one after another</span>
   </div>
   <p class="verdict" id="verdict" aria-live="polite"></p>
