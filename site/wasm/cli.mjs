@@ -64,5 +64,6 @@ if (live) {
   }
   if (a.differ.length) process.exit(1);
 }
-console.log(ok ? `every root holds (${(result.ms / 1000).toFixed(2)} s in WebAssembly)` : "the block does NOT validate as given");
+const partial = !ok && /state root: not computed/.test(result.out) && !/^(DIFF|STATE|ERROR)/m.test(result.out);
+console.log(ok ? `every root holds (${(result.ms / 1000).toFixed(2)} s in WebAssembly)` : partial ? "every transaction matches; the state root needs proofs saved with the system contracts' code" : "the block does NOT validate as given");
 process.exit(ok ? 0 : 1);

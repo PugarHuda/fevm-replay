@@ -839,6 +839,11 @@ uses (out: mut Stdout)
                     )
                 }
             }
+        } else {
+            // Not a failure of the block: the archive cannot say more.
+            println!(
+                "state root: not computed. These proofs were saved without the system contracts' code (by an older fetch-proofs), so fevm cannot run the system calls or compute the state root; fetch the proofs again to check every root",
+            )
         }
     }
     Validated {

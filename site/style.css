@@ -2,11 +2,11 @@
   --paper: #f2f4f3;
   --paper-2: #e6eae8;
   --ink: #1f2624;
-  --steel: #5b6b73;
+  --steel: #4f5e65;
   --rule: #c9d1ce;
-  --match: #2e8b6f;
+  --match: #1e6e55;
   --match-soft: #cfe6dd;
-  --diff: #c9961a;
+  --diff: #7d5e0f;
   --code-bg: #e9edeb;
   --display: "Schibsted Grotesk", system-ui, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, monospace;
@@ -201,3 +201,6 @@ video.tour { display: block; width: 100%; max-width: 64rem; height: auto; border
 .hero > * { min-width: 0; }
 select { max-width: 100%; }
 .docs table { display: block; overflow-x: auto; max-width: 100%; }
+
+/* Wide tables scroll inside their box, never the page. */
+.scroll { overflow-x: auto; max-width: 100%; }

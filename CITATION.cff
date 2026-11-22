@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use fevm-replay or its measurements, please cite it as below."
+title: "fevm-replay: Ethereum mainnet replayed and validated statelessly in fevm, the EVM written in Fe"
+type: software
+authors:
+  - family-names: "Mantoro"
+    given-names: "Pugar Huda"
+repository-code: "https://github.com/PugarHuda/fevm-replay"
+url: "https://fevm-replay.vercel.app"
+license: Apache-2.0
+version: 0.8.3
+date-released: "2026-11-22"
+keywords:
+  - Ethereum
+  - Fe
+  - EVM
+  - stateless validation
+  - EIP-4762
+  - Glamsterdam
+  - light client
+abstract: >-
+  Replays real Ethereum mainnet transactions in fevm, the EVM written in Fe,
+  validates whole mainnet blocks statelessly from the parent's Merkle proofs
+  (every root in the header), in a browser too, and measures what EIP-4762 and
+  Glamsterdam's execution rules would do to today's transactions.

@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/PugarHuda/fevm-replay/actions/workflows/ci.yml/badge.svg)](https://github.com/PugarHuda/fevm-replay/actions/workflows/ci.yml)
 [![validated by fevm](site/data/stateless.svg)](https://fevm-replay.vercel.app/stateless.html)
+[![E2E: the site clicked through every 6 hours](https://github.com/PugarHuda/fevm-replay/actions/workflows/e2e.yml/badge.svg)](https://github.com/PugarHuda/fevm-replay/actions/workflows/e2e.yml)
 
 **In short:** one question, asked of real Ethereum data: does fevm, the EVM
 the Fe team wrote in Fe, run mainnet exactly? fevm-replay answers it
@@ -761,8 +762,8 @@ Each release carries the executable for x86-64 Linux (or WSL), the ports'
 bytecode and the fixtures:
 
 ```sh
-curl -sL https://github.com/PugarHuda/fevm-replay/releases/latest/download/fevm-replay-v0.8.3-x86_64-linux.tar.gz | tar xz
-cd fevm-replay-v0.8.3-x86_64-linux
+curl -sL https://github.com/PugarHuda/fevm-replay/releases/latest/download/fevm-replay-v0.8.4-x86_64-linux.tar.gz | tar xz
+cd fevm-replay-v0.8.4-x86_64-linux
 ./fevm_replay fixtures/mainnet/*.json            # 7 real transactions, all MATCH
 mkdir proven && tar xzf fixtures/proven/0x19335e5.tar.gz -C proven
 ./fevm_replay chain proven/0x19335e5             # a mainnet block, every root in its header
@@ -775,6 +776,14 @@ cd ../.. && ./fevm_replay amsterdam proven/0x19335e5
 node wasm/cli.mjs --save                         # Node.js 22+ only: a block near the head, fetched from public
                                                  # nodes and validated by the WebAssembly module the browser runs;
                                                  # --save keeps it, for ./fevm_replay chain
+```
+
+From v0.8.4 each archive and executable carries a build provenance
+attestation (SLSA, signed through Sigstore by this repository's release
+workflow), so you need not take the binary on trust:
+
+```sh
+gh attestation verify fevm-replay-v0.8.4-x86_64-linux.tar.gz -R PugarHuda/fevm-replay
 ```
 
 Then fetch a live block, prove it and replay it as a chain (needs `curl`):
@@ -820,6 +829,23 @@ fe build --backend native -O 2 --emit executable --out-dir out .
 
 Fetching needs `curl` and a node with the `debug` namespace. The default is
 the free `https://eth.drpc.org`; pass another URL as the last argument.
+
+The site is tested as a user meets it (`e2e/`, Playwright with axe-core,
+against the deployed site and public nodes, nothing mocked): every page
+loads without an error and every link and asset on it answers, no serious
+accessibility violation, nothing scrolls sideways on a phone; the four
+saved blocks validate in the browser, a tampered one is refused with the
+transaction that differs, an uploaded archive validates, so does the module
+from Fe's latest commit; the USDT and USDC proofs hold and a changed value
+is refused; a block near the head validates with the light client; the
+Glamsterdam check gives the known answer for a known transaction, its
+shared link reopens it, and a whole block's table matches its counts; the
+tour plays; and a block validates in Firefox and WebKit too. It runs on every push to the site and every six hours
+([E2E](.github/workflows/e2e.yml)):
+
+```sh
+cd e2e && npm ci && npx playwright install chromium firefox webkit && npx playwright test
+```
 
 ## Demo
 

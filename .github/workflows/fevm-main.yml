@@ -20,13 +20,15 @@ jobs:
   mainnet:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
 
       # Restore only: this job runs fevm's unpinned main, so it never saves
       # the compiler cache CI shares.
       - name: Restore the Fe compiler
         id: fe-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/fe
           key: fe-${{ runner.os }}-${{ env.FE_REVISION }}-${{ env.RUST_VERSION }}-cranelift

@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=6">
+<link rel="stylesheet" href="style.css?v=7">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='3' fill='%23f2f4f3' stroke='%231f2624' stroke-width='2'/%3E%3Ctext x='16' y='22' font-family='sans-serif' font-weight='700' font-size='14' text-anchor='middle' fill='%231f2624'%3EFe%3C/text%3E%3C/svg%3E">
 <style>
   .ex-head { padding-block: 1.5rem 0.5rem; }
@@ -55,6 +55,7 @@
   .calls .status { font-family: var(--mono); font-size: 0.72rem; margin-left: 0.4rem; }
   .calls .status.bad { color: var(--diff); font-weight: 600; }
   .calls li.part { background: color-mix(in srgb, var(--diff) 18%, transparent); }
+  .calls li.part .pair, .calls li.part .status { color: var(--ink); border-color: var(--ink); }
   .calls li.part button::before { content: "parts here"; grid-column: 1 / -1; font-family: var(--mono); font-size: 0.68rem; font-weight: 600; color: var(--diff); letter-spacing: 0.04em; text-transform: uppercase; }
   .calls li.open .detail { display: block; }
   .detail { display: none; padding: 0 0.6rem 0.6rem; font-family: var(--mono); font-size: 0.72rem; overflow-wrap: anywhere; color: var(--steel); }

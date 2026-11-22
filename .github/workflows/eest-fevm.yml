@@ -24,22 +24,26 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 300
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          persist-credentials: false
           repository: fe-lang/fevm
           ref: ${{ inputs.fevm }}
       - name: Build fevm's pinned Fe compiler and fevm_tools
+        env:
+          EEST: ${{ inputs.eest }}
         run: |
           rust=$(python3 -c "import json; print(json.load(open('native/toolchain.json'))['rust_version'])")
           rustup toolchain install "$rust" --profile minimal
           python3 native/bootstrap.py --out native/out/toolchain --toolchain "$rust" --target-dir "$RUNNER_TEMP/fe-target"
           native/out/toolchain/bin/fe build . --ingot fevm_tools --backend native -O 2 --emit executable --out-dir native/out/tools
-          echo "fevm $(git rev-parse --short HEAD), EEST ${{ inputs.eest }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "fevm $(git rev-parse --short HEAD), EEST $EEST" >> "$GITHUB_STEP_SUMMARY"
       - name: Download the fixtures
         env:
           GH_TOKEN: ${{ github.token }}
+          EEST: ${{ inputs.eest }}
         run: |
-          gh release download "${{ inputs.eest }}" -R ethereum/execution-specs -p fixtures.tar.gz -D "$RUNNER_TEMP"
+          gh release download "$EEST" -R ethereum/execution-specs -p fixtures.tar.gz -D "$RUNNER_TEMP"
           mkdir -p ~/eest
           tar -xzf "$RUNNER_TEMP/fixtures.tar.gz" -C ~/eest fixtures/state_tests \
             fixtures/blockchain_tests/for_osaka fixtures/blockchain_tests/for_amsterdam \
@@ -59,7 +63,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           { echo '```'; tail -8 state.txt; tail -8 blocks.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: ${{ !cancelled() }}
         with:
           name: conformance

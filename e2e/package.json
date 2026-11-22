@@ -1,0 +1,14 @@
+{
+  "name": "fevm-replay-e2e",
+  "private": true,
+  "type": "module",
+  "description": "The site, clicked through as a user would, against the real deployment and real nodes",
+  "scripts": {
+    "test": "playwright test",
+    "test:offline": "playwright test --grep-invert @live"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.10.2",
+    "@playwright/test": "1.65.1"
+  }
+}
