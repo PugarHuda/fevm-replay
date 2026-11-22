@@ -158,3 +158,16 @@ test("a gzip that is not a block's archive: the page names the file it lacks", a
   await page.getByRole("button", { name: "Validate", exact: true }).click();
   await expect(page.locator("#bout")).toContainText("the archive has no chain.json", { timeout: 60_000 });
 });
+
+test("the page checks where its module came from: the Sigstore attestation verified in the browser @live @engines", async ({ page }) => {
+  await page.locator("#bblock").selectOption("block-0x19335e5.tar.gz");
+  expect(await validate(page)).toMatch(/^Every root holds/);
+  const prov = page.locator("#bprov");
+  await expect(prov).not.toContainText("checking", { timeout: 60_000 });
+  const said = await prov.textContent();
+  test.skip(/limit|answered/.test(said), `GitHub's API: ${said}`);
+  await expect(prov).toHaveClass("ok");
+  await expect(prov).toContainText("Provenance verified in your browser: built by this repository's pages.yml on main at commit");
+  await expect(prov.getByRole("link").first()).toHaveAttribute("href", /github\.com\/PugarHuda\/fevm-replay\/commit\/[0-9a-f]{40}$/);
+  await expect(prov.getByRole("link").nth(1)).toHaveAttribute("href", /search\.sigstore\.dev\/\?logIndex=\d+$/);
+});

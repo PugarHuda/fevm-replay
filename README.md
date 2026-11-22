@@ -875,7 +875,14 @@ author nor its servers:
    the module it ran, the E2E suite checks the served modules equal the
    repository's, and the Pages workflow attests them (`gh attestation verify
    fevm_replay_web.wasm -R PugarHuda/fevm-replay` on the file the site
-   served you).
+   served you). The page does that check itself: after a block validates,
+   verify.html looks the module's SHA-256 up in GitHub's attestations and
+   verifies the Sigstore bundle in the browser with WebCrypto
+   (`site/wasm/provenance.mjs`, no library): the signature, the certificate
+   chain to Sigstore's Fulcio root, the repository, workflow and commit in the
+   certificate, and the Rekor entry's inclusion proof and signed checkpoint.
+   `node web/provenance-test.mjs` runs the same check, and shows each part of
+   a real bundle refused when changed.
 3. **The block.** A MATCH rests on the block hash, and for a block near the
    head the page checks that hash with a light client from a finalized
    checkpoint, each sync committee signature verified twice (noble, and

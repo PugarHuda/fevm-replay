@@ -28,6 +28,8 @@
   #bdiff { display: block; overflow-x: auto; border-collapse: collapse; margin: 0 0 1rem; font-family: "JetBrains Mono", monospace; font-size: 0.85rem; }
   #bdiff th, #bdiff td { text-align: left; padding: 0.4rem 0.9rem 0.4rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
   .verdict.ok { color: var(--match, #1e6e55); }
+  #bprov.ok { color: var(--match, #1e6e55); }
+  #bprov.bad { color: var(--diff, #7d5e0f); font-weight: 600; }
   .verdict.bad { color: var(--diff, #7d5e0f); }
   .why { max-width: var(--measure); }
 </style>
@@ -226,6 +228,20 @@ async function start() {
     mod.append(`Module run: ${(data.size / 1048576).toFixed(1)} MB, SHA-256 `, Object.assign(document.createElement("code"), { textContent: data.sha256 }), ", the repository's ", src, ".");
     document.getElementById("bmodule")?.remove();
     bverdict.after(mod);
+    // And where it came from: its attestation, verified here (provenance.mjs).
+    const prov = Object.assign(document.createElement("span"), { id: "bprov", textContent: " Provenance: checking its Sigstore attestation…" });
+    mod.append(prov);
+    import("./wasm/provenance.mjs").then(({ provenance }) => provenance(data.sha256)).then((p) => {
+      prov.textContent = ` Provenance verified in your browser: built by this repository's ${p.workflow.match(/workflows\/([^@]+)@/)[1]} on main at commit `;
+      prov.append(Object.assign(document.createElement("a"), { href: `https://github.com/PugarHuda/fevm-replay/commit/${p.commit}`, textContent: p.commit.slice(0, 7) }),
+        `, its certificate chained to Sigstore's Fulcio root, its signature logged in Rekor (entry `,
+        Object.assign(document.createElement("a"), { href: `https://search.sigstore.dev/?logIndex=${p.logIndex}`, textContent: p.logIndex }),
+        `, ${p.logged.toISOString().slice(0, 16).replace("T", " ")} UTC) with its inclusion proved.`);
+      prov.className = "ok";
+    }, (e) => {
+      prov.textContent = ` Provenance not verified: ${e.message}.`;
+      prov.className = /limit|answered/.test(e.message) ? "" : "bad";
+    });
   };
   const tamper = document.getElementById("btamper").checked;
   const module = document.getElementById("bnext").checked ? "next/" : undefined;

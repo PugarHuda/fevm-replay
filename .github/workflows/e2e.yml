@@ -47,6 +47,15 @@ jobs:
             sleep 20
           done
           echo "the site does not serve this commit's module after 10 minutes" && exit 1
+      # The page's own provenance check, outside the browser too: the served
+      # modules' attestations verify, and a changed bundle is refused.
+      - name: Provenance of the served modules
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node web/provenance-test.mjs site/wasm/fevm_replay_web.wasm
+          node web/provenance-test.mjs site/wasm/next/fevm_replay_web.wasm
       - run: npx playwright test
         env:
           BASE_URL: https://fevm-replay.vercel.app/
