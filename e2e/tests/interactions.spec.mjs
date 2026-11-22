@@ -166,3 +166,47 @@ test("stateless table: sort by transactions with a click, reverse it, and by key
   await expect(table.locator("thead th").first()).toHaveAttribute("aria-sort", "descending");
   await expect(table.locator("thead th").nth(1)).not.toHaveAttribute("aria-sort", /./);
 });
+
+// The shared sortable.js on every page with a data table: a click sorts a
+// numeric column as numbers (including "−1,024", with a Unicode minus).
+for (const [path, header, col] of [["opgas.html", "Fe − Solidity", 4], ["glamsterdam.html", "Calls that would fail", 3], ["gas.html", "Transactions", 2]]) {
+  test(`${path}: sorting by "${header}" orders the rows as numbers, both ways`, async ({ page }) => {
+    await page.goto(path, { waitUntil: "networkidle" });
+    const table = page.locator("table[data-sortable]").first();
+    await expect(table.locator("tbody tr").first()).toBeVisible();
+    const values = async () => (await table.locator(`tbody tr td:nth-child(${col})`).allTextContents()).map((t) => Number(t.replace(/−/g, "-").replace(/[^\d.-]/g, "")));
+    const head = table.getByRole("button", { name: header });
+    await head.click();
+    let v = await values();
+    expect(v).toEqual([...v].sort((a, b) => b - a));
+    await head.click();
+    v = await values();
+    expect(v).toEqual([...v].sort((a, b) => a - b));
+  });
+}
+
+test("fork.html: sorting by block keeps every row, and the filters still work after", async ({ page }) => {
+  await page.goto("fork.html", { waitUntil: "networkidle" });
+  const rows = page.locator("#rows tr");
+  const n = await rows.count();
+  await page.locator("table[data-sortable]").getByRole("button", { name: "Block" }).click();
+  await expect(rows).toHaveCount(n);
+  const eip = page.locator(".filters button").nth(1);
+  const want = Number((await eip.textContent()).match(/(\d+)$/)[1]);
+  await eip.click();
+  await expect(rows).toHaveCount(want);
+});
+
+test("front page: with the tamper box ticked, the row shows the digit that was changed", async ({ page }) => {
+  await page.goto("index.html", { waitUntil: "networkidle" });
+  await page.getByLabel("Change one digit of receiptsRoot first").check();
+  await page.getByRole("button", { name: "Check these roots in your browser" }).click();
+  const mark = page.locator('.root[data-field="receiptsRoot"] .val mark');
+  await expect(mark).toHaveText("0");
+  await expect(mark).toHaveAttribute("title", "was d");
+  await expect(page.locator("#rc-say")).toContainText("refused", { timeout: 200_000 });
+  await page.getByLabel("Change one digit of receiptsRoot first").uncheck();
+  await page.getByRole("button", { name: "Check them again" }).click();
+  await expect(mark).toHaveCount(0);
+  await expect(page.locator('.root[data-field="receiptsRoot"] .val')).toHaveText("0xc037a4c2…8bcd");
+});

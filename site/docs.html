@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=10">
+<link rel="stylesheet" href="style.css?v=11">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='3' fill='%23f2f4f3' stroke='%231f2624' stroke-width='2'/%3E%3Ctext x='16' y='22' font-family='sans-serif' font-weight='700' font-size='14' text-anchor='middle' fill='%231f2624'%3EFe%3C/text%3E%3C/svg%3E">
 </head>
 <body>
@@ -50,6 +50,7 @@
       <li><a href="#mainnet-fuzz">Fuzzing from mainnet</a></li>
       <li><a href="#labels">Checking the labels</a></li>
       <li><a href="#chain">A block as one chain</a></li>
+      <li><a href="#provenance">Where the code came from</a></li>
       <li><a href="#mutants">Mutation testing</a></li>
       <li><a href="#certify">Port certificates</a></li>
       <li><a href="#ports">Writing a port</a></li>
@@ -177,6 +178,16 @@ fe build --backend native -O 2 --emit executable --out-dir out .
 
     <h2 id="chain">A block as one chain</h2>
     <p><code>chain</code> builds the block's pre-state from every transaction's prestate, last first, so each account and slot holds its value from the start of the block. Each transaction then runs on what the one before it left, and is checked against the chain's receipt and its state diff; after a difference it carries on from the chain's state, so one difference stays one. Withdrawals (EIP-4895) are credited after the last transaction. With an RPC URL, a recipient no transaction touched starts from its balance at the parent block, and every recipient's final balance is compared with the node's.</p>
+
+    <h2 id="provenance">Where the code came from</h2>
+    <p>Nothing here asks you to trust this repository's author or its servers. Each check below fails loudly if the file you hold is not what this repository's workflows built from a public commit.</p>
+    <ul>
+      <li><strong>The release.</strong> Each archive from v0.8.4 carries build provenance signed through Sigstore by the release workflow: <code>gh attestation verify fevm-replay-v0.8.4-x86_64-linux.tar.gz -R PugarHuda/fevm-replay</code>. The bundle is also attached to the release as <code>&lt;archive&gt;.intoto.jsonl</code>.</li>
+      <li><strong>The browser module, on the page.</strong> After a block validates, the front page and <a href="verify.html">verify.html</a> look the module's SHA-256 up in GitHub's attestations and verify the Sigstore bundle in your browser with WebCrypto alone (<code>wasm/provenance.mjs</code>): the envelope's signature, the certificate chain to Sigstore's Fulcio root, the repository, workflow and commit named in the certificate, and the Rekor entry's signed timestamp, inclusion proof and signed checkpoint.</li>
+      <li><strong>The browser module, in a terminal.</strong> <code>node wasm/cli.mjs</code> runs the same check after every verdict and prints the commit and Rekor entry; <code>--offline</code> skips it (the verdict never depends on it). <code>gh attestation verify fevm_replay_web.wasm -R PugarHuda/fevm-replay</code> checks a module saved from the site.</li>
+      <li><strong>The refusals.</strong> <code>node web/provenance-test.mjs</code> verifies the served modules' attestations, then changes each part of a real bundle in turn (digest, payload, signature, certificate, inclusion proof, checkpoint, logged time) and shows each refused.</li>
+    </ul>
+    <p>GitHub's attestation API allows 60 requests an hour without signing in; past that the page says the check could not run, and the block's verdict stands on its own.</p>
 
     <h2 id="mutants">Mutation testing</h2>
     <p><code>mutants</code> finds every operator in code lines of the port's source (not in comments, strings, attributes or <code>use</code> lines), spreads <code>count</code> mutants over them, and builds each in <code>/tmp/fevm-replay-mutant</code> with <code>fe</code> from <code>PATH</code>. A mutant is killed by a well-formed random call that differs or a broken invariant, or else by a mainnet mutation that differs. The unchanged port is checked first and must pass. A survivor either means the same as the original or shows a blind spot.</p>

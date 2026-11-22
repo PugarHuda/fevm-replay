@@ -14,7 +14,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=10">
+<link rel="stylesheet" href="style.css?v=11">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='3' fill='%23f2f4f3' stroke='%231f2624' stroke-width='2'/%3E%3Ctext x='16' y='22' font-family='sans-serif' font-weight='700' font-size='14' text-anchor='middle' fill='%231f2624'%3EFe%3C/text%3E%3C/svg%3E">
 <style>
   :root { --less: #0f8a5c; --more: #b8860b; }
@@ -77,7 +77,7 @@
   <div class="tip" id="tip"></div>
 
   <div class="scroll">
-    <table class="ops">
+    <table data-sortable class="ops">
       <thead><tr><th scope="col">Opcode</th><th scope="col">Solidity</th><th scope="col">Fe</th><th scope="col">Fe − Solidity</th></tr></thead>
       <tbody id="ops"></tbody>
     </table>
@@ -154,5 +154,6 @@ fetch("data/opgas.json").then((r) => r.json()).then((d) => {
   addEventListener("hashchange", () => { if (d[location.hash.slice(1)]) show(location.hash.slice(1)); });
 });
 </script>
+<script src="sortable.js"></script>
 </body>
 </html>

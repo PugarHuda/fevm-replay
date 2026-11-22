@@ -90,7 +90,19 @@ if (rc) {
   const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
   rc.addEventListener("click", () => {
     rc.disabled = true;
-    document.querySelectorAll(".root").forEach((r) => { r.className = "root"; r.querySelector(".state").textContent = "waiting for fevm"; });
+    document.querySelectorAll(".root").forEach((r) => {
+      r.className = "root";
+      r.querySelector(".state").textContent = "waiting for fevm";
+      const v = r.querySelector(".val");
+      v.dataset.shown ??= v.textContent;
+      v.textContent = v.dataset.shown;
+    });
+    // The changed digit, as the worker changes it: the last one, to 0 (or 1).
+    if (document.getElementById("rc-tamper").checked) {
+      const v = document.querySelector('.root[data-field="receiptsRoot"] .val');
+      const full = v.title, last = full.slice(-1), now = last === "0" ? "1" : "0";
+      v.replaceChildren(`${full.slice(0, 10)}…${full.slice(-4, -1)}`, Object.assign(document.createElement("mark"), { textContent: now, title: `was ${last}` }));
+    }
     const worker = new Worker("wasm/block-worker.mjs", { type: "module" });
     worker.onmessage = ({ data }) => {
       if (data.step) { say.textContent = data.step; return; }

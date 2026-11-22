@@ -247,3 +247,11 @@ select { max-width: 100%; }
 
 /* Wide tables scroll inside their box, never the page. */
 .scroll { overflow-x: auto; max-width: 100%; }
+
+/* Sortable tables (sortable.js): the header is the button. */
+table[data-sortable] th button { all: unset; cursor: pointer; }
+table[data-sortable] th button:focus-visible { outline: 2px solid var(--match); outline-offset: 2px; }
+table[data-sortable] th[aria-sort="ascending"] button::after { content: " \2191"; }
+table[data-sortable] th[aria-sort="descending"] button::after { content: " \2193"; }
+
+.root .val mark { background: var(--diff); color: var(--paper); padding: 0 0.12em; border-radius: 2px; }
