@@ -41,9 +41,7 @@ jobs:
             if node out/without/cli.mjs "$b" > without.txt 2>&1 && grep -q "every root holds" without.txt; then
               held=$((held+1))
             else
-              failed="$failed $(basename $b) ($(grep -m1 -oE 'RangeError[^
-]*|RuntimeError[^
-]*|unreachable' without.txt || tail -1 without.txt))"
+              failed="$failed $(basename $b) ($(grep -m1 -oE 'RangeError.*|RuntimeError.*|unreachable' without.txt || tail -1 without.txt))"
             fi
           done
           if [ "$held" = "$blocks" ]; then

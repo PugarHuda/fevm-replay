@@ -132,11 +132,11 @@ export const scenes: Scene[] = [
     url: 'stateless.html',
     start: { sel: '#eip4762' },
     narration:
-      "And what would stateless Ethereum cost? Priced by the EIP-4762 draft, these blocks would need 25% more gas, and 39% of transactions would run out of gas at the limit they were sent with. Exempting the coinbase saves the transfers, but not the contract calls: 23% still fail. An independent implementation, ethereumjs, charges the same gas on all 18,967 transactions.",
-    source: 'site/stateless.html #eip4762 (computed live from data/stateless.json); docs/stateless-findings.md 13 to 15; README (ethereumjs 18,967/18,967)',
+      "And what would stateless Ethereum cost? Priced by the EIP-4762 draft, these blocks would need 26% more gas, and 40% of transactions would run out of gas at the limit they were sent with. Exempting the coinbase saves the transfers, but not the contract calls: 23% still fail. An independent implementation, ethereumjs, charges the same gas on all 20,636 transactions.",
+    source: 'site/stateless.html #eip4762 (computed live from data/stateless.json); docs/stateless-findings.md 13 to 15; README (ethereumjs 20,636/20,636)',
     cues: [
-      { at: '25% more gas', target: { sel: '#facts4762 > div >> nth=0' } },
-      { at: '39% of transactions', target: { sel: '#facts4762 > div >> nth=2' } },
+      { at: '26% more gas', target: { sel: '#facts4762 > div >> nth=0' } },
+      { at: '40% of transactions', target: { sel: '#facts4762 > div >> nth=2' } },
       { at: 'saves the transfers', target: { sel: '#facts4762 > div >> nth=4' } },
       { at: 'not the contract calls', target: { sel: '#facts4762 > div >> nth=5' } },
     ],
@@ -147,10 +147,10 @@ export const scenes: Scene[] = [
     cast: 'amsterdam.cast',
     termTitle: 'WSL: fevm-replay, recorded run (asciinema)',
     narration:
-      "And Glamsterdam, the next fork, whose rules fevm already implements? The same 18,967 transactions, each with the gas limit it was sent with: 6,693 that succeeded would fail, and the rest would use 25% more gas. Over a thousand are plain transfers to new accounts: creating an account now costs state gas.",
-    source: 'demo/casts/amsterdam.cast (real run of fevm_replay amsterdam on the 85 blocks); README Glamsterdam section',
+      "And Glamsterdam, the next fork, whose rules fevm already implements? The same 20,636 transactions, each with the gas limit it was sent with: 7,264 that succeeded would fail, and the rest would use 26% more gas. Over a thousand are plain transfers to new accounts: creating an account now costs state gas.",
+    source: 'demo/casts/amsterdam.cast (real run of fevm_replay amsterdam on the 93 blocks); README Glamsterdam section',
     cues: [
-      { at: '6,693 that succeeded', target: { sel: '#term', line: 1 } },
+      { at: '7,264 that succeeded', target: { sel: '#term', line: 1 } },
       { at: 'Over a thousand', target: { sel: '#term', line: 2 } },
     ],
   },
@@ -160,8 +160,8 @@ export const scenes: Scene[] = [
     url: 'glamsterdam.html#0xd1163b9a4766267495dd7f4989552f22108fc05d1fcfb4b436ce7ecf656999aa',
     start: { sel: '.controls' },
     narration:
-      "Any recent transaction can be checked in the browser. This plain transfer to a new account was sent with 21,000 gas. Under Glamsterdam it runs out of gas: it would need 204,600, and 183,600 of that is state gas. geth's own Amsterdam rules agree with fevm's on all 3,398 transactions compared.",
-    source: 'glamsterdam.html (live: debug_traceTransaction, then fevm in WebAssembly); README Glamsterdam section (geth-amsterdam 3,398/3,398)',
+      "Any recent transaction can be checked in the browser. This plain transfer to a new account was sent with 21,000 gas. Under Glamsterdam it runs out of gas: it would need 204,600, and 183,600 of that is state gas. geth's own Amsterdam rules agree with fevm's on all 3,718 transactions compared.",
+    source: 'glamsterdam.html (live: debug_traceTransaction, then fevm in WebAssembly); README Glamsterdam section (geth-amsterdam 3,718/3,718)',
     cues: [
       { at: 'sent with 21,000', target: { sel: '#out' } },
       { at: 'it would need 204,600', target: { sel: '#verdict' } },
@@ -228,13 +228,13 @@ export const scenes: Scene[] = [
     cast: 'system-contracts.cast',
     termTitle: 'WSL: fevm-replay, recorded run (asciinema)',
     narration:
-      "Fe can stand in for Ethereum's own code too. All four system contracts the protocol calls in every block are ported from assembly. Here a mainnet block runs its system calls on the Fe ports: two consolidation requests come out, and every root still matches. On 85 blocks it held, after catching one bug in our own port.",
-    source: 'demo/casts/system-contracts.cast (real run, block 26,425,142); README section on the system contracts (85 blocks, the EIP-7002 amount bug)',
+      "Fe can stand in for Ethereum's own code too. All four system contracts the protocol calls in every block are ported from assembly. Here a mainnet block runs its system calls on the Fe ports: two consolidation requests come out, and every root still matches. On 93 blocks it held, after catching one bug in our own port.",
+    source: 'demo/casts/system-contracts.cast (real run, block 26,425,142); README section on the system contracts (93 blocks, the EIP-7002 amount bug)',
     cues: [
       { at: 'runs its system calls', target: { sel: '#term', line: 1 } },
       { at: 'two consolidation requests', target: { sel: '#term', line: 3 } },
       { at: 'every root still matches', target: { sel: '#term', line: 4 } },
-      { at: 'On 85 blocks', target: { sel: '#term', line: 7 } },
+      { at: 'On 93 blocks', target: { sel: '#term', line: 7 } },
     ],
   },
   {
@@ -255,10 +255,10 @@ export const scenes: Scene[] = [
       sub: 'github.com/PugarHuda/fevm-replay  ·  fevm-replay.vercel.app',
       bullets: [
         '115,213 mainnet transactions replayed in fevm, no fevm bug',
-        '85 mainnet blocks validated statelessly, every root; fevm_chain and geth agree',
+        '93 mainnet blocks validated statelessly, every root; fevm_chain and geth agree',
         'The same Fe in your browser, the hash checked by a light client (BLS in fevm)',
         "5 Fe ports certified, and all four of Ethereum's system contracts in Fe",
-        'EIP-4762: +25% gas (ethereumjs agrees); Glamsterdam: 35% fail as sent (geth agrees)',
+        'EIP-4762: +26% gas (ethereumjs agrees); Glamsterdam: 35% fail as sent (geth agrees)',
       ],
     },
     narration:
