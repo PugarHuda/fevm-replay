@@ -841,7 +841,7 @@ from Fe's latest commit; the USDT and USDC proofs hold and a changed value
 is refused; a block near the head validates with the light client; the
 Glamsterdam check gives the known answer for a known transaction, its
 shared link reopens it, and a whole block's table matches its counts; the
-tour plays; and a block validates in Firefox and WebKit too. It runs on every push to the site and every six hours
+tour plays; and a block validates in Firefox and WebKit too. Every control is used as a visitor would: the front page's block by hover, Tab and click, the fork filters, the opcode tabs, calls opened and closed in the explorer, the verify page by keyboard alone, a hash typed with Enter, taps on a phone, a module that fails to download; and every page passes axe in dark mode too. It runs on every push to the site and every six hours
 ([E2E](.github/workflows/e2e.yml)):
 
 ```sh
