@@ -860,6 +860,28 @@ as terminals, and Remotion adds highlights, zooms, captions and an `edge-tts` vo
 [the explorer](https://fevm-replay.vercel.app/explorer.html) in 25 seconds.
 The same steps by hand are in [docs/details.md](docs/details.md#the-demo-by-hand).
 
+## Check it without trusting us
+
+Three links, each checkable by someone who trusts neither this repository's
+author nor its servers:
+
+1. **The executable.** Each release archive from v0.8.4 carries build
+   provenance signed through Sigstore by the release workflow, naming the
+   tag and commit: `gh attestation verify fevm-replay-v0.8.4-x86_64-linux.tar.gz -R PugarHuda/fevm-replay`.
+   An archive changed by one byte is refused.
+2. **The browser module.** CI rebuilds `site/wasm/fevm_replay_web.wasm` from
+   source and requires it byte for byte; verify.html prints the SHA-256 of
+   the module it ran, the E2E suite checks the served modules equal the
+   repository's, and the Pages workflow attests them (`gh attestation verify
+   fevm_replay_web.wasm -R PugarHuda/fevm-replay` on the file the site
+   served you).
+3. **The block.** A MATCH rests on the block hash, and for a block near the
+   head the page checks that hash with a light client from a finalized
+   checkpoint, each sync committee signature verified twice (noble, and
+   fevm's own BLS12-381 precompiles in Fe). A checkpoint given in the
+   address is labelled as not the built-in one; one the beacon nodes do not
+   know confirms nothing.
+
 ## Security assumptions
 
 What a MATCH or a clean certificate rests on:
