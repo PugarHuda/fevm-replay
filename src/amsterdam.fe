@@ -204,6 +204,9 @@ uses (args: std::env::Args, fs: mut Fs, out: mut Stdout)
     var by_state: u64 = 0
     var by_execution: u64 = 0
     var created_by: [u64; 4] = [0; 4]
+    // Contract calls that would no longer succeed, by the contract called.
+    var called: core::MemVec<u256> = core::MemVec::new()
+    var called_count: core::MemVec<u64> = core::MemVec::new()
     var extra_sum: u64 = 0
     var extras_needed: core::MemVec<u64> = core::MemVec::new()
     var within_tenth: u64 = 0
@@ -289,6 +292,23 @@ uses (args: std::env::Args, fs: mut Fs, out: mut Stdout)
             }
             count[k] += 1
             let limit: u64 = field(txs[index], "gas").downcast_truncate()
+            if osaka.receipt.status == OK
+                && (next.receipt.invalid != VALID || next.receipt.status != OK)
+                && k == CALL {
+                let to = field(txs[index], "to")
+                var found = false
+                for c in 0 .. called.len() {
+                    if called[c] == to {
+                        called_count[c] += 1
+                        found = true
+                        break
+                    }
+                }
+                if !found {
+                    called.push(to)
+                    called_count.push(1)
+                }
+            }
             if osaka.receipt.status == OK
                 && (next.receipt.invalid != VALID || next.receipt.status != OK) {
                 let parent = field(header, "parentHash")
@@ -476,6 +496,34 @@ uses (args: std::env::Args, fs: mut Fs, out: mut Stdout)
         ", none of these in the trace ",
         created_by[3],
     )
+    // The six contracts the most failing calls go to.
+    print!(
+        "  contract calls that would fail, by contract called (",
+        called.len(),
+        " contracts):",
+    )
+    var shown_top: u64 = 0
+    while shown_top < 6 {
+        var best: usize = 0
+        var best_count: u64 = 0
+        for c in 0 .. called.len() {
+            if called_count[c] > best_count {
+                best_count = called_count[c]
+                best = c
+            }
+        }
+        if best_count == 0 { break }
+        print!(
+            " 0x",
+            core::text::hex(called[best], 20),
+            " ",
+            best_count,
+            ";",
+        )
+        called_count[best] = 0
+        shown_top += 1
+    }
+    println!("")
     if osaka_invalid > 0 {
         println!(
             "  (",

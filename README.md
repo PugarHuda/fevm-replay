@@ -323,7 +323,9 @@ from zero 3220, none of these in the trace 40
 ```
 
 So nearly two thirds fail for state gas, mostly for storage slots filled
-from zero (3,220) and new accounts (1,286),
+from zero (3,220) and new accounts (1,286). By contract called, the 6,191 contract calls that would
+fail go to 1,395 contracts, but USDT takes 1,378 and USDC 813: a third of them are token transfers
+that fill a recipient's balance slot from zero,
 a third for the repricing of execution (cold access at 3,000, a value
 transfer at 11,300). The 187 that fail at any limit change behavior, not
 only cost.
