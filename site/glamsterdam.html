@@ -14,7 +14,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=8">
+<link rel="stylesheet" href="style.css?v=9">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='3' fill='%23f2f4f3' stroke='%231f2624' stroke-width='2'/%3E%3Ctext x='16' y='22' font-family='sans-serif' font-weight='700' font-size='14' text-anchor='middle' fill='%231f2624'%3EFe%3C/text%3E%3C/svg%3E">
 <style>
   .g-head { padding-block: 1.5rem 0.5rem; }
@@ -193,6 +193,8 @@ document.getElementById("share").addEventListener("click", async () => {
   catch { document.getElementById("shared").textContent = link; }
 });
 go.addEventListener("click", () => { location.hash = input.value.trim(); check(input.value.trim()); });
+// Enter in the box checks it, as a paste-and-Enter visitor expects.
+input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !go.disabled) go.click(); });
 for (const a of document.querySelectorAll("a.ex")) a.addEventListener("click", (e) => { e.preventDefault(); input.value = a.hash.slice(1); location.hash = a.hash; check(input.value); });
 if (location.hash.length === 67) { input.value = location.hash.slice(1); check(input.value); }
 </script>

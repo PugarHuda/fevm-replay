@@ -53,3 +53,20 @@ test("the contracts the failing calls go to: six rows, the two stablecoins first
   expect(n).toEqual([...n].sort((a, b) => b - a));
   expect(n.reduce((a, b) => a + b)).toBeLessThanOrEqual(6191);
 });
+
+test("a hash typed by hand, with stray spaces, and Enter pressed: the same answer @live", async ({ page }) => {
+  const box = page.getByLabel("Transaction");
+  await box.click();
+  await box.pressSequentially("  0xd1163b9a4766267495dd7f4989552f22108fc05d1fcfb4b436ce7ecf656999aa ", { delay: 5 });
+  await box.press("Enter");
+  await expect(page.locator("#verdict")).toHaveText(/it needs a gas limit of 204,600, not 21,000/, { timeout: 120_000 });
+  expect(page.url()).toMatch(/#0xd1163b9a4766267495dd7f4989552f22108fc05d1fcfb4b436ce7ecf656999aa$/);
+});
+
+test("on a phone: tap the example, read the result, nothing spills sideways @mobile @live", async ({ page }) => {
+  await page.getByRole("link", { name: /a transfer to a new account/ }).tap();
+  await expect(page.locator("#verdict")).toContainText("204,600", { timeout: 120_000 });
+  await page.getByRole("button", { name: "Copy a link to this result" }).tap();
+  const [scroll, client] = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
+  expect(scroll).toBeLessThanOrEqual(client + 1);
+});

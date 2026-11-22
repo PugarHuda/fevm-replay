@@ -45,7 +45,7 @@ a:hover { color: var(--match); }
 :focus-visible { outline: 3px solid var(--match); outline-offset: 3px; border-radius: 2px; }
 
 code, pre, .mono { font-family: var(--mono); font-size: 0.86em; }
-:not(pre) > code { background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; }
+:not(pre) > code { background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; overflow-wrap: anywhere; }
 pre {
   background: var(--code-bg);
   border-left: 3px solid var(--match);

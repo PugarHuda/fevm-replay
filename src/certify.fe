@@ -36,7 +36,7 @@ pub fn open<C: Display>(_ name: C) uses (html: mut MemBuffer) {
         .fmt(mut html)
     "@media (prefers-color-scheme:dark){:root{--paper:#161b1a;--ink:#e4e9e7;--steel:#93a3aa;--rule:#34403d;--match:#4fb894;--diff:#e0b03a;--code:#1f2725}}\n"
         .fmt(mut html)
-    "*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.55 system-ui,sans-serif}\n"
+    "*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.55 system-ui,sans-serif}a{color:inherit;text-decoration-color:var(--match);text-underline-offset:.18em}a:hover{color:var(--match)}\n"
         .fmt(mut html)
     "main{width:min(880px,100% - 2rem);margin:2rem auto 4rem}h1{font-size:clamp(1.8rem,5vw,2.6rem);line-height:1.1;letter-spacing:-.02em;margin:.25rem 0 1rem}\n"
         .fmt(mut html)

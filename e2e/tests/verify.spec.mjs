@@ -123,3 +123,18 @@ test("a made-up checkpoint in the address is not trusted @live", async ({ page }
   expect(out).toContain("Light client: could not confirm the hash");
   expect(verdict).not.toContain("sync committee");
 });
+
+test("on a phone: tap Validate, the saved block validates in the phone's browser @mobile", async ({ page }) => {
+  await page.locator("#bblock").selectOption("block-0x19335c4.tar.gz");
+  await page.getByRole("button", { name: "Validate", exact: true }).tap();
+  await expect(page.locator("#bverdict")).toHaveText(/^Every root holds/, { timeout: 200_000 });
+  const [scroll, client] = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
+  expect(scroll).toBeLessThanOrEqual(client + 1);
+});
+
+test("when the module cannot be downloaded (the network drops it), the page says so instead of hanging", async ({ page }) => {
+  await page.route("**/wasm/fevm_replay_web.wasm", (route) => route.abort("connectionreset"));
+  await page.goto("verify.html", { waitUntil: "load" });
+  await expect(page.locator("#out")).toContainText("Could not load the module", { timeout: 30_000 });
+  await expect(page.locator("#run")).toBeDisabled();
+});
