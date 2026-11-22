@@ -53,7 +53,7 @@
 <main class="wrap">
   <section class="g-head">
     <h1>Would this transaction survive Glamsterdam?</h1>
-    <p class="intro">Paste a mainnet transaction hash. Your browser asks a public node for the transaction, its block's header and the pre-state it ran on (<code>debug_traceTransaction</code> with the prestate tracer), then runs it in fevm, the EVM written in Fe, compiled to WebAssembly: under Osaka, as it ran, and under Glamsterdam's execution rules (<code>Config::amsterdam()</code>: EIP-8037 and EIP-8038 state gas, EIP-2780, EIP-7976 and EIP-7981 repricing), with the gas limit it was sent with. If it would fail, fevm searches for the least gas limit that would do. On 85 mainnet blocks, 35% of transactions would fail as sent, and geth's Amsterdam rules agree with fevm's on all 3,398 compared (<a href="stateless.html#glamsterdam">the numbers</a>).</p>
+    <p class="intro">Paste a mainnet transaction hash. Your browser asks a public node for the transaction, its block's header and the pre-state it ran on (<code>debug_traceTransaction</code> with the prestate tracer), then runs it in fevm, the EVM written in Fe, compiled to WebAssembly: under Osaka, as it ran, and under Glamsterdam's execution rules (<code>Config::amsterdam()</code>: EIP-8037 and EIP-8038 state gas, EIP-2780, EIP-7976 and EIP-7981 repricing), with the gas limit it was sent with. If it would fail, fevm searches for the least gas limit that would do. On 93 mainnet blocks, 35% of transactions would fail as sent, and geth's Amsterdam rules agree with fevm's on all 3,718 compared (<a href="stateless.html#glamsterdam">the numbers</a>).</p>
   </section>
   <div class="controls">
     <label for="hash">Transaction</label>
@@ -66,6 +66,7 @@
     <span class="note">every transaction of the block two behind the head, one after another</span>
   </div>
   <p class="verdict" id="verdict" aria-live="polite"></p>
+  <p class="note" id="sharebox" hidden><button id="share" type="button" style="font:inherit;padding:0.3rem 0.7rem;border-radius:6px;border:1px solid var(--rule);background:var(--paper);color:var(--ink);cursor:pointer">Copy a link to this result</button> <span id="shared" aria-live="polite"></span></p>
   <table id="failing" style="display:none;border-collapse:collapse;font-family:'JetBrains Mono',monospace;font-size:0.85rem;margin:0 0 1rem;overflow-x:auto;max-width:100%"><thead><tr><th style="text-align:left;padding-right:1rem">Tx</th><th style="text-align:right;padding-right:1rem">Sent with</th><th style="text-align:right;padding-right:1rem">Needs</th><th style="text-align:right">State gas</th></tr></thead><tbody></tbody></table>
   <pre id="out">fevm runs in your browser; only the node's questions leave it.</pre>
 </main>
@@ -94,7 +95,7 @@ async function rpc(method, params, nodes = NODES) {
 }
 const n = (v) => Number(v).toLocaleString("en");
 async function check(hash) {
-  go.disabled = true; verdict.textContent = ""; verdict.className = "verdict";
+  go.disabled = true; verdict.textContent = ""; verdict.className = "verdict"; document.getElementById("sharebox").hidden = true;
   try {
     if (!/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error("a transaction hash is 0x and 64 hex digits");
     out.textContent = "Asking a node for the transaction and its block…";
@@ -123,6 +124,7 @@ async function check(hash) {
     if (r.least) lines.push("With a gas limit of " + n(r.least) + " (" + n(r.least - r.limit) + " more) it would succeed: " + n(r.at_least.gas) + " gas, " + n(r.at_least.state) + " of it state gas (EIP-8037).");
     else if (r.osaka.ok && !r.amsterdam.ok) lines.push("No gas limit up to 16,777,216 makes it succeed: it would behave differently, not only cost more.");
     out.textContent = lines.join("\n");
+    document.getElementById("sharebox").hidden = false;
     if (!r.osaka.ok) verdict.textContent = "It did not succeed under Osaka either.";
     else if (r.amsterdam.ok) { verdict.textContent = "Survives Glamsterdam as sent (" + n(r.amsterdam.gas) + " gas against " + n(r.osaka.gas) + ")."; verdict.classList.add("ok"); }
     else { verdict.textContent = r.least ? "Would fail under Glamsterdam as sent: it needs a gas limit of " + n(r.least) + ", not " + n(r.limit) + "." : "Would fail under Glamsterdam at any gas limit."; verdict.classList.add("bad"); }
@@ -171,6 +173,11 @@ async function checkBlock() {
   blockgo.disabled = go.disabled = false;
 }
 document.getElementById("blockgo").addEventListener("click", checkBlock);
+document.getElementById("share").addEventListener("click", async () => {
+  const link = location.origin + location.pathname + "#" + input.value.trim();
+  try { await navigator.clipboard.writeText(link); document.getElementById("shared").textContent = "copied: " + link; }
+  catch { document.getElementById("shared").textContent = link; }
+});
 go.addEventListener("click", () => { location.hash = input.value.trim(); check(input.value.trim()); });
 for (const a of document.querySelectorAll("a.ex")) a.addEventListener("click", (e) => { e.preventDefault(); input.value = a.hash.slice(1); location.hash = a.hash; check(input.value); });
 if (location.hash.length === 67) { input.value = location.hash.slice(1); check(input.value); }

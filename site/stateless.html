@@ -122,14 +122,14 @@
 
   <section id="glamsterdam">
     <h2>What Glamsterdam would do to these transactions</h2>
-    <p class="intro">fevm already implements Glamsterdam's execution rules (<code>Config::amsterdam()</code>: EIP-8037 and EIP-8038 state gas and repricing, EIP-2780, EIP-7976 and EIP-7981 transaction repricing, EIP-7708 transfer logs). <code>fevm_replay amsterdam</code> (<a href="https://github.com/PugarHuda/fevm-replay/blob/main/src/amsterdam.fe"><code>src/amsterdam.fe</code></a>) runs every transaction of these 85 blocks on the pre-state the node traced for it, with the gas limit it was sent with, under Osaka and under Amsterdam. geth's own Amsterdam rules (<code>evm t8n</code>, go-ethereum 1.17.10) give the same status, gas, logs and state on all 3,398 transactions compared. <a href="glamsterdam.html">Check one transaction yourself</a>: your browser runs it in fevm under both forks.</p>
+    <p class="intro">fevm already implements Glamsterdam's execution rules (<code>Config::amsterdam()</code>: EIP-8037 and EIP-8038 state gas and repricing, EIP-2780, EIP-7976 and EIP-7981 transaction repricing, EIP-7708 transfer logs). <code>fevm_replay amsterdam</code> (<a href="https://github.com/PugarHuda/fevm-replay/blob/main/src/amsterdam.fe"><code>src/amsterdam.fe</code></a>) runs every transaction of these 93 blocks on the pre-state the node traced for it, with the gas limit it was sent with, under Osaka and under Amsterdam. geth's own Amsterdam rules (<code>evm t8n</code>, go-ethereum 1.17.10) give the same status, gas, logs and state on all 3,718 transactions compared. <a href="glamsterdam.html">Check one transaction yourself</a>: your browser runs it in fevm under both forks.</p>
     <div class="facts">
-      <div><b>35%</b><span>of 18,967 transactions that succeeded would fail at their gas limit (6,693), and 125 more would no longer be valid</span></div>
-      <div><b>+25%</b><span>gas for those that still succeed</span></div>
-      <div><b>64%</b><span>of the failures are state gas (EIP-8037): 2,991 fill a storage slot from zero, 1,215 create an account; the rest is repricing</span></div>
-      <div><b>1,028</b><span>plain ETH transfers would fail: they create an account, sent with 21,000 gas</span></div>
-      <div><b>72,429</b><span>more gas, the median a failing transaction would need; 178 fail at any limit</span></div>
-      <div><b>3,398 / 3,398</b><span>transactions where geth's Amsterdam and fevm's agree</span></div>
+      <div><b>35%</b><span>of 20,636 transactions that succeeded would fail at their gas limit (7,264), and 184 more would no longer be valid</span></div>
+      <div><b>+26%</b><span>gas for those that still succeed</span></div>
+      <div><b>63%</b><span>of the failures are state gas (EIP-8037): 3,220 fill a storage slot from zero, 1,286 create an account; the rest is repricing</span></div>
+      <div><b>1,086</b><span>plain ETH transfers would fail: they create an account, sent with 21,000 gas</span></div>
+      <div><b>72,006</b><span>more gas, the median a failing transaction would need; 187 fail at any limit</span></div>
+      <div><b>3,718 / 3,718</b><span>transactions where geth's Amsterdam and fevm's agree</span></div>
     </div>
   </section>
 

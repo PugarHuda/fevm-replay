@@ -209,7 +209,7 @@ if gd:
       "touched account counts one basic-data read, and a slot the parent holds as zero counts as filled. "
       "The charging itself is checked against an independent implementation: given the same accesses, "
       "ethereumjs 10.1.3's `BinaryTreeAccessWitness` (EIP-4762's costs on EIP-7864's tree, its own key "
-      "derivation) charges the same gas for 18,967 of 18,967 transactions in the 85 blocks, the 21,559 leaves "
+      "derivation) charges the same gas for 20,636 of 20,636 transactions in the 93 blocks, the 22,676 leaves "
       "filled added at 6,200 as ethereumjs does not charge fills yet "
       "([docs/eip4762-check](eip4762-check/compare.mjs)).\n")
 kd = [r for r in gd if "gas4762_short" in r]

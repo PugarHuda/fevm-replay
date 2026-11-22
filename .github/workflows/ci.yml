@@ -20,6 +20,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: The README's and the site's numbers are the data's
+        run: python3 docs/check-numbers.py
+
       - name: Restore the Fe compiler
         id: fe-cache
         uses: actions/cache@v4
