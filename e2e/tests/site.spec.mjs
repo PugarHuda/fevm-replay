@@ -83,3 +83,16 @@ test("upstream page: every item links to its issue or pull request", async ({ pa
   await expect(rows.first()).toContainText("Fixed");
   await expect(rows.first().getByRole("link", { name: "argotorg/fe#2060" })).toHaveAttribute("href", "https://github.com/argotorg/fe/pull/2060");
 });
+
+test("front page: the block header's roots, checked by fevm in the browser at a click @engines", async ({ page }) => {
+  await page.goto("index.html", { waitUntil: "networkidle" });
+  const rows = page.locator(".rootcheck .root");
+  await expect(rows).toHaveCount(8);
+  await expect(rows.first().locator(".state")).toHaveText("not checked yet");
+  await page.getByRole("button", { name: "Check these roots in your browser" }).click();
+  await expect(page.locator("#rc-say")).toContainText(/8 of 8 fields match, from 71 transactions run in [\d.]+ s in your browser/, { timeout: 200_000 });
+  await expect(page.locator(".rootcheck .root.held")).toHaveCount(8);
+  await expect(page.locator(".rootcheck .root.differs")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Check them again" })).toBeEnabled();
+  await expect(page.locator("#rc-say a")).toHaveAttribute("href", "verify.html?block=0x19335e5");
+});

@@ -70,3 +70,49 @@ async function main() {
 }
 
 main();
+
+// The header check on the front page: the same worker as verify.html runs
+// fevm (WebAssembly) on the saved block, and each root is marked from the
+// validator's own output line for it, never assumed.
+const rc = document.getElementById("rc-run");
+if (rc) {
+  const say = document.getElementById("rc-say");
+  const LINES = {
+    stateRoot: /hashes to the header's stateRoot/,
+    transactionsRoot: /hash to the header's transactionsRoot/,
+    receiptsRoot: /hash to the header's receiptsRoot/,
+    withdrawalsRoot: /hash to the header's withdrawalsRoot/,
+    requestsHash: /hash to the header's requestsHash/,
+    logsBloom: /are the header's gasUsed, blobGasUsed and logsBloom/,
+    gasUsed: /are the header's gasUsed, blobGasUsed and logsBloom/,
+    blobGasUsed: /are the header's gasUsed, blobGasUsed and logsBloom/,
+  };
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  rc.addEventListener("click", () => {
+    rc.disabled = true;
+    document.querySelectorAll(".root").forEach((r) => { r.className = "root"; r.querySelector(".state").textContent = "waiting for fevm"; });
+    const worker = new Worker("wasm/block-worker.mjs", { type: "module" });
+    worker.onmessage = ({ data }) => {
+      if (data.step) { say.textContent = data.step; return; }
+      worker.terminate();
+      rc.disabled = false;
+      rc.textContent = "Check them again";
+      if (data.error) { say.textContent = `Could not run fevm here: ${data.error}`; return; }
+      const lines = data.out.split("\n").filter((l) => !/^(DIFF|STATE|ERROR|REQUESTS)/.test(l));
+      const rows = [...document.querySelectorAll(".root")];
+      let held = 0;
+      rows.forEach((r, i) => setTimeout(() => {
+        const ok = lines.some((l) => LINES[r.dataset.field].test(l));
+        held += ok ? 1 : 0;
+        r.classList.add(ok ? "held" : "differs");
+        r.querySelector(".state").textContent = ok ? "fevm got the same" : "fevm got something else";
+        if (i === rows.length - 1) {
+          const tx = data.out.match(/(\d+)\/(\d+) transactions MATCH/);
+          say.replaceChildren(`${held} of ${rows.length} fields match, from ${tx ? tx[2] : "its"} transactions run in ${(data.ms / 1000).toFixed(2)} s in your browser. `,
+            Object.assign(document.createElement("a"), { href: "verify.html?block=0x19335e5", textContent: "The whole output" }), ".");
+        }
+      }, still ? 0 : 90 * i));
+    };
+    worker.postMessage({ archive: "block-0x19335e5.tar.gz" });
+  });
+}

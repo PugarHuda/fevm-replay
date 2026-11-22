@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=9">
+<link rel="stylesheet" href="style.css?v=10">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='3' fill='%23f2f4f3' stroke='%231f2624' stroke-width='2'/%3E%3Ctext x='16' y='22' font-family='sans-serif' font-weight='700' font-size='14' text-anchor='middle' fill='%231f2624'%3EFe%3C/text%3E%3C/svg%3E">
 </head>
 <body>
@@ -38,8 +38,37 @@
 
 <main>
   <div class="wrap hero">
-    <h1>Real Ethereum history, replayed through an EVM written in Fe.</h1>
-    <p class="lede">fevm-replay runs mainnet transactions inside <a href="https://github.com/fe-lang/fevm">fevm</a> and checks that each one ends <strong>exactly as it did on chain</strong>: status, gas, logs and every balance, nonce, code byte and storage slot. It validates whole blocks statelessly too: from the parent's Merkle proofs, fevm <a href="#proven">computes every root in the header</a>. Then it swaps a Solidity contract for its Fe port and checks the port against real traffic.</p>
+    <div class="hero-top">
+      <div class="hero-copy">
+        <h1>Real Ethereum history, replayed through an EVM written in Fe.</h1>
+        <p class="lede">fevm-replay runs mainnet transactions inside <a href="https://github.com/fe-lang/fevm">fevm</a> and checks that each one ends <strong>exactly as it did on chain</strong>. From nothing but the parent block's Merkle proofs, fevm <a href="#proven">computes every root in the header</a>, in a terminal or in your browser.</p>
+        <div class="actions">
+          <a class="btn primary" href="verify.html?block=live">Validate a block in your browser</a>
+          <a class="btn" href="docs.html#quickstart">Run it yourself</a>
+        </div>
+      </div>
+
+      <section class="rootcheck" aria-labelledby="rc-title">
+        <h2 id="rc-title">Block 26,424,805, as its header says</h2>
+        <p class="rc-note">The roots the network agreed on. Your browser downloads the block, the parent's proofs and fevm compiled to WebAssembly, runs the 71 transactions, and compares.</p>
+        <dl class="roots">
+        <div class="root" data-field="stateRoot"><dt>stateRoot</dt><dd><span class="val" title="0x85605dbf78d614bcfa05a3b1f54a9cc359f532449433ea2eacb0a6b9620d8cf8">0x85605dbf…8cf8</span><span class="state">not checked yet</span></dd></div>
+        <div class="root" data-field="transactionsRoot"><dt>transactionsRoot</dt><dd><span class="val" title="0x776c8644111e87de29e7d923134600009ac8834e01ba1f1859138852c906bfad">0x776c8644…bfad</span><span class="state">not checked yet</span></dd></div>
+        <div class="root" data-field="receiptsRoot"><dt>receiptsRoot</dt><dd><span class="val" title="0xc037a4c2f7cc7a4fb2d4199de6513e367aafeaf298fd41d44d7a576881448bcd">0xc037a4c2…8bcd</span><span class="state">not checked yet</span></dd></div>
+        <div class="root" data-field="withdrawalsRoot"><dt>withdrawalsRoot</dt><dd><span class="val" title="0xec274a55b08f27ae0405bf53fc31ef3f37cb5c9672c30ce991df58e48071f139">0xec274a55…f139</span><span class="state">not checked yet</span></dd></div>
+        <div class="root" data-field="requestsHash"><dt>requestsHash</dt><dd><span class="val" title="0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855">0xe3b0c442…b855</span><span class="state">not checked yet</span></dd></div>
+        <div class="root" data-field="logsBloom"><dt>logsBloom</dt><dd><span class="val" title="256 bytes">256 bytes</span><span class="state">not checked yet</span></dd></div>
+        <div class="root" data-field="gasUsed"><dt>gasUsed</dt><dd><span class="val" title="9743588">9,743,588</span><span class="state">not checked yet</span></dd></div>
+        <div class="root" data-field="blobGasUsed"><dt>blobGasUsed</dt><dd><span class="val" title="917504">917,504</span><span class="state">not checked yet</span></dd></div>
+        </dl>
+        <button type="button" class="btn primary" id="rc-run">Check these roots in your browser</button>
+        <p class="rc-say" id="rc-say" aria-live="polite"></p>
+      </section>
+    </div>
+
+    <aside class="proof">
+      <p><strong>Found here, fixed in Fe.</strong> The browser module exposed a bug in Fe's WebAssembly backend (<a href="https://github.com/argotorg/fe/issues/2056">argotorg/fe#2056</a>). Fe fixed it the next day, and all 93 blocks validate with that fix, 20% faster. <a href="upstream.html">What went back upstream</a></p>
+    </aside>
 
     <div class="hero-facts">
       <div><b>93 / 93</b><span>mainnet blocks validated statelessly, every root in the header from fevm</span></div>
@@ -58,11 +87,8 @@
     </figure>
 
     <div class="actions">
-      <a class="btn primary" href="verify.html?block=live">Validate a block in your browser</a>
       <a class="btn" href="glamsterdam.html">Check a transaction against Glamsterdam</a>
       <a class="btn" href="#tour">Watch the 4½-minute tour</a>
-      <a class="btn" href="upstream.html">What went back upstream</a>
-      <a class="btn" href="docs.html#quickstart">Run it yourself</a>
       <a class="btn" href="https://github.com/PugarHuda/fevm-replay">Source on GitHub</a>
     </div>
   </div>
