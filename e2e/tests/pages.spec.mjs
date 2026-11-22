@@ -60,3 +60,18 @@ for (const path of PAGES) {
     expect(scroll).toBeLessThanOrEqual(client + 1);
   });
 }
+
+// Shared on X, Discord or Slack, every page shows a title, a description and
+// a picture, and the picture loads.
+for (const path of PAGES.filter((p) => !p.startsWith("certificate"))) {
+  test(`${path}: a link preview (Open Graph) with an image that loads`, async ({ page, request }) => {
+    await page.goto(path);
+    const og = async (k) => page.locator(`meta[property="og:${k}"]`).getAttribute("content");
+    expect(await og("title")).toBeTruthy();
+    expect((await og("description")).length).toBeGreaterThan(40);
+    expect(await og("url")).toBe(path === "index.html" ? "https://fevm-replay.vercel.app/" : new URL(path, "https://fevm-replay.vercel.app/").href);
+    const image = await request.get(await og("image"));
+    expect(image.status()).toBe(200);
+    expect(image.headers()["content-type"]).toMatch(/^image\//);
+  });
+}

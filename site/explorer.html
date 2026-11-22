@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Where runs part · fevm-replay</title>
 <meta name="description" content="Real mainnet transactions run on the deployed Uniswap V2 pair and on the Fe port, call by call, with the call where the two runs part marked.">
+<meta property="og:title" content="Where runs part · fevm-replay">
+<meta property="og:description" content="Real mainnet transactions run on the deployed Uniswap V2 pair and on the Fe port, call by call, with the call where the two runs part marked.">
+<meta property="og:image" content="https://fevm-replay.vercel.app/tour.jpg">
+<meta property="og:url" content="https://fevm-replay.vercel.app/explorer.html">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -227,6 +233,7 @@ let version = "dirty-address";
 document.querySelectorAll("#versions button").forEach((b) => b.addEventListener("click", () => {
   version = b.dataset.file;
   document.querySelectorAll("#versions button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  history.replaceState(null, "", "#dirty-address");
   show("dirty-address");
 }));
 
@@ -258,8 +265,15 @@ async function show(name) {
   document.getElementById("count-b").textContent = data.shadow.length + (data.shadow.length === 1 ? " call" : " calls");
 }
 
-document.querySelectorAll(".cases button").forEach((b) => b.addEventListener("click", () => show(b.dataset.case)));
-show("dirty-address");
+// Each case has its own address (explorer.html#usdt-out-of-gas), to share.
+const CASES = [...document.querySelectorAll(".cases button")].map((b) => b.dataset.case);
+const fromHash = () => (CASES.includes(location.hash.slice(1)) ? location.hash.slice(1) : "dirty-address");
+document.querySelectorAll(".cases button").forEach((b) => b.addEventListener("click", () => {
+  history.replaceState(null, "", "#" + b.dataset.case);
+  show(b.dataset.case);
+}));
+addEventListener("hashchange", () => show(fromHash()));
+show(fromHash());
 </script>
 </body>
 </html>

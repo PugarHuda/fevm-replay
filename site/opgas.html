@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Where Fe saves gas · fevm-replay</title>
 <meta name="description" content="The same mainnet calls run on solc's code and on the Fe port, with the gas each opcode took: where Fe spends less and where it spends more.">
+<meta property="og:title" content="Where Fe saves gas · fevm-replay">
+<meta property="og:description" content="The same mainnet calls run on solc's code and on the Fe port, with the gas each opcode took: where Fe spends less and where it spends more.">
+<meta property="og:image" content="https://fevm-replay.vercel.app/tour.jpg">
+<meta property="og:url" content="https://fevm-replay.vercel.app/opgas.html">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -140,10 +146,12 @@ fetch("data/opgas.json").then((r) => r.json()).then((d) => {
   Object.entries(d).forEach(([key, v]) => {
     const b = document.createElement("button");
     b.type = "button"; b.dataset.key = key; b.textContent = v.label;
-    b.onclick = () => show(key);
+    b.onclick = () => { history.replaceState(null, "", "#" + key); show(key); };
     tabs.append(b);
   });
-  show("swap");
+  // Each contract has its own address (opgas.html#transfer), to share.
+  show(d[location.hash.slice(1)] ? location.hash.slice(1) : "swap");
+  addEventListener("hashchange", () => { if (d[location.hash.slice(1)]) show(location.hash.slice(1)); });
 });
 </script>
 </body>

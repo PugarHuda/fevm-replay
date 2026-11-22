@@ -28,6 +28,10 @@
   table.map th, table.map td { text-align: left; padding: 0.55rem 0.75rem 0.55rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; white-space: nowrap; }
   table.map th { color: var(--steel); font-weight: 600; }
   table.map td.n, table.map th.n { text-align: right; }
+  table.map th button { all: unset; cursor: pointer; }
+  table.map th button:focus-visible { outline: 2px solid var(--match); outline-offset: 2px; }
+  table.map th[aria-sort="ascending"] button::after { content: " \2191"; }
+  table.map th[aria-sort="descending"] button::after { content: " \2193"; }
   table.map .addr { font-family: var(--mono); font-size: 0.85rem; }
   table.map .kind { font-size: 0.85rem; color: var(--steel); white-space: normal; }
   .why { max-width: var(--measure); }
@@ -325,6 +329,36 @@ fetch("data/stateless.json").then((r) => r.json()).then((rows) => {
 }).catch(() => {
   document.getElementById("facts").textContent = "Could not load the data.";
 });
+</script>
+<script>
+// Every column of the two tables sorts on a click (or Enter on its header):
+// numbers as numbers (12,345, 1.2 s, 26%), the rest as text; again to reverse.
+function sortable(table) {
+  table.querySelectorAll("thead th").forEach((th, col) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.append(...th.childNodes);
+    th.append(b);
+    b.addEventListener("click", () => {
+      const down = th.getAttribute("aria-sort") !== "descending";
+      table.querySelectorAll("thead th").forEach((x) => x.removeAttribute("aria-sort"));
+      th.setAttribute("aria-sort", down ? "descending" : "ascending");
+      const key = (tr) => {
+        const t = tr.children[col]?.textContent.trim() ?? "";
+        const n = parseFloat(t.replace(/,/g, "").replace(/^[^\d.-]+/, ""));
+        return Number.isNaN(n) ? t : n;
+      };
+      const body = table.querySelector("tbody");
+      const rows = [...body.rows].sort((x, y) => {
+        const a = key(x), b2 = key(y);
+        const c = typeof a === "number" && typeof b2 === "number" ? a - b2 : String(a).localeCompare(String(b2));
+        return down ? -c : c;
+      });
+      body.append(...rows);
+    });
+  });
+}
+document.querySelectorAll("table.map").forEach(sortable);
 </script>
 </body>
 </html>

@@ -125,3 +125,44 @@ for (const path of PAGES) {
     await context.close();
   });
 }
+
+test("explorer: a case's own address opens that case, and clicking a case puts it in the address", async ({ page }) => {
+  await page.goto("explorer.html#usdt-out-of-gas", { waitUntil: "networkidle" });
+  await expect(page.locator('.cases button[data-case="usdt-out-of-gas"]')).toHaveAttribute("aria-pressed", "true");
+  await page.locator('.cases button[data-case="identical"]').click();
+  await expect(page).toHaveURL(/#identical$/);
+  await page.reload({ waitUntil: "networkidle" });
+  await expect(page.locator('.cases button[data-case="identical"]')).toHaveAttribute("aria-pressed", "true");
+});
+
+test("opcode chart: a contract's own address opens its tab, and a click puts it in the address", async ({ page }) => {
+  await page.goto("opgas.html#transfer", { waitUntil: "networkidle" });
+  await expect(page.locator("#headline")).toContainText("USDT transfer");
+  await page.getByRole("button", { name: "WETH9 deposit" }).click();
+  await expect(page).toHaveURL(/#deposit$/);
+  await page.reload({ waitUntil: "networkidle" });
+  await expect(page.locator("#headline")).toContainText("WETH9 deposit");
+});
+
+test("stateless table: sort by transactions with a click, reverse it, and by keyboard", async ({ page }) => {
+  await page.goto("stateless.html", { waitUntil: "networkidle" });
+  const table = page.locator("table.map").first();
+  const head = table.getByRole("button", { name: "Transactions" });
+  const column = async () => (await table.locator("tbody tr td:nth-child(2)").allTextContents()).map((t) => Number(t.replace(/[^\d]/g, "")));
+  const n = (await column()).length;
+  expect(n).toBeGreaterThan(90);
+  await head.click();
+  await expect(table.locator("thead th").nth(1)).toHaveAttribute("aria-sort", "descending");
+  let c = await column();
+  expect(c).toEqual([...c].sort((a, b) => b - a));
+  await head.click();
+  await expect(table.locator("thead th").nth(1)).toHaveAttribute("aria-sort", "ascending");
+  c = await column();
+  expect(c).toEqual([...c].sort((a, b) => a - b));
+  expect(c.length).toBe(n);
+  // The keyboard: focus the Block header and press Enter.
+  await table.getByRole("button", { name: "Block", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect(table.locator("thead th").first()).toHaveAttribute("aria-sort", "descending");
+  await expect(table.locator("thead th").nth(1)).not.toHaveAttribute("aria-sort", /./);
+});
