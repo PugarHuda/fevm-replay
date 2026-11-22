@@ -42,3 +42,14 @@ test("a whole block near the head, every transaction under both forks @live", as
     await expect(page.locator("#verdict")).toHaveText(/Glamsterdam/, { timeout: 120_000 });
   }
 });
+
+test("the contracts the failing calls go to: six rows, the two stablecoins first, the shares adding up", async ({ page }) => {
+  const rows = page.locator("#bycontract ~ .scroll tbody tr, section:has(#bycontract) tbody tr");
+  await expect(rows).toHaveCount(6);
+  await expect(rows.first()).toContainText("USDT");
+  await expect(rows.nth(1)).toContainText("USDC");
+  const counts = await rows.locator("td:nth-child(3)").allTextContents();
+  const n = counts.map((c) => Number(c.replace(/,/g, "")));
+  expect(n).toEqual([...n].sort((a, b) => b - a));
+  expect(n.reduce((a, b) => a + b)).toBeLessThanOrEqual(6191);
+});

@@ -30,6 +30,9 @@
   .verdict.ok { color: var(--match, #1e6e55); }
   .verdict.bad { color: var(--diff, #7d5e0f); }
   .why { max-width: var(--measure); }
+  table.map { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  table.map th, table.map td { padding: 0.3rem 0.8rem 0.3rem 0; text-align: left; border-bottom: 1px solid var(--rule); }
+  table.map .num { text-align: right; }
 </style>
 </head>
 <body>
@@ -69,6 +72,17 @@
   <p class="note" id="sharebox" hidden><button id="share" type="button" style="font:inherit;padding:0.3rem 0.7rem;border-radius:6px;border:1px solid var(--rule);background:var(--paper);color:var(--ink);cursor:pointer">Copy a link to this result</button> <span id="shared" aria-live="polite"></span></p>
   <table id="failing" style="display:none;border-collapse:collapse;font-family:'JetBrains Mono',monospace;font-size:0.85rem;margin:0 0 1rem;overflow-x:auto;max-width:100%"><thead><tr><th style="text-align:left;padding-right:1rem">Tx</th><th style="text-align:right;padding-right:1rem">Sent with</th><th style="text-align:right;padding-right:1rem">Needs</th><th style="text-align:right">State gas</th></tr></thead><tbody></tbody></table>
   <pre id="out">fevm runs in your browser; only the node's questions leave it.</pre>
+
+  <section aria-labelledby="bycontract">
+    <h2 id="bycontract">Which contracts the failing calls go to</h2>
+    <p>On the 93 mainnet blocks (<code>fevm_replay amsterdam</code>), 6,191 contract calls that succeed today would fail under Glamsterdam as sent, to 1,395 contracts. Two stablecoins take more than a third: a transfer to a holder with no balance yet fills a storage slot from zero, which EIP-8037 charges as state gas. Names as verified on Sourcify.</p>
+    <div class="scroll">
+      <table class="map">
+        <thead><tr><th>Contract</th><th>Name</th><th class="num">Calls that would fail</th><th class="num">Of 6,191</th></tr></thead>
+        <tbody><tr><td><a href="https://etherscan.io/address/0xdac17f958d2ee523a2206206994597c13d831ec7"><code>0xdac17f95…1ec7</code></a></td><td>USDT (TetherToken)</td><td class="num">1,378</td><td class="num">22.3%</td></tr><tr><td><a href="https://etherscan.io/address/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"><code>0xa0b86991…eb48</code></a></td><td>USDC (FiatTokenProxy)</td><td class="num">813</td><td class="num">13.1%</td></tr><tr><td><a href="https://etherscan.io/address/0xcf91b70017eabde82c9671e30e5502d312ea6eb2"><code>0xcf91b700…6eb2</code></a></td><td>puppies</td><td class="num">140</td><td class="num">2.3%</td></tr><tr><td><a href="https://etherscan.io/address/0x278d858f05b94576c1e6f73285886876ff6ef8d2"><code>0x278d858f…f8d2</code></a></td><td>OwnedProxy</td><td class="num">136</td><td class="num">2.2%</td></tr><tr><td><a href="https://etherscan.io/address/0xfeeeeee44046c3f61a8cc081e0918ef0de0a7ffc"><code>0xfeeeeee4…7ffc</code></a></td><td>(not verified on Sourcify)</td><td class="num">124</td><td class="num">2.0%</td></tr><tr><td><a href="https://etherscan.io/address/0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45"><code>0x68b34658…fc45</code></a></td><td>Uniswap SwapRouter02</td><td class="num">90</td><td class="num">1.5%</td></tr></tbody>
+      </table>
+    </div>
+  </section>
 </main>
 
 <footer class="wrap site-foot">
