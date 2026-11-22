@@ -3,6 +3,7 @@
 [![CI](https://github.com/PugarHuda/fevm-replay/actions/workflows/ci.yml/badge.svg)](https://github.com/PugarHuda/fevm-replay/actions/workflows/ci.yml)
 [![validated by fevm](site/data/stateless.svg)](https://fevm-replay.vercel.app/stateless.html)
 [![E2E: the site clicked through every 6 hours](https://github.com/PugarHuda/fevm-replay/actions/workflows/e2e.yml/badge.svg)](https://github.com/PugarHuda/fevm-replay/actions/workflows/e2e.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/PugarHuda/fevm-replay/badge)](https://scorecard.dev/viewer/?uri=github.com/PugarHuda/fevm-replay)
 
 **In short:** one question, asked of real Ethereum data: does fevm, the EVM
 the Fe team wrote in Fe, run mainnet exactly? fevm-replay answers it
