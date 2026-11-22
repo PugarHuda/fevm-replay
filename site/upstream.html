@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Upstream · fevm-replay</title>
+<meta name="description" content="What running mainnet traffic through Fe and fevm gave back upstream: the wasm tail-call bug fixed in Fe, a std builtin, fevm's tracer, and execution-spec-tests v21.0.3.">
+<meta property="og:title" content="Upstream · fevm-replay">
+<meta property="og:description" content="What running mainnet traffic through Fe and fevm gave back upstream: the wasm tail-call bug fixed in Fe, a std builtin, fevm's tracer, and execution-spec-tests v21.0.3.">
+<meta property="og:image" content="https://fevm-replay.vercel.app/tour.jpg">
+<meta property="og:url" content="https://fevm-replay.vercel.app/upstream.html">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=6">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='3' fill='%23f2f4f3' stroke='%231f2624' stroke-width='2'/%3E%3Ctext x='16' y='22' font-family='sans-serif' font-weight='700' font-size='14' text-anchor='middle' fill='%231f2624'%3EFe%3C/text%3E%3C/svg%3E">
+<style>
+  .g-head { padding-block: 1.5rem 0.5rem; }
+  .g-head h1 { font-size: clamp(2rem, 4.5vw, 3rem); letter-spacing: -0.03em; line-height: 1.05; margin: 0 0 0.75rem; }
+  .controls { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; margin: 1.25rem 0; }
+  .controls button { font: inherit; font-weight: 600; padding: 0.55rem 1rem; border-radius: 6px; border: 1px solid var(--rule); background: var(--paper); color: var(--ink); cursor: pointer; }
+  .controls button.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  .controls label { display: inline-flex; gap: 0.4rem; align-items: center; color: var(--steel); }
+  pre#out, pre#bout { min-height: 12rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .verdict { font-weight: 700; margin: 0.75rem 0; }
+  #bdiff { display: block; overflow-x: auto; border-collapse: collapse; margin: 0 0 1rem; font-family: "JetBrains Mono", monospace; font-size: 0.85rem; }
+  #bdiff th, #bdiff td { text-align: left; padding: 0.4rem 0.9rem 0.4rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  .verdict.ok { color: var(--match, #2e8b6f); }
+  .verdict.bad { color: var(--diff, #c9961a); }
+  .why { max-width: var(--measure); }
+</style>
+</head>
+<body>
+<header class="wrap site-head">
+  <a class="mark" href="./" aria-label="26 Fe fevm-replay home">
+    <span class="tile" aria-hidden="true"><small>26</small><b>Fe</b></span>
+    <span>fevm-replay</span>
+  </a>
+  <nav aria-label="Main">
+    <a href="./">Overview</a>
+    <a href="docs.html">Docs</a>
+    <a href="explorer.html">Explorer</a>
+    <a href="verified.html">Verified</a>
+    <a href="stateless.html">Stateless</a>
+    <a href="glamsterdam.html">Glamsterdam</a>
+    <a href="verify.html">Verify</a>
+    <a href="https://github.com/PugarHuda/fevm-replay">GitHub</a>
+  </nav>
+</header>
+
+<main class="wrap">
+  <section class="g-head">
+    <h1>What fevm-replay gave back upstream</h1>
+    <p class="intro">Running real mainnet traffic through Fe and fevm turns up things their own tests do not. Each item below was reported with a repro from this repository, and two nightly workflows keep checking: one builds fevm-replay against fevm's latest main, the other builds the browser module with Fe's latest commit.</p>
+  </section>
+  <div class="scroll">
+    <table class="map">
+      <thead><tr><th scope="col">Where</th><th scope="col">What</th><th scope="col">Status</th></tr></thead>
+      <tbody>
+        <tr><td><a href="https://github.com/argotorg/fe/issues/2056">argotorg/fe#2056</a></td><td>The wasm backend kept fevm's tail-call dispatch as plain calls, so a mainnet transaction overflowed the engine's stack, and each handler's frame outgrew the 1 MiB linear-memory stack. We worked around it (a <code>return_call</code> rewrite and a 64 MiB stack), posted a 30-line repro, then the cause: Sonatina's <code>tail_call_sites</code> refused aggregate arguments built in the caller's frame, which is what fevm passes.</td><td><strong>Fixed</strong> in <a href="https://github.com/argotorg/fe/pull/2060">argotorg/fe#2060</a> (21 Nov). Verified here: built with that commit, without our workarounds and on the default stack, the browser module validates all 93 mainnet blocks, every root, and 20% faster (median 2.03 s a block against 2.55 s).</td></tr>
+        <tr><td><a href="https://github.com/argotorg/fe/issues/2002">argotorg/fe#2002</a></td><td>Forwarding calldata through <code>MemBuffer</code> cost 40 to 60 gas a call more than solc, measured on the USDC proxy port.</td><td><strong>Fixed</strong>: <code>Call::forward_delegatecall</code> in std, <a href="https://github.com/argotorg/fe/pull/2004">argotorg/fe#2004</a> (merged 17 Nov)</td></tr>
+        <tr><td><a href="https://github.com/argotorg/fe/issues/2059">argotorg/fe#2059</a></td><td>std has no way to emit INVALID (0xFE); the USDT and Uniswap V2 pair ports fake it by growing memory until the gas runs out.</td><td>Open</td></tr>
+        <tr><td><a href="https://github.com/fe-lang/fevm/issues/26">fe-lang/fevm#26</a></td><td>A replay report on 115,000 mainnet transactions, and a request for the operand stack in <code>Tracer::step</code>, to label BALANCE and EXTCODEHASH reads.</td><td>Became <a href="https://github.com/fe-lang/fevm/pull/32">fe-lang/fevm#32</a> (open)</td></tr>
+        <tr><td><a href="https://github.com/fe-lang/fevm/pull/33">fe-lang/fevm#33</a></td><td>execution-spec-tests v21.0.3 (20 Nov: new trie cases after a reth state root bug, forged block access lists, chain ids over 64 bits). fevm passes all of it; the pull request moves fevm's CI to it.</td><td>Open</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <section class="why">
+    <h2>The nightly checks</h2>
+    <p><a href="https://github.com/PugarHuda/fevm-replay/actions/workflows/fevm-main.yml">fevm main</a>: fevm-replay built against fevm's latest commit replays the mainnet fixtures and two proven blocks, every root; a change in fevm that real blocks notice fails the next morning. <a href="https://github.com/PugarHuda/fevm-replay/actions/workflows/fe-main-wasm.yml">Fe main wasm</a>: the browser module built with Fe's latest commit and without the #2056 workarounds validates every saved block of the site, and says whether #2056 is fixed. <a href="https://github.com/PugarHuda/fevm-replay/actions/workflows/eest-fevm.yml">fevm on the newest EEST</a>: fevm's own conformance runner on an execution-spec-tests release newer than the one fevm pins.</p>
+  </section>
+</main>
+
+<footer class="wrap site-foot">
+  <span>Built for the Fe Builders Challenge 2026. Apache-2.0.</span>
+  <span><a href="./">Overview</a>, <a href="docs.html">docs</a> and <a href="https://github.com/PugarHuda/fevm-replay">source</a></span>
+</footer>
+</body>
+</html>
