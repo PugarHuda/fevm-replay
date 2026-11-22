@@ -174,7 +174,7 @@ async function checkBlock() {
       if (r.amsterdam.valid) failing++; else invalid++;
       const tr = rows.insertRow();
       const a = Object.assign(document.createElement("a"), { href: "#" + block.transactions[i].hash, textContent: block.transactions[i].hash.slice(0, 14) + "…" });
-      a.addEventListener("click", (e) => { e.preventDefault(); input.value = block.transactions[i].hash; location.hash = a.hash; check(input.value); });
+      a.addEventListener("click", (e) => { e.preventDefault(); openTx(block.transactions[i].hash); });
       tr.insertCell().append(a);
       for (const v of [n(r.limit), r.least ? n(r.least) : "never", r.least ? n(r.at_least.state) : "–"]) { const c = tr.insertCell(); c.textContent = v; c.style.textAlign = "right"; c.style.paddingRight = "1rem"; }
     }
@@ -192,10 +192,20 @@ document.getElementById("share").addEventListener("click", async () => {
   try { await navigator.clipboard.writeText(link); document.getElementById("shared").textContent = "copied: " + link; }
   catch { document.getElementById("shared").textContent = link; }
 });
-go.addEventListener("click", () => { location.hash = input.value.trim(); check(input.value.trim()); });
+// Each check is a history entry (#<hash>): Back and Forward show the one before.
+function openTx(hash) {
+  input.value = hash;
+  // A malformed hash is checked (and refused) without a history entry.
+  if (!/^0x[0-9a-fA-F]{64}$/.test(hash) || location.hash.slice(1) === hash) check(hash);
+  else location.hash = hash; // the hashchange below runs it
+}
+addEventListener("hashchange", () => {
+  if (location.hash.length === 67 && !go.disabled) { input.value = location.hash.slice(1); check(input.value); }
+});
+go.addEventListener("click", () => openTx(input.value.trim()));
 // Enter in the box checks it, as a paste-and-Enter visitor expects.
 input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !go.disabled) go.click(); });
-for (const a of document.querySelectorAll("a.ex")) a.addEventListener("click", (e) => { e.preventDefault(); input.value = a.hash.slice(1); location.hash = a.hash; check(input.value); });
+for (const a of document.querySelectorAll("a.ex")) a.addEventListener("click", (e) => { e.preventDefault(); openTx(a.hash.slice(1)); });
 if (location.hash.length === 67) { input.value = location.hash.slice(1); check(input.value); }
 </script>
 </body>

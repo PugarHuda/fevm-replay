@@ -70,3 +70,32 @@ test("on a phone: tap the example, read the result, nothing spills sideways @mob
   const [scroll, client] = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
   expect(scroll).toBeLessThanOrEqual(client + 1);
 });
+
+test("Back and Forward: two transactions checked, Back shows the first again @live", async ({ page }) => {
+  const first = "0xd1163b9a4766267495dd7f4989552f22108fc05d1fcfb4b436ce7ecf656999aa";
+  await page.getByRole("link", { name: /a transfer to a new account/ }).click();
+  await expect(page.locator("#verdict")).toContainText("204,600", { timeout: 120_000 });
+  // A second one: another of the page's examples, or any other transaction of its block.
+  const other = page.locator("a.ex").nth(1);
+  if (await other.count()) await other.click();
+  else { await page.getByLabel("Transaction").fill("0x" + "ab".repeat(32)); await page.getByRole("button", { name: "Check", exact: true }).click(); }
+  await expect(page).not.toHaveURL(new RegExp(first));
+  await expect(page.locator("#out")).not.toContainText("204,600", { timeout: 120_000 });
+  await expect(page.locator("#out")).not.toHaveText(/^Asking|^Tracing|^Running/, { timeout: 120_000 });
+  await page.goBack();
+  await expect(page).toHaveURL(new RegExp(`#${first}$`));
+  await expect(page.getByLabel("Transaction")).toHaveValue(first);
+  await expect(page.locator("#verdict")).toContainText("204,600", { timeout: 120_000 });
+});
+
+test("a well-formed hash no transaction has: the page says it was not found @live", async ({ page }) => {
+  await page.getByLabel("Transaction").fill("0x" + "0".repeat(63) + "1");
+  await page.getByLabel("Transaction").press("Enter");
+  await expect(page.locator("#out")).toHaveText(/^Could not check it: /, { timeout: 120_000 });
+  await expect(page.locator("#verdict")).toBeEmpty();
+});
+
+test("the example in every engine: the same 204,600 @live @engines", async ({ page }) => {
+  await page.getByRole("link", { name: /a transfer to a new account/ }).click();
+  await expect(page.locator("#verdict")).toHaveText("Would fail under Glamsterdam as sent: it needs a gas limit of 204,600, not 21,000.", { timeout: 120_000 });
+});

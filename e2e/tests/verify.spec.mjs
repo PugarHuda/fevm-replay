@@ -80,7 +80,7 @@ test("?block= picks a saved block from the address", async ({ page }) => {
   await expect(page.locator("#bblock")).toHaveValue("block-0x1938869.tar.gz");
 });
 
-test("a block near the head, fetched by the browser, its hash checked by the light client @live", async ({ page }) => {
+test("a block near the head, fetched by the browser, its hash checked by the light client @live @engines", async ({ page }) => {
   await page.goto("verify.html?block=live", { waitUntil: "networkidle" });
   const text = await validate(page);
   test.skip(/did not serve a live block/.test(await page.locator("#bout").textContent()), "free nodes refused; the saved fallback ran instead");
@@ -137,4 +137,24 @@ test("when the module cannot be downloaded (the network drops it), the page says
   await page.goto("verify.html", { waitUntil: "load" });
   await expect(page.locator("#out")).toContainText("Could not load the module", { timeout: 30_000 });
   await expect(page.locator("#run")).toBeDisabled();
+});
+
+test("a file that is not a block archive, uploaded: refused with a reason, the page still works after", async ({ page }) => {
+  await page.locator("#bfile").setInputFiles({ name: "notes.tar.gz", mimeType: "application/gzip", buffer: Buffer.from("this is not a gzipped tar of a block") });
+  await page.getByRole("button", { name: "Validate", exact: true }).click();
+  await expect(page.locator("#bout")).toHaveText(/\S/, { timeout: 60_000 });
+  await expect(page.locator("#bverdict")).not.toHaveText(/^Every root holds/);
+  await expect(page.getByRole("button", { name: "Validate", exact: true })).toBeEnabled({ timeout: 60_000 });
+  await expect(page.locator("#bout")).toContainText("this file is not a .tar.gz");
+  // Clear the file and validate a saved block: the page recovered.
+  await page.locator("#bfile").setInputFiles([]);
+  await page.locator("#bblock").selectOption("block-0x19335e5.tar.gz");
+  expect(await validate(page)).toMatch(/^Every root holds/);
+});
+
+test("a gzip that is not a block's archive: the page names the file it lacks", async ({ page }) => {
+  const { gzipSync } = await import("node:zlib");
+  await page.locator("#bfile").setInputFiles({ name: "other.tar.gz", mimeType: "application/gzip", buffer: gzipSync(Buffer.alloc(1024)) });
+  await page.getByRole("button", { name: "Validate", exact: true }).click();
+  await expect(page.locator("#bout")).toContainText("the archive has no chain.json", { timeout: 60_000 });
 });

@@ -7,8 +7,17 @@ const PARTS = ["chain", "block", "receipts", "prestate", "diff", "delegates", "p
 
 /** The files of a gzipped tar archive, by name without its directory. */
 export async function untar(gzipped) {
+  const head = new Uint8Array(gzipped, 0, Math.min(2, gzipped.byteLength));
+  if (head[0] !== 0x1f || head[1] !== 0x8b) {
+    throw new Error("this file is not a .tar.gz (it does not start as gzip does); save a block with fevm_replay fetch and fetch-proofs, then tar czf");
+  }
   const stream = new Blob([gzipped]).stream().pipeThrough(new DecompressionStream("gzip"));
-  const tar = new Uint8Array(await new Response(stream).arrayBuffer());
+  let tar;
+  try {
+    tar = new Uint8Array(await new Response(stream).arrayBuffer());
+  } catch (e) {
+    throw new Error(`this .tar.gz does not decompress (${e.message}): it is cut short or damaged`);
+  }
   const files = {};
   const text = (bytes) => new TextDecoder().decode(bytes).replace(/\0.*$/s, "");
   for (let at = 0; at + 512 <= tar.length; ) {
