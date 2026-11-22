@@ -1,12 +1,11 @@
 name: Fe main wasm
 
 # Every night: the browser module built with Fe's latest main, twice.
-#  1. With our two workarounds for argotorg/fe#2056 (web/tailcalls.py and a
-#     64 MiB stack): a saved mainnet block must still validate, or Fe main
-#     broke something we rely on (the job fails).
-#  2. Without either: the same block. It traps or overflows today; the day
-#     it validates, #2056 is fixed upstream and the workarounds can go. The
-#     result is written to the run's summary; it never fails the job.
+#  1. Without our two workarounds for argotorg/fe#2056 (web/tailcalls.py and
+#     a 64 MiB stack): every saved mainnet block of the site. They overflowed
+#     until #2056 was fixed (argotorg/fe#2060); the verdict is written to the
+#     run's summary.
+#  2. With them, as fevm-replay built the module while #2056 was open.
 on:
   schedule:
     - cron: "41 3 * * *"
@@ -31,25 +30,39 @@ jobs:
           cargo install --locked --root ~/fe-main --git https://github.com/argotorg/fe --rev "$head" --features wasm fe
           ~/fe-main/bin/fe --version
 
-      - name: With the workarounds (must validate)
+      - name: Without the workarounds (is argotorg/fe#2056 fixed?)
+        run: |
+          mkdir -p out/without
+          (cd web && ~/fe-main/bin/fe build --backend wasm -O 2 --out-dir ../out/without .)
+          cp site/wasm/*.mjs out/without/
+          held=0; blocks=0; failed=""
+          for b in site/wasm/block-*.tar.gz; do
+            blocks=$((blocks+1))
+            if node out/without/cli.mjs "$b" > without.txt 2>&1 && grep -q "every root holds" without.txt; then
+              held=$((held+1))
+            else
+              failed="$failed $(basename $b) ($(grep -m1 -oE 'RangeError[^
+]*|RuntimeError[^
+]*|unreachable' without.txt || tail -1 without.txt))"
+            fi
+          done
+          if [ "$held" = "$blocks" ]; then
+            verdict="FIXED: all $blocks saved blocks validate with Fe main ${FE_HEAD:0:9}, no return_call rewrite, default stack"
+          else
+            verdict="not yet: $held of $blocks saved blocks validate with Fe main ${FE_HEAD:0:9} without the workarounds;$failed"
+          fi
+          echo "$verdict"
+          echo "::notice title=argotorg/fe#2056::$verdict"
+          echo "### argotorg/fe#2056: $verdict" >> "$GITHUB_STEP_SUMMARY"
+
+      # The workarounds fevm-replay needed while #2056 was open. Fe's latest may
+      # emit instructions web/tailcalls.py does not rewrite (SIMD since #2060),
+      # which is no regression in Fe; this step only reports.
+      - name: With the workarounds
+        continue-on-error: true
         run: |
           mkdir -p out/with
           (cd web && ~/fe-main/bin/fe build --backend wasm -O 2 --wasm-stack-size 67108864 --out-dir ../out/with .)
           python3 web/tailcalls.py out/with/fevm_replay_web.wasm out/with/fevm_replay_web.manifest.json
           cp site/wasm/*.mjs out/with/
-          node out/with/cli.mjs site/wasm/block-0x19335c4.tar.gz | tail -3 | tee with.txt
-          grep -q "every root holds" with.txt
-
-      - name: Without them (is argotorg/fe#2056 fixed?)
-        run: |
-          mkdir -p out/without
-          (cd web && ~/fe-main/bin/fe build --backend wasm -O 2 --out-dir ../out/without .)
-          cp site/wasm/*.mjs out/without/
-          if node out/without/cli.mjs site/wasm/block-0x19335c4.tar.gz > without.txt 2>&1 && grep -q "every root holds" without.txt; then
-            verdict="FIXED: block 26,424,772 validates with Fe main ${FE_HEAD:0:9}, no return_call rewrite, default stack"
-          else
-            verdict="not yet: block 26,424,772 fails with Fe main ${FE_HEAD:0:9} without the workarounds ($(grep -m1 -oE 'RangeError[^\n]*|RuntimeError[^\n]*|unreachable' without.txt || tail -1 without.txt))"
-          fi
-          echo "$verdict"
-          echo "::notice title=argotorg/fe#2056::$verdict"
-          echo "### argotorg/fe#2056: $verdict" >> "$GITHUB_STEP_SUMMARY"
+          node out/with/cli.mjs site/wasm/block-0x19335c4.tar.gz | tail -3
