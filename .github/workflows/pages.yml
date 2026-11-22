@@ -18,6 +18,7 @@ permissions:
   actions: read
   pages: write
   id-token: write
+  attestations: write
 
 concurrency:
   group: pages
@@ -37,6 +38,14 @@ jobs:
       - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
       # The tour is served from the site too; it lives once, in demo/.
       - run: cp demo/tour-v7.mp4 site/tour.mp4
+      # The browser modules the site serves, attested as this repository's at
+      # this commit (CI rebuilds them and checks they are byte for byte these):
+      # gh attestation verify fevm_replay_web.wasm -R PugarHuda/fevm-replay
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
+        with:
+          subject-path: |
+            site/wasm/fevm_replay_web.wasm
+            site/wasm/next/fevm_replay_web.wasm
       - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
         with:
           path: site

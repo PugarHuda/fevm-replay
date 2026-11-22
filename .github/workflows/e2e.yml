@@ -34,6 +34,19 @@ jobs:
           node-version: 22
       - run: npm ci
       - run: npx playwright install --with-deps chromium firefox webkit
+      # A push redeploys the site from git: wait until it serves this commit's
+      # module, so the tests see the deployed commit, not the one before.
+      - name: Wait for the deploy of this commit
+        if: github.event_name == 'push'
+        working-directory: .
+        run: |
+          want=$(sha256sum site/wasm/fevm_replay_web.wasm | cut -d' ' -f1)
+          for i in $(seq 1 30); do
+            got=$(curl -sf https://fevm-replay.vercel.app/wasm/fevm_replay_web.wasm | sha256sum | cut -d' ' -f1)
+            [ "$got" = "$want" ] && exit 0
+            sleep 20
+          done
+          echo "the site does not serve this commit's module after 10 minutes" && exit 1
       - run: npx playwright test
         env:
           BASE_URL: https://fevm-replay.vercel.app/

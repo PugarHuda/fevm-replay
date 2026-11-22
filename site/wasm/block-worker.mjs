@@ -72,7 +72,10 @@ onmessage = async ({ data }) => {
       }
       saved = await archive(hex(live.number), live.files);
     }
-    postMessage({ done: true, reply, out, ms, size: bytes.byteLength, live: live && { number: live.number, head: live.head, transactions: live.transactions, accounts: live.accounts, slots: live.slots }, anchored, saved, fallback });
+    // The module's SHA-256, so the page can say which build ran (the same as
+    // the repository's file at the deployed commit; the E2E test checks it).
+    const sha256 = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map((b) => b.toString(16).padStart(2, "0")).join("");
+    postMessage({ done: true, reply, out, ms, sha256, size: bytes.byteLength, live: live && { number: live.number, head: live.head, transactions: live.transactions, accounts: live.accounts, slots: live.slots }, anchored, saved, fallback });
   } catch (e) {
     postMessage({ done: true, error: `${e.name}: ${e.message}` });
   }

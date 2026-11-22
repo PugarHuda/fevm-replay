@@ -4,6 +4,8 @@
 // light client.
 import { test, expect } from "@playwright/test";
 import path from "node:path";
+import fs from "node:fs";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -92,4 +94,32 @@ test("a block near the head, fetched by the browser, its hash checked by the lig
   await expect(save).toHaveAttribute("download", /^0x[0-9a-f]+\.tar\.gz$/);
   const share = page.locator("#bsave a").nth(1);
   await expect(share).toHaveAttribute("href", /verify\.html\?block=live&number=\d+/);
+});
+
+// What runs in the browser is what CI built and tested: the served modules
+// are byte for byte the repository's files (the checkout is the deployed
+// commit), and the page names the SHA-256 of the one it ran.
+for (const dir of ["", "next/"]) {
+  test(`the served module wasm/${dir}fevm_replay_web.wasm is the repository's, and the page names it @engines`, async ({ page, request }) => {
+    const local = fs.readFileSync(path.join(here, "../../site/wasm", dir, "fevm_replay_web.wasm"));
+    const want = createHash("sha256").update(local).digest("hex");
+    const served = await (await request.get(`wasm/${dir}fevm_replay_web.wasm`)).body();
+    expect(createHash("sha256").update(served).digest("hex")).toBe(want);
+    await page.locator("#bblock").selectOption("block-0x19335e5.tar.gz");
+    if (dir) await page.locator("#bnext").check();
+    expect(await validate(page)).toMatch(/^Every root holds/);
+    await expect(page.locator("#bmodule")).toContainText(want);
+  });
+}
+
+// A checkpoint in the page's address that the beacon nodes do not know is not
+// trusted: the light client says it could not confirm the hash, and the
+// verdict does not claim the sync committee signed it.
+test("a made-up checkpoint in the address is not trusted @live", async ({ page }) => {
+  await page.goto(`verify.html?block=live&checkpoint=0x${"11".repeat(32)}`, { waitUntil: "networkidle" });
+  const verdict = await validate(page);
+  const out = await page.locator("#bout").textContent();
+  test.skip(/did not serve a live block/.test(out), "free nodes refused");
+  expect(out).toContain("Light client: could not confirm the hash");
+  expect(verdict).not.toContain("sync committee");
 });
