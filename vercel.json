@@ -1,4 +1,4 @@
 {
-  "buildCommand": "",
+  "buildCommand": "cp demo/tour-v7.mp4 site/tour.mp4",
   "outputDirectory": "site"
 }
