@@ -210,6 +210,19 @@ export const scenes: Scene[] = [
     ],
   },
   {
+    id: 'upstream',
+    kind: 'page',
+    url: 'upstream.html',
+    start: { sel: '.g-head' },
+    narration:
+      "Running real blocks found a bug in Fe itself: its WebAssembly backend turned fevm's tail calls into plain calls. We posted a small repro, then the cause in the compiler, and Fe's team fixed it the next day. Built with the fix, the module validates all 93 blocks without our workarounds, 20 percent faster.",
+    source: 'upstream.html; argotorg/fe#2056 and #2060; README Fe highlight (93/93 without workarounds, median 2.03 s against 2.55 s)',
+    cues: [
+      { at: 'found a bug in Fe itself', target: { sel: 'tbody tr >> nth=0', text: 'The wasm backend' } },
+      { at: 'fixed it the next day', target: { sel: 'tbody tr >> nth=0 >> td >> nth=2' } },
+    ],
+  },
+  {
     id: 'verified',
     kind: 'page',
     url: 'index.html',
@@ -257,12 +270,12 @@ export const scenes: Scene[] = [
         '115,213 mainnet transactions replayed in fevm, no fevm bug',
         '93 mainnet blocks validated statelessly, every root; fevm_chain and geth agree',
         'The same Fe in your browser, the hash checked by a light client (BLS in fevm)',
-        "5 Fe ports certified, and all four of Ethereum's system contracts in Fe",
+        "5 Fe ports and Ethereum's 4 system contracts in Fe; a Fe compiler bug fixed upstream",
         'EIP-4762: +26% gas (ethereumjs agrees); Glamsterdam: 35% fail as sent (geth agrees)',
       ],
     },
     narration:
-      "fevm-replay: mainnet blocks validated statelessly, natively and in your browser, with a light client, Ethereum's own system code in Fe, and what stateless Ethereum and Glamsterdam would cost. Code on GitHub, results at {fevm-replay.vercel.app|fevm-replay dot vercel dot app}.",
+      "fevm-replay: mainnet blocks validated statelessly, natively and in your browser, with a light client, Ethereum's own system code in Fe, a compiler bug fixed upstream, and what stateless Ethereum and Glamsterdam would cost. Code on GitHub, results at {fevm-replay.vercel.app|fevm-replay dot vercel dot app}.",
     source: 'README "For judges: one screen"',
   },
 ];

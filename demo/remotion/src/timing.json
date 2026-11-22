@@ -278,26 +278,31 @@
   }
  },
  "end": {
-  "audio": 14.664,
+  "audio": 16.224,
   "captions": [
    {
     "start": 0.115541,
-    "end": 1.407583,
+    "end": 1.334041,
     "text": "fevm-replay:"
    },
    {
-    "start": 1.407583,
-    "end": 6.050416,
+    "start": 1.334041,
+    "end": 6.123958,
     "text": "mainnet blocks validated statelessly, natively and in your browser, with a light client,"
    },
    {
-    "start": 6.050416,
-    "end": 11.176458,
-    "text": "Ethereum's own system code in Fe, and what stateless Ethereum and Glamsterdam would cost."
+    "start": 6.123958,
+    "end": 10.021,
+    "text": "Ethereum's own system code in Fe, a compiler bug fixed upstream,"
    },
    {
-    "start": 11.176458,
-    "end": 14.648750000000001,
+    "start": 10.021,
+    "end": 12.605041,
+    "text": "and what stateless Ethereum and Glamsterdam would cost."
+   },
+   {
+    "start": 12.605041,
+    "end": 16.203375,
     "text": "Code on GitHub, results at fevm-replay.vercel.app."
    }
   ],
@@ -618,6 +623,45 @@
   "cues": {
    "sent with 21,000": 4.695375,
    "it would need 204,600": 9.506291
+  }
+ },
+ "upstream": {
+  "audio": 18.216,
+  "captions": [
+   {
+    "start": 0.073541,
+    "end": 3.266791,
+    "text": "Running real blocks found a bug in Fe itself:"
+   },
+   {
+    "start": 3.266791,
+    "end": 6.86975,
+    "text": "its WebAssembly backend turned fevm's tail calls into plain calls."
+   },
+   {
+    "start": 6.86975,
+    "end": 10.0105,
+    "text": "We posted a small repro, then the cause in the compiler,"
+   },
+   {
+    "start": 10.0105,
+    "end": 12.048333,
+    "text": "and Fe's team fixed it the next day."
+   },
+   {
+    "start": 12.048333,
+    "end": 16.84875,
+    "text": "Built with the fix, the module validates all 93 blocks without our workarounds,"
+   },
+   {
+    "start": 16.84875,
+    "end": 18.199166,
+    "text": "20 percent faster."
+   }
+  ],
+  "cues": {
+   "found a bug in Fe itself": 1.134458,
+   "fixed it the next day": 10.850833
   }
  }
 }

@@ -824,7 +824,7 @@ the free `https://eth.drpc.org`; pass another URL as the last argument.
 ![fevm-replay fetching and replaying a mainnet transaction, a negative fixture, a whole block and a shadow replay of Fe WETH9](demo/demo.svg)
 
 The recording is [`demo/demo.sh`](demo/demo.sh) (asciinema, svg-term).
-Videos: [`demo/tour-v7.mp4`](demo/tour-v7.mp4), the current tour (4:09: a block validated in the browser, the light client with fevm's BLS precompiles, Glamsterdam on 85 blocks and one transaction checked in the browser, geth and fevm_chain agreeing; [`demo/tour-v5.mp4`](demo/tour-v5.mp4) is the one before the light client; [`demo/tour-v2.mp4`](demo/tour-v2.mp4) is the one before the system contracts and EIP-4762): Playwright drives the
+Videos: [`demo/tour-v7.mp4`](demo/tour-v7.mp4), the current tour (4:30: a block validated in the browser, the light client with fevm's BLS precompiles, Glamsterdam on 93 blocks and one transaction checked in the browser, the Fe compiler bug fixed upstream, geth and fevm_chain agreeing; [`demo/tour-v5.mp4`](demo/tour-v5.mp4) is the one before the light client; [`demo/tour-v2.mp4`](demo/tour-v2.mp4) is the one before the system contracts and EIP-4762): Playwright drives the
 site like a user, real asciinema recordings of the tool ([`demo/casts`](demo/casts)) play
 as terminals, and Remotion adds highlights, zooms, captions and an `edge-tts` voice
 ([`demo/remotion`](demo/remotion)); [`demo/tour-narrated.mp4`](demo/tour-narrated.mp4) and
