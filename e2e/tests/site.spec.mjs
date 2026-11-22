@@ -96,3 +96,27 @@ test("front page: the block header's roots, checked by fevm in the browser at a 
   await expect(page.getByRole("button", { name: "Check them again" })).toBeEnabled();
   await expect(page.locator("#rc-say a")).toHaveAttribute("href", "verify.html?block=0x19335e5");
 });
+
+test("front page: one digit of receiptsRoot changed, the header is refused before anything runs; unchanged, it holds again", async ({ page }) => {
+  await page.goto("index.html", { waitUntil: "networkidle" });
+  await page.getByLabel("Change one digit of receiptsRoot first").check();
+  await page.getByRole("button", { name: "Check these roots in your browser" }).click();
+  await expect(page.locator("#rc-say")).toContainText("fevm refused the block before running anything", { timeout: 200_000 });
+  await expect(page.locator('.root[data-field="receiptsRoot"]')).toHaveClass(/differs/);
+  await expect(page.locator(".root.skipped")).toHaveCount(7);
+  await expect(page.locator(".root.held")).toHaveCount(0);
+  await page.getByLabel("Change one digit of receiptsRoot first").uncheck();
+  await page.getByRole("button", { name: "Check them again" }).click();
+  await expect(page.locator("#rc-say")).toContainText("8 of 8 fields match", { timeout: 200_000 });
+  await expect(page.locator(".root.held")).toHaveCount(8);
+});
+
+test("front page: the module that ran is named, and its Sigstore attestation verified @live", async ({ page }) => {
+  await page.goto("index.html", { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Check these roots in your browser" }).click();
+  const line = page.locator("#rc-prov");
+  await expect(line).not.toContainText("checking", { timeout: 200_000 });
+  test.skip(/answered|limit/.test(await line.textContent()), "GitHub's API limit");
+  await expect(line).toHaveClass(/ok/);
+  await expect(line).toContainText("its Sigstore attestation verified in your browser");
+});

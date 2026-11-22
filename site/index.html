@@ -7,7 +7,7 @@
 <meta name="description" content="fevm, the EVM written in Fe, validates Ethereum mainnet blocks statelessly: every root in the header from the parent's witness, on 93 blocks, agreeing with geth; and it runs in your browser on a block fetched minutes ago. Plus Fe ports of Solidity contracts, shadow-replayed against mainnet.">
 <meta property="og:title" content="fevm-replay">
 <meta property="og:description" content="fevm, the EVM written in Fe, validates Ethereum mainnet blocks statelessly: every root in the header from the parent's witness, on 93 blocks, agreeing with geth; and it runs in your browser on a block fetched minutes ago. Plus Fe ports of Solidity contracts, shadow-replayed against mainnet.">
-<meta property="og:image" content="https://fevm-replay.vercel.app/tour.jpg">
+<meta property="og:image" content="https://fevm-replay.vercel.app/og.png">
 <meta property="og:url" content="https://fevm-replay.vercel.app/">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
@@ -61,8 +61,12 @@
         <div class="root" data-field="gasUsed"><dt>gasUsed</dt><dd><span class="val" title="9743588">9,743,588</span><span class="state">not checked yet</span></dd></div>
         <div class="root" data-field="blobGasUsed"><dt>blobGasUsed</dt><dd><span class="val" title="917504">917,504</span><span class="state">not checked yet</span></dd></div>
         </dl>
-        <button type="button" class="btn primary" id="rc-run">Check these roots in your browser</button>
+        <div class="rc-controls">
+          <button type="button" class="btn primary" id="rc-run">Check these roots in your browser</button>
+          <label class="rc-tamper"><input type="checkbox" id="rc-tamper"> Change one digit of receiptsRoot first</label>
+        </div>
         <p class="rc-say" id="rc-say" aria-live="polite"></p>
+        <p class="rc-prov" id="rc-prov" aria-live="polite"></p>
       </section>
     </div>
 

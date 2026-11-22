@@ -44,7 +44,11 @@ onmessage = async ({ data }) => {
       step("Unpacking…");
       text = bundle(await untar(archived));
     }
-    if (data.tamper) {
+    if (data.tamper === "header") {
+      // The header's receiptsRoot with its last hex digit changed: fevm's
+      // receipts no longer hash to what the header says.
+      text = text.replace(/("receiptsRoot":\s*"0x[0-9a-f]{63})([0-9a-f])"/, (_, head, last) => `${head}${last === "0" ? "1" : "0"}"`);
+    } else if (data.tamper) {
       // One transaction's recorded gas used, raised by one: fevm's own
       // receipt no longer matches the node's.
       text = tamper(text);

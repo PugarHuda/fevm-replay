@@ -7,6 +7,7 @@
 //   node site/wasm/cli.mjs block.tar.gz    a saved block (fetch + fetch-proofs)
 //   ... --save                             also write the fetched block as <0xnumber>.tar.gz
 //   ... --checkpoint 0x<beacon block root> the light client starts from this finalized root
+//   ... --offline                          skip the module's provenance check (GitHub's API)
 //
 // Exits 0 if every transaction matched and every root in the header held.
 import fs from "node:fs";
@@ -21,7 +22,7 @@ const args = process.argv.slice(2);
 const save = args.includes("--save");
 const at = args.indexOf("--checkpoint");
 const checkpoint = at >= 0 ? args[at + 1] : undefined;
-const arg = args.find((a, i) => a !== "--save" && a !== "--checkpoint" && args[i - 1] !== "--checkpoint");
+const arg = args.find((a, i) => a !== "--save" && a !== "--offline" && a !== "--checkpoint" && args[i - 1] !== "--checkpoint");
 const step = (text) => process.stderr.write(text + "\n");
 const PARTS = ["chain", "block", "receipts", "prestate", "diff", "delegates", "proofs"];
 const joined = (files) => `{${PARTS.map((p) => `"${p}":${files[p]}`).join(",")}}`;
@@ -66,4 +67,17 @@ if (live) {
 }
 const partial = !ok && /state root: not computed/.test(result.out) && !/^(DIFF|STATE|ERROR)/m.test(result.out);
 console.log(ok ? `every root holds (${(result.ms / 1000).toFixed(2)} s in WebAssembly)` : partial ? "every transaction matches; the state root needs proofs saved with the system contracts' code" : "the block does NOT validate as given");
+// Where the module that ran came from (as verify.html does): its SHA-256 looked
+// up in GitHub's attestations, the Sigstore bundle verified here. Informative:
+// the verdict above does not depend on it. --offline skips it.
+if (!args.includes("--offline")) {
+  const { provenance } = await import("./provenance.mjs");
+  const digest = Buffer.from(await crypto.subtle.digest("SHA-256", wasm)).toString("hex");
+  try {
+    const p = await provenance(digest);
+    console.log(`module: sha256 ${digest.slice(0, 16)}…, built by ${p.workflow.replace("https://github.com/", "")} at ${p.commit.slice(0, 7)}; Sigstore attestation verified (Fulcio chain, Rekor entry ${p.logIndex})`);
+  } catch (e) {
+    console.log(`module: sha256 ${digest.slice(0, 16)}…; provenance not verified: ${e.message}`);
+  }
+}
 process.exit(ok ? 0 : 1);

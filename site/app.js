@@ -98,8 +98,23 @@ if (rc) {
       rc.disabled = false;
       rc.textContent = "Check them again";
       if (data.error) { say.textContent = `Could not run fevm here: ${data.error}`; return; }
+      const tampered = document.getElementById("rc-tamper").checked;
       const lines = data.out.split("\n").filter((l) => !/^(DIFF|STATE|ERROR|REQUESTS)/.test(l));
       const rows = [...document.querySelectorAll(".root")];
+      // A changed header no longer hashes to the block's hash: the validator
+      // refuses it before running a transaction, and says so.
+      const refused = data.out.split("\n").find((l) => /^PROOF block: the headers do not hash/.test(l));
+      if (tampered && refused) {
+        rows.forEach((r) => {
+          const changed = r.dataset.field === "receiptsRoot";
+          r.classList.add(changed ? "differs" : "skipped");
+          r.querySelector(".state").textContent = changed ? "changed: the header's hash breaks" : "not run: the header is refused";
+        });
+        say.replaceChildren(`fevm refused the block before running anything: "${refused.replace(/^PROOF block: /, "")}". One digit of one root changes the header's hash, so a forged header cannot pass as block 26,424,805. `,
+          Object.assign(document.createElement("a"), { href: "verify.html?block=0x19335e5", textContent: "Validate it unchanged" }), ".");
+        provenanceLine(data.sha256);
+        return;
+      }
       let held = 0;
       rows.forEach((r, i) => setTimeout(() => {
         const ok = lines.some((l) => LINES[r.dataset.field].test(l));
@@ -108,11 +123,31 @@ if (rc) {
         r.querySelector(".state").textContent = ok ? "fevm got the same" : "fevm got something else";
         if (i === rows.length - 1) {
           const tx = data.out.match(/(\d+)\/(\d+) transactions MATCH/);
-          say.replaceChildren(`${held} of ${rows.length} fields match, from ${tx ? tx[2] : "its"} transactions run in ${(data.ms / 1000).toFixed(2)} s in your browser. `,
-            Object.assign(document.createElement("a"), { href: "verify.html?block=0x19335e5", textContent: "The whole output" }), ".");
+          const told = `${held} of ${rows.length} fields match, from ${tx ? tx[2] : "its"} transactions run in ${(data.ms / 1000).toFixed(2)} s in your browser. `;
+          say.replaceChildren(told, Object.assign(document.createElement("a"), { href: "verify.html?block=0x19335e5", textContent: "The whole output" }), ".");
+          provenanceLine(data.sha256);
         }
       }, still ? 0 : 90 * i));
     };
-    worker.postMessage({ archive: "block-0x19335e5.tar.gz" });
+    worker.postMessage({ archive: "block-0x19335e5.tar.gz", tamper: document.getElementById("rc-tamper").checked ? "header" : false });
   });
+}
+
+// Which module did that: its SHA-256 and its Sigstore attestation, verified
+// in the browser (wasm/provenance.mjs, as on verify.html).
+async function provenanceLine(sha) {
+  const line = document.getElementById("rc-prov");
+  if (!line || !sha) return;
+  line.className = "rc-prov";
+  line.textContent = `The module that ran: SHA-256 ${sha.slice(0, 16)}…, checking where it was built…`;
+  try {
+    const { provenance } = await import("./wasm/provenance.mjs");
+    const p = await provenance(sha);
+    line.replaceChildren(`The module that ran: SHA-256 ${sha.slice(0, 16)}…, built by this repository's workflow at commit `,
+      Object.assign(document.createElement("a"), { href: `https://github.com/PugarHuda/fevm-replay/commit/${p.commit}`, textContent: p.commit.slice(0, 7) }),
+      ", its Sigstore attestation verified in your browser.");
+    line.classList.add("ok");
+  } catch (e) {
+    line.textContent = `The module that ran: SHA-256 ${sha.slice(0, 16)}…; its provenance was not verified: ${e.message}.`;
+  }
 }

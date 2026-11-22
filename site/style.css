@@ -215,10 +215,16 @@ p { max-width: var(--measure); }
 .root.held .state { color: var(--match); font-weight: 600; }
 .root.held .state::before { content: ""; display: inline-block; width: 0.55em; height: 0.55em; margin-right: 0.4em; background: var(--match); border-radius: 1px; }
 .root.differs .state { color: var(--diff); font-weight: 700; }
+.root.skipped .state { color: var(--steel); font-style: italic; }
 .root.held { animation: settle 0.45s ease-out; }
 @keyframes settle { from { background: var(--match-soft); } to { background: transparent; } }
 .rc-say { min-height: 1.5em; font-size: 0.92rem; margin: 0.7rem 0 0; color: var(--steel); }
 #rc-run:disabled { opacity: 0.6; cursor: progress; }
+.rc-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem 1.1rem; }
+.rc-tamper { font-size: 0.88rem; color: var(--steel); display: inline-flex; gap: 0.45rem; align-items: center; cursor: pointer; }
+.rc-tamper input { accent-color: var(--diff); width: 1rem; height: 1rem; }
+.rc-prov { font-size: 0.82rem; color: var(--steel); margin: 0.35rem 0 0; min-height: 1.2em; overflow-wrap: anywhere; }
+.rc-prov.ok::before { content: ""; display: inline-block; width: 0.55em; height: 0.55em; margin-right: 0.4em; background: var(--match); border-radius: 1px; }
 .proof { border-left: 3px solid var(--match); padding: 0.2rem 0 0.2rem 1rem; max-width: 72ch; }
 .proof p { margin: 0; color: var(--steel); }
 .proof strong { color: var(--ink); }

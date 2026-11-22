@@ -5,6 +5,8 @@
 [![E2E: the site clicked through every 6 hours](https://github.com/PugarHuda/fevm-replay/actions/workflows/e2e.yml/badge.svg)](https://github.com/PugarHuda/fevm-replay/actions/workflows/e2e.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/PugarHuda/fevm-replay/badge)](https://scorecard.dev/viewer/?uri=github.com/PugarHuda/fevm-replay)
 
+[![The front page: block 26,424,805's header, every root checked by fevm in the browser, and the module's provenance verified](docs/landing.png)](https://fevm-replay.vercel.app)
+
 **In short:** one question, asked of real Ethereum data: does fevm, the EVM
 the Fe team wrote in Fe, run mainnet exactly? fevm-replay answers it
 transaction by transaction and block by block, from nothing but the parent
@@ -883,7 +885,9 @@ author nor its servers:
    certificate, and the Rekor entry's signed timestamp, inclusion proof and
    signed checkpoint.
    `node web/provenance-test.mjs` runs the same check, and shows each part of
-   a real bundle refused when changed.
+   a real bundle refused when changed; `node wasm/cli.mjs` does it after every
+   verdict (`--offline` skips it), and so does the front page, under the header
+   it checked.
 3. **The block.** A MATCH rests on the block hash, and for a block near the
    head the page checks that hash with a light client from a finalized
    checkpoint, each sync committee signature verified twice (noble, and
