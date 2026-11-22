@@ -529,12 +529,18 @@ byte for byte the one the site serves, and validates two blocks with it in
 Node.js (`web/test.mjs`), one of which needs the larger stack. Reported as
 [argotorg/fe#2056](https://github.com/argotorg/fe/issues/2056), with a
 30-line repro; a nightly workflow ([`fe-main-wasm.yml`](.github/workflows/fe-main-wasm.yml))
-builds the module with Fe's latest commit twice, with the two workarounds
-(the block must validate) and without them, and writes which it is:
+builds the module with Fe's latest commit without the two workarounds and
+validates every saved block of the site. Until 21 Nov it said:
 
 ```
 not yet: block 26,424,772 fails with Fe main 3a6c1647b without the workarounds
 (RangeError: Maximum call stack size exceeded)
+```
+
+and on 22 Nov:
+
+```
+FIXED: all 4 saved blocks validate with Fe main 61fc4eeec, no return_call rewrite, default stack
 ```
 
 Sean fixed it within a day of the cause being posted
