@@ -3,6 +3,15 @@
 [![CI](https://github.com/PugarHuda/fevm-replay/actions/workflows/ci.yml/badge.svg)](https://github.com/PugarHuda/fevm-replay/actions/workflows/ci.yml)
 [![validated by fevm](site/data/stateless.svg)](https://fevm-replay.vercel.app/stateless.html)
 
+**In short:** one question, asked of real Ethereum data: does fevm, the EVM
+the Fe team wrote in Fe, run mainnet exactly? fevm-replay answers it
+transaction by transaction and block by block, from nothing but the parent
+block's Merkle proofs, and then uses the same Fe for two more answers: the
+check runs offline, so it runs in a browser, and it can price proposed forks
+(EIP-4762, Glamsterdam) on today's transactions. fevm is the Fe team's;
+fevm-replay is the harness, the stateless validator, the Fe ports and the
+measurements around it, and what it turned up went back upstream.
+
 **Site and documentation:** https://fevm-replay.vercel.app (mirror: https://pugarhuda.github.io/fevm-replay/)
 
 **Try it first (no install):** [validate a block fresh from the chain's head in your browser](https://fevm-replay.vercel.app/verify.html?block=live): fevm, compiled from Fe to WebAssembly, proves it against every root in its header, and a light client checks its hash: Ethereum's sync committee signed a header that hashes back to it. Or [watch the 4-minute tour](https://fevm-replay.vercel.app/#tour).
