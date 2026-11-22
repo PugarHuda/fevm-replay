@@ -98,6 +98,7 @@
         <th scope="col" class="n">per Mgas</th>
         <th scope="col" class="n">Binary tree, est.</th>
         <th scope="col" class="n">In WebAssembly</th>
+        <th scope="col" class="n">With Fe's fix</th>
       </tr></thead>
       <tbody id="rows"></tbody>
     </table>
@@ -145,6 +146,7 @@
     <h2>What the columns are</h2>
     <p><strong>Witness</strong> is what fevm needed besides code: the parent's distinct proof nodes, account and storage, plus the nodes a deletion moved up that the parent's proofs lack (taken from the block's own proofs by the hash a parent's node names). Contract code comes on top, checked against the proven code hashes.</p>
     <p><strong>Binary tree, est.</strong> is the witness the unified binary tree of EIP-7864 would need for the same accounts and slots, worked out in Fe: the stems and values are exact, the stems are placed by keccak (the EIP has not fixed its hash yet; keccak is among the candidates), and the tree is taken to be 28 to 31 levels deep above the stems. It leaves code chunks out, as the Merkle-Patricia column leaves code out.</p>
+    <p><strong>With Fe's fix</strong> is the same, with the module built by Fe at <code>61fc4ee</code>, which fixed the tail calls fevm-replay reported (<a href="upstream.html">argotorg/fe#2060</a>): no rewrite, the default 1 MiB stack, every block still valid, median 2.03 s against 2.55 s.</p>
     <p><strong>In WebAssembly</strong> is the time the browser's module (fevm and fevm-replay's validation, compiled from Fe 26.7) took to validate the block again, every root, with the same verdict as natively: run in Node.js on one core of a laptop, from the saved block.</p>
     <p class="note">A block marked <em>not proven</em> could not be fetched in time: nodes serve proofs for about 100 blocks, and the free endpoint sometimes errs. Its transactions are not counted.</p>
   </section>
@@ -187,7 +189,7 @@ fetch("data/stateless.json").then((r) => r.json()).then((rows) => {
     const tr = document.createElement("tr");
     const link = `<a class="addr" href="https://etherscan.io/block/${r.number}">${r.number.toLocaleString("en")}</a>`;
     if (!("matched" in r)) {
-      tr.innerHTML = `<td>${link}</td><td class="n">–</td><td class="kind" colspan="6">${esc(r.result)}</td>`;
+      tr.innerHTML = `<td>${link}</td><td class="n">–</td><td class="kind" colspan="7">${esc(r.result)}</td>`;
     } else {
       const badge = r.every_root
         ? `<span class="badge" title="block ${esc(r.hash || "")}: every root in its header computed by fevm">validated by fevm</span>` +
@@ -201,7 +203,8 @@ fetch("data/stateless.json").then((r) => r.json()).then((rows) => {
         `<td class="n">${(wit(r) / Math.max(1, r.transactions) / 1024).toFixed(1)} KiB</td>` +
         `<td class="n">${r.gas_used ? size(wit(r) / (r.gas_used / 1e6)) : "–"}</td>` +
         `<td class="n">${r.binary_low != null ? size(r.binary_low) + " – " + size(r.binary_high) : "–"}</td>` +
-        `<td class="n" title="the browser module's validate_block on this block, in Node.js">${r.wasm_ms != null ? (r.wasm_ms / 1000).toFixed(2) + " s" + (r.wasm_ok ? "" : " (differs)") : "–"}</td>`;
+        `<td class="n" title="the browser module's validate_block on this block, in Node.js">${r.wasm_ms != null ? (r.wasm_ms / 1000).toFixed(2) + " s" + (r.wasm_ok ? "" : " (differs)") : "–"}</td>` +
+        `<td class="n" title="the same module built with Fe at 61fc4ee (argotorg/fe#2060), without fevm-replay's tail-call rewrite and on the default stack">${r.wasm_fix_ms != null ? (r.wasm_fix_ms / 1000).toFixed(2) + " s" : "–"}</td>`;
     }
     body.append(tr);
   });

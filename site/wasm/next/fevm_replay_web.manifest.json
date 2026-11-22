@@ -1,0 +1,203 @@
+{
+  "manifest_version": 1,
+  "module": {
+    "file": "fevm_replay_web.wasm",
+    "sha256": "4f16ca1c08bca1c3a9c3905934b8bb47f373df9641344f5375e33ff1a5b1a981",
+    "size": 4197119,
+    "initial_memory_pages": 18
+  },
+  "contract_version": 3,
+  "optimization": "2",
+  "compiler": "fe 26.7.0 (61fc4eeec)",
+  "imports": [
+    {
+      "module": "env",
+      "name": "__fe_revert",
+      "kind": "function",
+      "type": {
+        "params": ["i32", "i32"],
+        "results": []
+      }
+    },
+    {
+      "module": "env",
+      "name": "sys_wasm_files_close",
+      "kind": "function",
+      "type": {
+        "params": ["i32"],
+        "results": []
+      }
+    },
+    {
+      "module": "env",
+      "name": "sys_wasm_files_open",
+      "kind": "function",
+      "type": {
+        "params": ["i32", "i32"],
+        "results": ["i64"]
+      }
+    },
+    {
+      "module": "env",
+      "name": "sys_wasm_files_read",
+      "kind": "function",
+      "type": {
+        "params": ["i32", "i32", "i32", "i32"],
+        "results": ["i64"]
+      }
+    },
+    {
+      "module": "env",
+      "name": "sys_wasm_files_size",
+      "kind": "function",
+      "type": {
+        "params": ["i32"],
+        "results": ["i64"]
+      }
+    },
+    {
+      "module": "env",
+      "name": "sys_wasm_stream_write",
+      "kind": "function",
+      "type": {
+        "params": ["i32", "i32", "i32"],
+        "results": ["i32"]
+      }
+    }
+  ],
+  "exports": [
+    {
+      "name": "alloc",
+      "kind": "function",
+      "role": "allocator",
+      "params": [
+        {
+          "name": "size",
+          "type": "u32",
+          "wasm": ["i32"]
+        }
+      ],
+      "result": {
+        "type": "u32",
+        "wasm": ["i32"]
+      }
+    },
+    {
+      "name": "amsterdam_tx",
+      "kind": "function",
+      "params": [
+        {
+          "name": "name",
+          "type": "HostText",
+          "wasm": ["i32", "i32"]
+        }
+      ],
+      "result": {
+        "type": "Reply",
+        "wasm": ["i64"]
+      }
+    },
+    {
+      "name": "arena_mark",
+      "kind": "function",
+      "role": "allocator",
+      "params": [],
+      "result": {
+        "type": "u32",
+        "wasm": ["i32"]
+      }
+    },
+    {
+      "name": "arena_release",
+      "kind": "function",
+      "role": "allocator",
+      "params": [
+        {
+          "name": "mark",
+          "type": "u32",
+          "wasm": ["i32"]
+        }
+      ],
+      "result": null
+    },
+    {
+      "name": "memory",
+      "kind": "memory"
+    },
+    {
+      "name": "precompiles",
+      "kind": "function",
+      "params": [
+        {
+          "name": "name",
+          "type": "HostText",
+          "wasm": ["i32", "i32"]
+        }
+      ],
+      "result": {
+        "type": "Reply",
+        "wasm": ["i64"]
+      }
+    },
+    {
+      "name": "validate_block",
+      "kind": "function",
+      "params": [
+        {
+          "name": "name",
+          "type": "HostText",
+          "wasm": ["i32", "i32"]
+        }
+      ],
+      "result": {
+        "type": "Reply",
+        "wasm": ["i64"]
+      }
+    },
+    {
+      "name": "verify",
+      "kind": "function",
+      "params": [
+        {
+          "name": "name",
+          "type": "HostText",
+          "wasm": ["i32", "i32"]
+        }
+      ],
+      "result": {
+        "type": "Reply",
+        "wasm": ["i64"]
+      }
+    },
+    {
+      "name": "witness_gas",
+      "kind": "function",
+      "params": [
+        {
+          "name": "name",
+          "type": "HostText",
+          "wasm": ["i32", "i32"]
+        }
+      ],
+      "result": {
+        "type": "Reply",
+        "wasm": ["i64"]
+      }
+    },
+    {
+      "name": "witness_keys",
+      "kind": "function",
+      "params": [
+        {
+          "name": "name",
+          "type": "HostText",
+          "wasm": ["i32", "i32"]
+        }
+      ],
+      "result": {
+        "type": "Reply",
+        "wasm": ["i64"]
+      }
+    }
+  ]
+}

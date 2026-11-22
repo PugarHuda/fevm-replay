@@ -66,6 +66,7 @@
       <option value="block-0x193565d.tar.gz">26,433,117: 418 transactions, the most of any block here (14 MB)</option>
     </select>
     <label><input type="checkbox" id="btamper"> a receipt claims one more gas than the transaction used</label>
+    <label title="built with Fe at 61fc4ee, which fixed the tail calls fevm-replay reported (argotorg/fe#2060): no return_call rewrite, the default 1 MiB stack"><input type="checkbox" id="bnext"> with the module from Fe's latest commit (the #2060 fix)</label>
     <button class="primary" id="brun">Validate</button>
   </div>
   <p class="note" id="blive">"Near the head": your browser asks <code>eth.drpc.org</code> for the block, its receipts and its prestate traces, lets the module's <code>witness_keys</code> (the Fe that decides what <code>fetch-proofs</code> fetches natively) say which accounts and slots to prove, asks <code>ethereum-rpc.publicnode.com</code> for those proofs at the parent and at the block, and validates. Then the hash itself: as a light client does (<a href="https://github.com/PugarHuda/fevm-replay/blob/main/site/wasm/lightclient.mjs"><code>lightclient.mjs</code></a>), the page starts from one finalized beacon block written in the code, checks each sync committee handoff since (BLS signatures, 2/3 or more of 512), takes the newest header the committee signed and the execution block proven in it, and hashes the headers back to this block. Beacon nodes (publicnode, Lodestar) only supply data. To trust a checkpoint of your own, add <code>&amp;checkpoint=0x…</code> (a finalized beacon block root) to the address. Afterwards you can save what it fetched and check it natively with <code>fevm_replay chain</code>.</p>
@@ -204,7 +205,7 @@ async function start() {
     }
     const s = (data.ms / 1000).toFixed(2);
     if (data.reply.ok && data.reply.value === 1) {
-      bverdict.textContent = `Every root holds: fevm validated the block in ${s} s in your browser.` + (!data.anchored ? "" : data.anchored.differ.length ? " But the nodes do not agree on its hash: see below." : data.anchored.light && !data.anchored.light.error ? ` Its hash is signed by ${data.anchored.light.signers} of 512 of Ethereum's sync committee (light client${data.anchored.light.builtIn ? "" : ", from the address's checkpoint"}), and ${1 + data.anchored.agree.length} nodes give it.` : ` Its hash is the one ${1 + data.anchored.agree.length} independent nodes give.`);
+      bverdict.textContent = `Every root holds: fevm validated the block in ${s} s in your browser${document.getElementById("bnext").checked ? ", with the module from Fe's latest commit" : ""}.` + (!data.anchored ? "" : data.anchored.differ.length ? " But the nodes do not agree on its hash: see below." : data.anchored.light && !data.anchored.light.error ? ` Its hash is signed by ${data.anchored.light.signers} of 512 of Ethereum's sync committee (light client${data.anchored.light.builtIn ? "" : ", from the address's checkpoint"}), and ${1 + data.anchored.agree.length} nodes give it.` : ` Its hash is the one ${1 + data.anchored.agree.length} independent nodes give.`);
       bverdict.classList.add("ok");
     } else {
       bverdict.textContent = `The block does not validate as given (${s} s).`;
@@ -213,14 +214,15 @@ async function start() {
     }
   };
   const tamper = document.getElementById("btamper").checked;
+  const module = document.getElementById("bnext").checked ? "next/" : undefined;
   const file = bfile.files[0];
   if (file) {
-    worker.postMessage({ bytes: await file.arrayBuffer(), tamper });
+    worker.postMessage({ bytes: await file.arrayBuffer(), tamper, module });
   } else {
     const choice = document.getElementById("bblock").value;
     const wanted = Number(new URLSearchParams(location.search).get("number")) || undefined;
     const checkpoint = new URLSearchParams(location.search).get("checkpoint") || undefined;
-    worker.postMessage(choice === "live" ? { live: true, number: wanted, tamper, checkpoint } : { archive: choice, tamper });
+    worker.postMessage(choice === "live" ? { live: true, number: wanted, tamper, checkpoint, module } : { archive: choice, tamper, module });
   }
 }
 // Each "DIFF  tx <i> <hash>" in the output, with the "  field: chain X, fevm Y"

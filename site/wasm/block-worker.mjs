@@ -16,8 +16,9 @@ onmessage = async ({ data }) => {
   try {
     step(data.live ? "Loading fevm (WebAssembly)…" : "Downloading the block and its parent's proofs…");
     const [bytes, manifest] = await Promise.all([
-      fetch("fevm_replay_web.wasm").then((r) => r.arrayBuffer()),
-      fetch("fevm_replay_web.manifest.json").then((r) => r.json()),
+      // `next/`: the module built with Fe's latest commit (argotorg/fe#2060), no workarounds.
+      fetch((data.module ?? "") + "fevm_replay_web.wasm").then((r) => r.arrayBuffer()),
+      fetch((data.module ?? "") + "fevm_replay_web.manifest.json").then((r) => r.json()),
     ]);
     let text;
     let live;
