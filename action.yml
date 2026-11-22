@@ -44,7 +44,7 @@ runs:
   steps:
     - name: Restore the Fe compiler
       id: fe-cache
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ~/fe
         key: fe-${{ runner.os }}-913403388b0219183a26986b13bb4110a9ff4c1f-1.99.0-cranelift
@@ -99,7 +99,7 @@ runs:
 
     - name: Upload the certificate
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: ${{ inputs.contract }}-certificate
         path: ${{ runner.temp }}/certificate.html
