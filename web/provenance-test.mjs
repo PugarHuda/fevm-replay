@@ -23,6 +23,7 @@ const changed = {
   "the certificate": [{ ...bundle, verificationMaterial: { ...bundle.verificationMaterial, certificate: { rawBytes: flip(bundle.verificationMaterial.certificate.rawBytes, 300) } } }, digest],
   "the inclusion proof": [{ ...bundle, verificationMaterial: { ...bundle.verificationMaterial, tlogEntries: [{ ...bundle.verificationMaterial.tlogEntries[0], inclusionProof: { ...bundle.verificationMaterial.tlogEntries[0].inclusionProof, hashes: [flip(bundle.verificationMaterial.tlogEntries[0].inclusionProof.hashes[0], 0), ...bundle.verificationMaterial.tlogEntries[0].inclusionProof.hashes.slice(1)] } }] } }, digest],
   "the log's checkpoint": [{ ...bundle, verificationMaterial: { ...bundle.verificationMaterial, tlogEntries: [{ ...bundle.verificationMaterial.tlogEntries[0], inclusionProof: { ...bundle.verificationMaterial.tlogEntries[0].inclusionProof, checkpoint: { envelope: bundle.verificationMaterial.tlogEntries[0].inclusionProof.checkpoint.envelope.replace(/^rekor\.sigstore\.dev/, "rekor.example.org") } } }] } }, digest],
+  "the logged time": [{ ...bundle, verificationMaterial: { ...bundle.verificationMaterial, tlogEntries: [{ ...bundle.verificationMaterial.tlogEntries[0], integratedTime: String(Number(bundle.verificationMaterial.tlogEntries[0].integratedTime) + 60) }] } }, digest],
 };
 for (const [what, [b, d]] of Object.entries(changed)) {
   try { await verifyBundle(b, d); console.error(`FAIL: a changed ${what} was accepted`); process.exit(1); }

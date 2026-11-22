@@ -8,7 +8,8 @@
 //   3. that certificate chains to Sigstore's Fulcio root (pinned below);
 //   4. the certificate names this repository, the workflow that built the site
 //      (pages.yml on main) and the commit;
-//   5. the signature was logged in Rekor while the certificate was valid: the
+//   5. the signature was logged in Rekor while the certificate was valid (the
+//      time is Rekor's signed entry timestamp, checked with its key): the
 //      entry is the envelope's, it is included in the log's tree (RFC 6962
 //      inclusion proof) and the tree's checkpoint is signed by Rekor's key.
 //
@@ -163,12 +164,34 @@ export async function verifyBundle(bundle, digest) {
   // checkpoint is signed by Rekor; the certificate was valid when it was logged.
   const entry = bundle.verificationMaterial.tlogEntries[0];
   if (entry.logId.keyId !== REKOR_KEY_ID) throw new Error("the entry is in a log this page does not know");
+  const proof = entry.inclusionProof;
+  // entry.logIndex is the global index (in the signed timestamp below);
+  // proof.logIndex is the index in the log's current shard (in its tree).
+  // The time it was logged is only Rekor's word if Rekor signed it: the signed
+  // entry timestamp covers the body, the time, the log and the index
+  // (canonical JSON, keys in order).
+  const set = JSON.stringify({
+    body: entry.canonicalizedBody,
+    integratedTime: Number(entry.integratedTime),
+    logID: hex(b64(entry.logId.keyId)),
+    logIndex: Number(entry.logIndex),
+  });
+  if (!(await ecVerify(b64(REKOR_KEY), "SHA-256", b64(entry.inclusionPromise.signedEntryTimestamp), utf8(set)))) {
+    throw new Error("the log entry's timestamp is not signed by Rekor");
+  }
   const when = Number(entry.integratedTime) * 1000;
   if (when < cert.notBefore || when > cert.notAfter) throw new Error("the signature was logged outside the certificate's ten minutes");
   const body = b64(entry.canonicalizedBody);
   const logged = JSON.parse(text(body));
+  // The logged entry is this envelope, signed by this certificate.
   if (logged.spec?.payloadHash?.value !== hex(await sha256(payload))) throw new Error("the log entry is not this envelope's");
-  const proof = entry.inclusionProof;
+  const loggedSigs = logged.spec?.signatures ?? [];
+  const certPem = (der) => `-----BEGIN CERTIFICATE-----\n${btoa(String.fromCharCode(...der)).match(/.{1,64}/g).join("\n")}\n-----END CERTIFICATE-----\n`;
+  const ourCert = b64(bundle.verificationMaterial.certificate.rawBytes);
+  if (!loggedSigs.some((s) => s.signature === env.signatures[0].sig && text(b64(s.verifier)) === certPem(ourCert))) {
+    throw new Error("the log entry was signed by another certificate");
+  }
+
   const root = b64(proof.rootHash);
   if (!(await included(await sha256(concat([0], body)), Number(proof.logIndex), Number(proof.treeSize), proof.hashes.map(b64), root))) {
     throw new Error("the entry is not included in the log's tree");

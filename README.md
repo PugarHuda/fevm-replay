@@ -880,7 +880,8 @@ author nor its servers:
    verifies the Sigstore bundle in the browser with WebCrypto
    (`site/wasm/provenance.mjs`, no library): the signature, the certificate
    chain to Sigstore's Fulcio root, the repository, workflow and commit in the
-   certificate, and the Rekor entry's inclusion proof and signed checkpoint.
+   certificate, and the Rekor entry's signed timestamp, inclusion proof and
+   signed checkpoint.
    `node web/provenance-test.mjs` runs the same check, and shows each part of
    a real bundle refused when changed.
 3. **The block.** A MATCH rests on the block hash, and for a block near the
