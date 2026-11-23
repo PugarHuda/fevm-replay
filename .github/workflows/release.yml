@@ -91,7 +91,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh attestation download "$ARCHIVE" -R "$GITHUB_REPOSITORY"
-          mv "sha256-$(shasum -a 256 "$ARCHIVE" | cut -d' ' -f1).jsonl" "$ARCHIVE.intoto.jsonl"
+          # gh names it sha256:<digest>.jsonl (sha256-<digest>.jsonl where ':' is not allowed).
+          mv sha256?"$(shasum -a 256 "$ARCHIVE" | cut -d' ' -f1)".jsonl "$ARCHIVE.intoto.jsonl"
           gh release upload "$GITHUB_REF_NAME" "$ARCHIVE.intoto.jsonl"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -171,7 +172,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh attestation download "$ARCHIVE" -R "$GITHUB_REPOSITORY"
-          mv "sha256-$(shasum -a 256 "$ARCHIVE" | cut -d' ' -f1).jsonl" "$ARCHIVE.intoto.jsonl"
+          # gh names it sha256:<digest>.jsonl (sha256-<digest>.jsonl where ':' is not allowed).
+          mv sha256?"$(shasum -a 256 "$ARCHIVE" | cut -d' ' -f1)".jsonl "$ARCHIVE.intoto.jsonl"
           gh release upload "$GITHUB_REF_NAME" "$ARCHIVE.intoto.jsonl"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

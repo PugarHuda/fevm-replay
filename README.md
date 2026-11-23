@@ -784,8 +784,8 @@ Each release carries the executable for x86-64 Linux (or WSL), the ports'
 bytecode and the fixtures:
 
 ```sh
-curl -sL https://github.com/PugarHuda/fevm-replay/releases/latest/download/fevm-replay-v0.8.5-x86_64-linux.tar.gz | tar xz
-cd fevm-replay-v0.8.5-x86_64-linux
+curl -sL https://github.com/PugarHuda/fevm-replay/releases/latest/download/fevm-replay-v0.8.6-x86_64-linux.tar.gz | tar xz
+cd fevm-replay-v0.8.6-x86_64-linux
 ./fevm_replay fixtures/mainnet/*.json            # 7 real transactions, all MATCH
 mkdir proven && tar xzf fixtures/proven/0x19335e5.tar.gz -C proven
 ./fevm_replay chain proven/0x19335e5             # a mainnet block, every root in its header
@@ -807,7 +807,7 @@ attestation (SLSA, signed through Sigstore by this repository's release
 workflow), so you need not take the binary on trust:
 
 ```sh
-gh attestation verify fevm-replay-v0.8.5-x86_64-linux.tar.gz -R PugarHuda/fevm-replay
+gh attestation verify fevm-replay-v0.8.6-x86_64-linux.tar.gz -R PugarHuda/fevm-replay
 ```
 
 Then fetch a live block, prove it and replay it as a chain (needs `curl`):
@@ -891,7 +891,7 @@ author nor its servers:
 
 1. **The executable.** Each release archive from v0.8.4 carries build
    provenance signed through Sigstore by the release workflow, naming the
-   tag and commit: `gh attestation verify fevm-replay-v0.8.5-x86_64-linux.tar.gz -R PugarHuda/fevm-replay`.
+   tag and commit: `gh attestation verify fevm-replay-v0.8.6-x86_64-linux.tar.gz -R PugarHuda/fevm-replay`.
    An archive changed by one byte is refused.
 2. **The browser module.** CI rebuilds `site/wasm/fevm_replay_web.wasm` from
    source and requires it byte for byte; verify.html prints the SHA-256 of
