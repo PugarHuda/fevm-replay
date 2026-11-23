@@ -105,6 +105,7 @@ if (rc) {
       if (!live) { v.textContent = v.dataset.shown; v.title = v.dataset.full; }
     });
     if (!live) title.textContent = "Block 26,424,805";
+    document.getElementById("rc-txs").textContent = live ? "its transactions" : "the 71 transactions";
     // The changed digit, as the worker changes it: the last one, to 0 (or 1).
     const mark = () => {
       const v = document.querySelector('.root[data-field="receiptsRoot"] .val');
@@ -161,6 +162,7 @@ if (rc) {
         r.querySelector(".state").textContent = ok ? "fevm got the same" : "fevm got something else";
         if (i === rows.length - 1) {
           const tx = data.out.match(/(\d+)\/(\d+) transactions MATCH/);
+          if (tx) document.getElementById("rc-txs").textContent = `the ${tx[2]} transactions`;
           const told = `${held} of ${rows.length} fields match, from ${tx ? tx[2] : "its"} transactions run in ${(data.ms / 1000).toFixed(2)} s in your browser.${anchored} `;
           say.replaceChildren(told, Object.assign(document.createElement("a"), { href: link, textContent: "The whole output" }), ".");
           provenanceLine(data.sha256);

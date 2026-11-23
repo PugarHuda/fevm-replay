@@ -134,9 +134,13 @@ test("front page: the newest block instead, its own header shown and checked, it
   await expect(say).toContainText("the whole chain checked again in Fe by light.fe, inside the module");
   await expect(page.locator(".root.held")).toHaveCount(8);
   await expect(say.getByRole("link")).toHaveAttribute("href", /verify\.html\?block=live&number=\d+$/);
+  // The note counts this block's transactions, the same number as the verdict.
+  const n = (await say.textContent()).match(/from (\d+) transactions/)[1];
+  await expect(page.locator("#rc-txs")).toHaveText(`the ${n} transactions`);
   // Back to the saved block: its own values again.
   await page.getByRole("button", { name: "Check them again" }).click();
   await expect(page.locator("#rc-block")).toHaveText("Block 26,424,805");
   await expect(page.locator('.root[data-field="stateRoot"] .val')).toHaveText("0x85605dbf…8cf8");
   await expect(say).toContainText("8 of 8 fields match, from 71 transactions", { timeout: 200_000 });
+  await expect(page.locator("#rc-txs")).toHaveText("the 71 transactions");
 });
