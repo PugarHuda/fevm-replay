@@ -3,7 +3,7 @@ name: Site
 on:
   push:
     branches: [main]
-    paths: [site/**, demo/tour-v7.mp4, .github/workflows/pages.yml]
+    paths: [site/**, demo/tour-v8.mp4, .github/workflows/pages.yml]
   # The follower's commits come from GITHUB_TOKEN, which starts no push
   # workflow: deploy when it finishes.
   # Safe here: it checks out this repository's main, never the triggering
@@ -39,7 +39,7 @@ jobs:
           persist-credentials: false
       - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
       # The tour is served from the site too; it lives once, in demo/.
-      - run: cp demo/tour-v7.mp4 site/tour.mp4
+      - run: cp demo/tour-v8.mp4 site/tour.mp4
       # The browser modules the site serves, attested as this repository's at
       # this commit (CI rebuilds them and checks they are byte for byte these):
       # gh attestation verify fevm_replay_web.wasm -R PugarHuda/fevm-replay

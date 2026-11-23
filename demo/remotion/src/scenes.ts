@@ -63,11 +63,31 @@ export const scenes: Scene[] = [
     kind: 'page',
     url: 'index.html',
     narration:
-      "This is fevm-replay. It runs real Ethereum mainnet transactions inside fevm, the EVM written in Fe, and checks that each one ends exactly as it did on chain.",
-    source: 'index.html hero',
+      "This is fevm-replay. It runs real Ethereum mainnet transactions inside fevm, the EVM written in Fe. On the right is the header of mainnet block 26,424,805. One click, and your browser runs its 71 transactions in fevm, compiled to WebAssembly: all eight fields come out the same.",
+    source: 'index.html hero (the header check: block 26,424,805, 71 transactions, 8 of 8 fields, run in the browser)',
+    actions: [{ at: '^', do: 'click', target: { sel: '#rc-run' } }],
     cues: [
-      { at: 'This is', target: { sel: 'h1' }, zoom: 1.15 },
-      { at: 'exactly as it did', target: { sel: 'p.lede' } },
+      { at: 'This is', target: { sel: 'h1' } },
+      { at: 'On the right', target: { sel: '.rootcheck .roots' } },
+      { at: 'all eight fields', target: { sel: '#rc-say' } },
+    ],
+  },
+  {
+    id: 'forged',
+    kind: 'page',
+    url: 'index.html',
+    start: { sel: '.rootcheck' },
+    narration:
+      "Change one digit of the receipts root, and fevm refuses the block before running anything: the header no longer hashes to the block's hash. Under it, the page names the WebAssembly module that ran and verifies its Sigstore attestation in the browser: it is this repository's build, from a public commit.",
+    source: 'index.html hero (tamper box: "the headers do not hash to the block hash"; #rc-prov: provenance.mjs, Sigstore verified with WebCrypto)',
+    actions: [
+      { at: '^', do: 'click', target: { sel: '#rc-tamper' } },
+      { at: 'Change one digit', do: 'click', target: { sel: '#rc-run' } },
+    ],
+    cues: [
+      { at: 'Change one digit', target: { sel: '.root[data-field="receiptsRoot"]' }, zoom: 1.3 },
+      { at: 'fevm refuses the block', target: { sel: '#rc-say' } },
+      { at: 'names the WebAssembly module', target: { sel: '#rc-prov' } },
     ],
   },
   {
@@ -272,6 +292,7 @@ export const scenes: Scene[] = [
         'The same Fe in your browser, the hash checked by a light client (BLS in fevm)',
         "5 Fe ports and Ethereum's 4 system contracts in Fe; a Fe compiler bug fixed upstream",
         'EIP-4762: +26% gas (ethereumjs agrees); Glamsterdam: 35% fail as sent (geth agrees)',
+        "The page and the CLI verify their WebAssembly's Sigstore provenance themselves",
       ],
     },
     narration:

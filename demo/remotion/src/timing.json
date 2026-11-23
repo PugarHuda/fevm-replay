@@ -1,26 +1,38 @@
 {
  "hero": {
-  "audio": 10.392,
+  "audio": 20.352,
   "captions": [
    {
     "start": 0.084041,
-    "end": 1.397041,
+    "end": 1.691166,
     "text": "This is fevm-replay."
    },
    {
-    "start": 1.397041,
-    "end": 7.016791,
-    "text": "It runs real Ethereum mainnet transactions inside fevm, the EVM written in Fe,"
+    "start": 1.691166,
+    "end": 7.615541,
+    "text": "It runs real Ethereum mainnet transactions inside fevm, the EVM written in Fe."
    },
    {
-    "start": 7.016791,
-    "end": 10.373541000000001,
-    "text": "and checks that each one ends exactly as it did on chain."
+    "start": 7.615541,
+    "end": 13.214291,
+    "text": "On the right is the header of mainnet block 26,424,805."
+   },
+   {
+    "start": 13.214291,
+    "end": 18.560916,
+    "text": "One click, and your browser runs its 71 transactions in fevm, compiled to WebAssembly:"
+   },
+   {
+    "start": 18.560916,
+    "end": 20.3315,
+    "text": "all eight fields come out the same."
    }
   ],
   "cues": {
    "This is": 0.084041,
-   "exactly as it did": 8.508416
+   "On the right": 7.615541,
+   "all eight fields": 18.560916,
+   "One click": 13.214291
   }
  },
  "results": {
@@ -662,6 +674,41 @@
   "cues": {
    "found a bug in Fe itself": 1.134458,
    "fixed it the next day": 10.850833
+  }
+ },
+ "forged": {
+  "audio": 15.912,
+  "captions": [
+   {
+    "start": 0.084041,
+    "end": 4.737375,
+    "text": "Change one digit of the receipts root, and fevm refuses the block before running anything:"
+   },
+   {
+    "start": 4.737375,
+    "end": 7.079833,
+    "text": "the header no longer hashes to the block's hash."
+   },
+   {
+    "start": 7.079833,
+    "end": 11.775208,
+    "text": "Under it, the page names the WebAssembly module that ran and verifies its Sigstore"
+   },
+   {
+    "start": 11.775208,
+    "end": 13.287833,
+    "text": "attestation in the browser:"
+   },
+   {
+    "start": 13.287833,
+    "end": 15.909249,
+    "text": "it is this repository's build, from a public commit."
+   }
+  ],
+  "cues": {
+   "Change one digit": 0.084041,
+   "fevm refuses the block": 2.174375,
+   "names the WebAssembly module": 8.193291
   }
  }
 }
