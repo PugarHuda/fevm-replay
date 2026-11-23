@@ -88,31 +88,57 @@ if (rc) {
     blobGasUsed: /are the header's gasUsed, blobGasUsed and logsBloom/,
   };
   const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  rc.addEventListener("click", () => {
-    rc.disabled = true;
+  const liveButton = document.getElementById("rc-live");
+  const title = document.getElementById("rc-block");
+  const short = (v) => (/^0x[0-9a-f]{64}$/.test(v) ? `${v.slice(0, 10)}…${v.slice(-4)}` : /^0x[0-9a-f]{512}$/.test(v) ? "256 bytes" : Number(v).toLocaleString("en"));
+  // live: false checks the saved block 26,424,805; true fetches one near the
+  // head (its hash checked by the light client) and shows its own header.
+  function run(live) {
+    rc.disabled = liveButton.disabled = true;
+    const tampered = document.getElementById("rc-tamper").checked;
     document.querySelectorAll(".root").forEach((r) => {
       r.className = "root";
-      r.querySelector(".state").textContent = "waiting for fevm";
+      r.querySelector(".state").textContent = live ? "waiting for the block" : "waiting for fevm";
       const v = r.querySelector(".val");
       v.dataset.shown ??= v.textContent;
-      v.textContent = v.dataset.shown;
+      v.dataset.full ??= v.title;
+      if (!live) { v.textContent = v.dataset.shown; v.title = v.dataset.full; }
     });
+    if (!live) title.textContent = "Block 26,424,805";
     // The changed digit, as the worker changes it: the last one, to 0 (or 1).
-    if (document.getElementById("rc-tamper").checked) {
+    const mark = () => {
       const v = document.querySelector('.root[data-field="receiptsRoot"] .val');
       const full = v.title, last = full.slice(-1), now = last === "0" ? "1" : "0";
       v.replaceChildren(`${full.slice(0, 10)}…${full.slice(-4, -1)}`, Object.assign(document.createElement("mark"), { textContent: now, title: `was ${last}` }));
-    }
+    };
+    if (tampered && !live) mark();
     const worker = new Worker("wasm/block-worker.mjs", { type: "module" });
     worker.onmessage = ({ data }) => {
       if (data.step) { say.textContent = data.step; return; }
       worker.terminate();
-      rc.disabled = false;
+      rc.disabled = liveButton.disabled = false;
       rc.textContent = "Check them again";
       if (data.error) { say.textContent = `Could not run fevm here: ${data.error}`; return; }
-      const tampered = document.getElementById("rc-tamper").checked;
-      const lines = data.out.split("\n").filter((l) => !/^(DIFF|STATE|ERROR|REQUESTS)/.test(l));
       const rows = [...document.querySelectorAll(".root")];
+      if (live && (data.fallback || !data.live?.header)) {
+        rows.forEach((r) => { r.querySelector(".state").textContent = "not checked yet"; });
+        say.textContent = `The public nodes did not serve a block just now (${data.fallback ?? "no header"}); free endpoints rate-limit at times. Try again in a minute.`;
+        return;
+      }
+      let name = "block 26,424,805", link = "verify.html?block=0x19335e5", anchored = "";
+      if (live) {
+        const n = data.live.number;
+        name = `block ${n.toLocaleString("en")}`;
+        link = `verify.html?block=live&number=${n}`;
+        title.textContent = `Block ${n.toLocaleString("en")}, ${data.live.head - n} behind the head`;
+        rows.forEach((r) => { const v = r.querySelector(".val"), full = data.live.header[r.dataset.field] ?? ""; v.textContent = short(full); v.title = full; });
+        if (tampered) mark();
+        const l = data.anchored?.light;
+        anchored = l && !l.error
+          ? ` Its hash is the chain's: ${l.signers} of 512 of the sync committee signed it (light client, each signature checked by noble and by fevm).`
+          : l?.error ? ` The light client could not confirm its hash (${l.error}).` : "";
+      }
+      const lines = data.out.split("\n").filter((l) => !/^(DIFF|STATE|ERROR|REQUESTS)/.test(l));
       // A changed header no longer hashes to the block's hash: the validator
       // refuses it before running a transaction, and says so.
       const refused = data.out.split("\n").find((l) => /^PROOF block: the headers do not hash/.test(l));
@@ -122,8 +148,8 @@ if (rc) {
           r.classList.add(changed ? "differs" : "skipped");
           r.querySelector(".state").textContent = changed ? "changed: the header's hash breaks" : "not run: the header is refused";
         });
-        say.replaceChildren(`fevm refused the block before running anything: "${refused.replace(/^PROOF block: /, "")}". One digit of one root changes the header's hash, so a forged header cannot pass as block 26,424,805. `,
-          Object.assign(document.createElement("a"), { href: "verify.html?block=0x19335e5", textContent: "Validate it unchanged" }), ".");
+        say.replaceChildren(`fevm refused the block before running anything: "${refused.replace(/^PROOF block: /, "")}". One digit of one root changes the header's hash, so a forged header cannot pass as ${name}. `,
+          Object.assign(document.createElement("a"), { href: link, textContent: "Validate it unchanged" }), ".");
         provenanceLine(data.sha256);
         return;
       }
@@ -135,14 +161,18 @@ if (rc) {
         r.querySelector(".state").textContent = ok ? "fevm got the same" : "fevm got something else";
         if (i === rows.length - 1) {
           const tx = data.out.match(/(\d+)\/(\d+) transactions MATCH/);
-          const told = `${held} of ${rows.length} fields match, from ${tx ? tx[2] : "its"} transactions run in ${(data.ms / 1000).toFixed(2)} s in your browser. `;
-          say.replaceChildren(told, Object.assign(document.createElement("a"), { href: "verify.html?block=0x19335e5", textContent: "The whole output" }), ".");
+          const told = `${held} of ${rows.length} fields match, from ${tx ? tx[2] : "its"} transactions run in ${(data.ms / 1000).toFixed(2)} s in your browser.${anchored} `;
+          say.replaceChildren(told, Object.assign(document.createElement("a"), { href: link, textContent: "The whole output" }), ".");
           provenanceLine(data.sha256);
         }
       }, still ? 0 : 90 * i));
     };
-    worker.postMessage({ archive: "block-0x19335e5.tar.gz", tamper: document.getElementById("rc-tamper").checked ? "header" : false });
-  });
+    worker.postMessage(live
+      ? { live: true, tamper: tampered ? "header" : false }
+      : { archive: "block-0x19335e5.tar.gz", tamper: tampered ? "header" : false });
+  }
+  rc.addEventListener("click", () => run(false));
+  liveButton.addEventListener("click", () => run(true));
 }
 
 // Which module did that: its SHA-256 and its Sigstore attestation, verified

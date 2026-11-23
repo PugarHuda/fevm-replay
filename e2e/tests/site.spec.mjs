@@ -120,3 +120,22 @@ test("front page: the module that ran is named, and its Sigstore attestation ver
   await expect(line).toHaveClass(/ok/);
   await expect(line).toContainText("its Sigstore attestation verified in your browser");
 });
+
+test("front page: the newest block instead, its own header shown and checked, its hash by the light client @live", async ({ page }) => {
+  await page.goto("index.html", { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Check the newest block instead" }).click();
+  const say = page.locator("#rc-say");
+  await expect(say).toHaveText(/fields match|did not serve|Could not run/, { timeout: 240_000 });
+  test.skip(/did not serve/.test(await say.textContent()), "free nodes refused");
+  await expect(page.locator("#rc-block")).toHaveText(/^Block [\d,]+, \d+ behind the head$/);
+  await expect(page.locator('.root[data-field="stateRoot"] .val')).not.toHaveText("0x85605dbf…8cf8");
+  await expect(say).toContainText("8 of 8 fields match");
+  await expect(say).toContainText("of 512 of the sync committee signed it");
+  await expect(page.locator(".root.held")).toHaveCount(8);
+  await expect(say.getByRole("link")).toHaveAttribute("href", /verify\.html\?block=live&number=\d+$/);
+  // Back to the saved block: its own values again.
+  await page.getByRole("button", { name: "Check them again" }).click();
+  await expect(page.locator("#rc-block")).toHaveText("Block 26,424,805");
+  await expect(page.locator('.root[data-field="stateRoot"] .val')).toHaveText("0x85605dbf…8cf8");
+  await expect(say).toContainText("8 of 8 fields match, from 71 transactions", { timeout: 200_000 });
+});
