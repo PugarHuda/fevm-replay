@@ -1,0 +1,567 @@
+//! The light client's checks, in Fe: everything `site/wasm/lightclient.mjs`
+//! checks, done again in the module. From a checkpoint (a finalized beacon
+//! block root): the bootstrap's sync committee proven in its state; each
+//! handoff signed by the committee before it, the next committee and the
+//! finalized header proven in the signed state; the newest header signed by
+//! the current committee, its execution block proven against its body root;
+//! and the execution headers hashed back from that block to the validated
+//! one. SSZ roots use fevm's SHA-256, signatures fevm's EIP-2537 BLS12-381
+//! precompiles (G1 MSM, MAP_FP2_TO_G2, G2 add, pairing) and the reduction
+//! into the field fevm's MODEXP. The host only decompresses points, and each
+//! point it hands over is checked here against the compressed one it came
+//! from.
+use core::{MemArray, MemBuffer}
+use core::text::{decimal, parse_hex_uint, parse_uint}
+use json::Value
+use replay_core::load::hex_bytes
+use replay_core::proof::header_hash
+
+const CURRENT_SYNC_COMMITTEE: u256 = 86
+const NEXT_SYNC_COMMITTEE: u256 = 87
+const FINALIZED_ROOT: u256 = 169
+const EXECUTION_PAYLOAD: u256 = 25
+const SLOTS_PER_PERIOD: u256 = 8192
+const FULU_EPOCH: u256 = 411392
+const FULU_VERSION: u256 = 0x06000000
+const DOMAIN_SYNC_COMMITTEE: u256 = 0x07000000
+const GENESIS_VALIDATORS_ROOT: u256 = 0x4b363db94e286120d76eb905340fdd4e54bfe9f06bf33ff6cf5ad27f511bfe95
+const GAS: u64 = 1000000000000
+
+fn word(_ v: Value) -> u256 {
+    parse_hex_uint(v.text()).unwrap_or(default: 0)
+}
+
+fn dec(_ v: Value) -> u256 {
+    parse_uint(v.text()).unwrap_or(default: 0)
+}
+
+fn bytes_of(_ v: Value) -> MemBuffer {
+    hex_bytes(v.text())
+}
+
+// The 32 bytes of `data` from `at`, big-endian, zero past its end.
+fn word_in(_ data: MemBuffer, _ at: usize) -> u256 {
+    var out: u256 = 0
+    for i in 0 .. 32 {
+        let b: u256 = if at + i < data.len() {
+            data[at + i] as u256
+        } else {
+            0
+        }
+        out = (out << 8) | b
+    }
+    out
+}
+
+// An SSZ uint: little-endian in its chunk, as a big-endian word.
+fn le(_ v: u256) -> u256 {
+    var out: u256 = 0
+    for i in 0 .. 32 {
+        let b = (v >> (8 * i) as u256) & 0xff
+        out = out | (b << (8 * (31 - i)) as u256)
+    }
+    out
+}
+
+fn sha2(_ a: u256, _ b: u256) -> u256 {
+    var buf = MemBuffer::with_capacity(64)
+    buf.write_word(offset: 0, value: a)
+    buf.write_word(offset: 32, value: b)
+    fevm_precompiles::sha256(buf, offset: 0, len: 64)
+}
+
+// The root of `width` (a power of two) leaves, reduced in place.
+fn merkle(_ layer: mut MemArray<u256>, _ width: usize) -> u256 {
+    var n = width
+    while n > 1 {
+        for i in 0 .. n / 2 {
+            layer[i] = sha2(layer[2 * i], layer[2 * i + 1])
+        }
+        n = n / 2
+    }
+    layer[0]
+}
+
+// The root of `data` packed into `width` chunks.
+fn vector_root(_ data: MemBuffer, _ width: usize) -> u256 {
+    var chunks: MemArray<u256> = MemArray::new_zeroed(width)
+    for i in 0 .. width {
+        chunks[i] = word_in(data, 32 * i)
+    }
+    merkle(mut chunks, width)
+}
+
+pub fn header_root(_ h: Value) -> u256 {
+    var c: MemArray<u256> = MemArray::new_zeroed(8)
+    c[0] = le(dec(h["slot"]))
+    c[1] = le(dec(h["proposer_index"]))
+    c[2] = word(h["parent_root"])
+    c[3] = word(h["state_root"])
+    c[4] = word(h["body_root"])
+    merkle(mut c, 8)
+}
+
+pub fn execution_root(_ e: Value) -> u256 {
+    var c: MemArray<u256> = MemArray::new_zeroed(32)
+    c[0] = word(e["parent_hash"])
+    c[1] = word(e["fee_recipient"]) << 96
+    c[2] = word(e["state_root"])
+    c[3] = word(e["receipts_root"])
+    c[4] = vector_root(bytes_of(e["logs_bloom"]), 8)
+    c[5] = word(e["prev_randao"])
+    c[6] = le(dec(e["block_number"]))
+    c[7] = le(dec(e["gas_limit"]))
+    c[8] = le(dec(e["gas_used"]))
+    c[9] = le(dec(e["timestamp"]))
+    let extra = bytes_of(e["extra_data"])
+    c[10] = sha2(word_in(extra, 0), le(extra.len() as u256))
+    c[11] = le(dec(e["base_fee_per_gas"]))
+    c[12] = word(e["block_hash"])
+    c[13] = word(e["transactions_root"])
+    c[14] = word(e["withdrawals_root"])
+    c[15] = le(dec(e["blob_gas_used"]))
+    c[16] = le(dec(e["excess_blob_gas"]))
+    merkle(mut c, 32)
+}
+
+fn key_root(_ key: Value) -> u256 {
+    let b = bytes_of(key)
+    sha2(word_in(b, 0), word_in(b, 32))
+}
+
+fn committee_root(_ c: Value) -> u256 {
+    let keys = c["pubkeys"].items()
+    var leaves: MemArray<u256> = MemArray::new_zeroed(512)
+    for i in 0 .. keys.len() {
+        leaves[i] = key_root(keys[i])
+    }
+    sha2(merkle(mut leaves, 512), key_root(c["aggregate_pubkey"]))
+}
+
+fn depth(_ gindex: u256) -> usize {
+    var d: usize = 0
+    var g = gindex
+    while g > 1 {
+        g = g >> 1
+        d += 1
+    }
+    d
+}
+
+fn branch_holds(_ leaf: u256, _ branch: Value, _ gindex: u256, _ root: u256) -> bool {
+    let items = branch.items()
+    if items.len() != depth(gindex) {
+        return false
+    }
+    var node = leaf
+    for i in 0 .. items.len() {
+        let sibling = word(items[i])
+        node = if ((gindex >> i as u256) & 1) == 1 {
+            sha2(sibling, node)
+        } else {
+            sha2(node, sibling)
+        }
+    }
+    node == root
+}
+
+pub fn signing_root(_ header: Value, _ signature_slot: u256) -> u256 {
+    let fork_data_root = sha2(FULU_VERSION << 224, GENESIS_VALIDATORS_ROOT)
+    let domain = (DOMAIN_SYNC_COMMITTEE << 224) | (fork_data_root >> 32)
+    sha2(header_root(header), domain)
+}
+
+fn append(_ out: mut MemBuffer, _ data: MemBuffer, _ from: usize, _ len: usize) {
+    for i in 0 .. len {
+        out.push(if from + i < data.len() {
+                data[from + i]
+            } else {
+                0
+            })
+    }
+}
+
+fn zeros(_ out: mut MemBuffer, _ n: usize) {
+    for _ in 0 .. n {
+        out.push(0)
+    }
+}
+
+// Whether 48 bytes of `a` from `at` exceed (p - 1) / 2: the "larger" y of
+// the compressed encoding's sign flag.
+fn larger(_ a: MemBuffer, _ at: usize) -> bool {
+    let half = hex_bytes(
+        "0d0088f51cbff34d258dd3db21a5d66bb23ba5c279c2895fb39869507b587b120f55ffff58a9ffffdcff7fffffffd555"
+            .span(),
+    )
+    for i in 0 .. 48 {
+        if a[at + i] != half[i] {
+            return a[at + i] > half[i]
+        }
+    }
+    false
+}
+
+// `point` (EIP-2537's 128 bytes) is the G1 point `compressed` (48 bytes) names.
+fn same_g1(_ compressed: MemBuffer, _ point: MemBuffer) -> bool {
+    if compressed.len() != 48 || point.len() != 128 || (compressed[0] & 0xc0) != 0x80 {
+        return false
+    }
+    for i in 0 .. 48 {
+        let c = if i == 0 {
+            compressed[0] & 0x1f
+        } else {
+            compressed[i]
+        }
+        if point[16 + i] != c {
+            return false
+        }
+    }
+    larger(point, 80) == ((compressed[0] & 0x20) != 0)
+}
+
+// `point` (EIP-2537's 256 bytes: x0, x1, y0, y1) is the G2 point
+// `compressed` (96 bytes: x1, then x0) names.
+fn same_g2(_ compressed: MemBuffer, _ point: MemBuffer) -> bool {
+    if compressed.len() != 96 || point.len() != 256 || (compressed[0] & 0xc0) != 0x80 {
+        return false
+    }
+    for i in 0 .. 48 {
+        let c = if i == 0 {
+            compressed[0] & 0x1f
+        } else {
+            compressed[i]
+        }
+        if point[80 + i] != c || point[16 + i] != compressed[48 + i] {
+            return false
+        }
+    }
+    var y1_zero = true
+    for i in 0 .. 48 {
+        if point[208 + i] != 0 {
+            y1_zero = false
+        }
+    }
+    let sign = if y1_zero {
+        larger(point, 144)
+    } else {
+        larger(point, 208)
+    }
+    sign == ((compressed[0] & 0x20) != 0)
+}
+
+fn call(_ address: u256, _ input: MemBuffer) -> Option<MemBuffer> {
+    let result = fevm_precompiles::run(address, input, gas: GAS)
+    if result.status != fevm_precompiles::SUCCESS {
+        return Option::None
+    }
+    Option::Some(result.output)
+}
+
+// RFC 9380: expand_message_xmd (SHA-256) of a 32-byte message, then each
+// 64-byte piece reduced mod p by MODEXP; Fp2 elements as EIP-2537 encodes them.
+fn hash_to_fp2(_ message: u256) -> MemBuffer {
+    let dst = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_".span()
+    var first = MemBuffer::empty()
+    zeros(mut first, 64)
+    var m = MemBuffer::with_capacity(32)
+    m.write_word(offset: 0, value: message)
+    append(mut first, m, 0, 32)
+    first.push(1)
+    first.push(0)
+    first.push(0)
+    for i in 0 .. dst.len() {
+        first.push(dst[i])
+    }
+    first.push(dst.len().downcast_truncate())
+    let b0 = fevm_precompiles::sha256(first, offset: 0, len: first.len())
+    var uniform = MemBuffer::empty()
+    var previous: u256 = 0
+    for i in 1 .. 9 {
+        var next = MemBuffer::with_capacity(32)
+        next.write_word(offset: 0, value: if i == 1 { b0 } else { b0 ^ previous })
+        next.push(i.downcast_truncate())
+        for k in 0 .. dst.len() {
+            next.push(dst[k])
+        }
+        next.push(dst.len().downcast_truncate())
+        previous = fevm_precompiles::sha256(next, offset: 0, len: next.len())
+        var w = MemBuffer::with_capacity(32)
+        w.write_word(offset: 0, value: previous)
+        append(mut uniform, w, 0, 32)
+    }
+    let p = hex_bytes(
+        "1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab"
+            .span(),
+    )
+    var out = MemBuffer::empty()
+    for k in 0 .. 4 {
+        var input = MemBuffer::with_capacity(96)
+        input.write_word(offset: 0, value: 64)
+        input.write_word(offset: 32, value: 1)
+        input.write_word(offset: 64, value: 48)
+        append(mut input, uniform, 64 * k, 64)
+        input.push(1)
+        append(mut input, p, 0, 48)
+        let reduced = call(5, input).unwrap_or(default: MemBuffer::empty())
+        zeros(mut out, 16)
+        append(mut out, reduced, 0, 48)
+    }
+    out
+}
+
+// How many of `committee` signed `header`, checked by fevm's precompiles;
+// zero if the signature does not hold or fewer than two thirds signed.
+fn signed(
+    _ committee: Value,
+    _ points: Value,
+    _ aggregate: Value,
+    _ signature: Value,
+    _ header: Value,
+    _ signature_slot: u256,
+) -> u64 {
+    if (signature_slot - 1) / 32 < FULU_EPOCH {
+        return 0
+    }
+    let bits = bytes_of(aggregate["sync_committee_bits"])
+    let keys = committee["pubkeys"].items()
+    let uncompressed = points.items()
+    var msm = MemBuffer::empty()
+    var count: u64 = 0
+    for i in 0 .. 512 {
+        if ((bits[i / 8] >> (i % 8).downcast_truncate()) & 1) == 1 {
+            let point = bytes_of(uncompressed[i])
+            if !same_g1(bytes_of(keys[i]), point) {
+                return 0
+            }
+            append(mut msm, point, 0, 128)
+            zeros(mut msm, 31)
+            msm.push(1)
+            count += 1
+        }
+    }
+    if count * 3 < 1024 {
+        return 0
+    }
+    let sig = bytes_of(signature)
+    if !same_g2(bytes_of(aggregate["sync_committee_signature"]), sig) {
+        return 0
+    }
+    let Option::Some(keys_sum) = call(0x0c, msm) else {
+        return 0
+    }
+    let u = hash_to_fp2(signing_root(header, signature_slot))
+    var u0 = MemBuffer::empty()
+    append(mut u0, u, 0, 128)
+    var u1 = MemBuffer::empty()
+    append(mut u1, u, 128, 128)
+    let Option::Some(m0) = call(0x11, u0) else {
+        return 0
+    }
+    let Option::Some(m1) = call(0x11, u1) else {
+        return 0
+    }
+    var both = MemBuffer::empty()
+    append(mut both, m0, 0, 256)
+    append(mut both, m1, 0, 256)
+    let Option::Some(h) = call(0x0d, both) else {
+        return 0
+    }
+    var pairs = MemBuffer::empty()
+    append(mut pairs, keys_sum, 0, 128)
+    append(mut pairs, h, 0, 256)
+    let neg_g1 = hex_bytes(
+        "0000000000000000000000000000000017f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb00000000000000000000000000000000114d1d6855d545a8aa7d76c8cf2e21f267816aef1db507c96655b9d5caac42364e6f38ba0ecb751bad54dcd6b939c2ca"
+            .span(),
+    )
+    append(mut pairs, neg_g1, 0, 128)
+    append(mut pairs, sig, 0, 256)
+    let Option::Some(verdict) = call(0x0f, pairs) else {
+        return 0
+    }
+    if verdict[31] == 1 { count } else { 0 }
+}
+
+/// The whole check on `doc`: `{checkpoint, bootstrap, updates, head,
+/// headers, number, hash}` as the beacon and RPC nodes gave them, plus the
+/// host's decompressed points: `points` (`{"bootstrap": [512], "updates":
+/// [[512]...]}`) and `signatures` (`{"updates": [...], "head"}`). Returns the
+/// signers of the head, or 0 with a line saying what failed.
+pub fn check(_ doc: Value) -> u64 uses (out: mut std::io::Stdout) {
+    let boot = ref doc["bootstrap"]
+    let checkpoint = word(doc["checkpoint"])
+    if header_root(boot["header"]["beacon"]) != checkpoint {
+        println!(
+            "light client (Fe): the bootstrap header is not the checkpoint",
+        )
+        return 0
+    }
+    if !branch_holds(
+        committee_root(boot["current_sync_committee"]),
+        boot["current_sync_committee_branch"],
+        CURRENT_SYNC_COMMITTEE,
+        word(boot["header"]["beacon"]["state_root"]),
+    ) {
+        println!(
+            "light client (Fe): the checkpoint's sync committee is not in its state",
+        )
+        return 0
+    }
+    var at = dec(boot["header"]["beacon"]["slot"]) / SLOTS_PER_PERIOD
+    let updates = doc["updates"].items()
+    let update_points = doc["points"]["updates"].items()
+    let update_sigs = doc["signatures"]["updates"].items()
+    for i in 0 .. updates.len() {
+        let u = ref updates[i]
+        let slot = dec(u["signature_slot"])
+        let attested = ref u["attested_header"]["beacon"]
+        if slot / SLOTS_PER_PERIOD != at {
+            println!(
+                "light client (Fe): an update for period ",
+                decimal(slot / SLOTS_PER_PERIOD),
+                " where ",
+                decimal(at),
+                " was expected",
+            )
+            return 0
+        }
+        let n = if i == 0 {
+            signed(
+                boot["current_sync_committee"],
+                doc["points"]["bootstrap"],
+                u["sync_aggregate"],
+                update_sigs[i],
+                attested,
+                slot,
+            )
+        } else {
+            signed(
+                updates[i - 1]["next_sync_committee"],
+                update_points[i - 1],
+                u["sync_aggregate"],
+                update_sigs[i],
+                attested,
+                slot,
+            )
+        }
+        if n == 0 {
+            println!(
+                "light client (Fe): the handoff signed at slot ",
+                decimal(slot),
+                " does not hold",
+            )
+            return 0
+        }
+        let state_root = word(attested["state_root"])
+        if !branch_holds(
+                committee_root(u["next_sync_committee"]),
+                u["next_sync_committee_branch"],
+                NEXT_SYNC_COMMITTEE,
+                state_root,
+            )
+            || !branch_holds(
+                header_root(u["finalized_header"]["beacon"]),
+                u["finality_branch"],
+                FINALIZED_ROOT,
+                state_root,
+            ) {
+            println!(
+                "light client (Fe): the handoff at slot ",
+                decimal(slot),
+                " does not prove its next committee and finalized header",
+            )
+            return 0
+        }
+        at += 1
+    }
+    let head = ref doc["head"]
+    let slot = dec(head["signature_slot"])
+    if slot / SLOTS_PER_PERIOD != at {
+        println!(
+            "light client (Fe): the signed head is in period ",
+            decimal(slot / SLOTS_PER_PERIOD),
+            ", not ",
+            decimal(at),
+        )
+        return 0
+    }
+    let last = updates.len()
+    let signers = if last == 0 {
+        signed(
+            boot["current_sync_committee"],
+            doc["points"]["bootstrap"],
+            head["sync_aggregate"],
+            doc["signatures"]["head"],
+            head["attested_header"]["beacon"],
+            slot,
+        )
+    } else {
+        signed(
+            updates[last - 1]["next_sync_committee"],
+            update_points[last - 1],
+            head["sync_aggregate"],
+            doc["signatures"]["head"],
+            head["attested_header"]["beacon"],
+            slot,
+        )
+    }
+    if signers == 0 {
+        println!(
+            "light client (Fe): the signature over the head does not hold",
+        )
+        return 0
+    }
+    let execution = ref head["attested_header"]["execution"]
+    if !branch_holds(
+        execution_root(execution),
+        head["attested_header"]["execution_branch"],
+        EXECUTION_PAYLOAD,
+        word(head["attested_header"]["beacon"]["body_root"]),
+    ) {
+        println!(
+            "light client (Fe): the execution payload is not under the signed body root",
+        )
+        return 0
+    }
+    let number = dec(doc["number"])
+    let headers = doc["headers"].items()
+    var expect = word(execution["block_hash"])
+    if dec(execution["block_number"]) != number + headers.len() as u256 - 1 {
+        println!(
+            "light client (Fe): the headers do not reach the signed head",
+        )
+        return 0
+    }
+    var i = headers.len()
+    while i > 0 {
+        i -= 1
+        let h = ref headers[i]
+        if parse_hex_uint(h["number"].text()).unwrap_or(default: 0) != number + i as u256
+            || header_hash(h) != expect {
+            println!(
+                "light client (Fe): header ",
+                decimal(number + i as u256),
+                " does not hash to what the next one names",
+            )
+            return 0
+        }
+        expect = word(h["parentHash"])
+    }
+    if header_hash(headers[0]) != word(doc["hash"]) {
+        println!(
+            "light client (Fe): the first header is not the validated block's",
+        )
+        return 0
+    }
+    println!(
+        "light client (Fe): ",
+        decimal(updates.len() as u256),
+        " handoff(s) and the head checked; ",
+        decimal(signers as u256),
+        "/512 signed slot ",
+        decimal(slot),
+        ", headers hashed back to block ",
+        decimal(number),
+    )
+    signers
+}

@@ -56,6 +56,12 @@ jobs:
         run: |
           node web/provenance-test.mjs site/wasm/fevm_replay_web.wasm
           node web/provenance-test.mjs site/wasm/next/fevm_replay_web.wasm
+
+      # light.fe, the light client's whole check in Fe inside the module, on a
+      # block near the head, and refused when any part of the chain is changed.
+      - name: The light client in Fe
+        working-directory: .
+        run: node web/lightfe-test.mjs
       - run: npx playwright test
         env:
           BASE_URL: https://fevm-replay.vercel.app/

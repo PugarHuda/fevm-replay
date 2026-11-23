@@ -131,6 +131,7 @@ test("front page: the newest block instead, its own header shown and checked, it
   await expect(page.locator('.root[data-field="stateRoot"] .val')).not.toHaveText("0x85605dbf…8cf8");
   await expect(say).toContainText("8 of 8 fields match");
   await expect(say).toContainText("of 512 of the sync committee signed it");
+  await expect(say).toContainText("the whole chain checked again in Fe by light.fe, inside the module");
   await expect(page.locator(".root.held")).toHaveCount(8);
   await expect(say.getByRole("link")).toHaveAttribute("href", /verify\.html\?block=live&number=\d+$/);
   // Back to the saved block: its own values again.

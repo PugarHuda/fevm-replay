@@ -201,6 +201,7 @@ async function follow(root, latest, step, check) {
   const u = fetched.body.data;
   const now = period(u.signature_slot);
   const handoffs = [];
+  const raw = [];
   if (now > at) {
     step(`Light client: ${now - at} sync committee handoff${now - at > 1 ? "s" : ""} since the checkpoint…`);
     const updates = (await get(`/eth/v1/beacon/light_client/updates?start_period=${at}&count=${now - at}`)).body;
@@ -214,6 +215,7 @@ async function follow(root, latest, step, check) {
         throw new Error(`the finalized header is not in the state at slot ${h.attested_header.beacon.slot}`);
       }
       handoffs.push({ period: at, signers: n });
+      raw.push(h);
       committee = h.next_sync_committee;
       at++;
     }
@@ -226,7 +228,7 @@ async function follow(root, latest, step, check) {
     throw new Error(`checkpoint ${root.slice(0, 10)}… (slot ${checkpoint.slot}) is older than about two weeks; use a recent finalized root`);
   }
   const signers = await check(signed(committee, u.sync_aggregate, u.attested_header.beacon, u.signature_slot));
-  return { checkpoint, builtIn: root === CHECKPOINT.root, handoffs, update: u, signers, node: fetched.node };
+  return { checkpoint, builtIn: root === CHECKPOINT.root, handoffs, update: u, signers, node: fetched.node, boot, raw };
 }
 
 const checker = (fevm, step) => {
@@ -249,9 +251,9 @@ const checker = (fevm, step) => {
  * given, runs fevm's precompiles (`fevmPrecompiles`) to check each signature
  * a second time.
  */
-export async function lightClient(number, hash, headers, step = () => {}, root = CHECKPOINT.root, fevm) {
+export async function lightClient(number, hash, headers, step = () => {}, root = CHECKPOINT.root, fevm, module) {
   const check = checker(fevm, step);
-  const { checkpoint, builtIn, handoffs, update: u, signers, node } = await follow(root, "optimistic_update", step, check);
+  const { checkpoint, builtIn, handoffs, update: u, signers, node, boot, raw } = await follow(root, "optimistic_update", step, check);
   const top = execution(u.attested_header);
   const topNumber = Number(top.block_number);
   if (topNumber < number) throw new Error(`the signed head (${topNumber}) is behind block ${number}; try again in a few seconds`);
@@ -265,7 +267,18 @@ export async function lightClient(number, hash, headers, step = () => {}, root =
     expect = h.parentHash;
   }
   if (blockHash(chain[0]) !== hash) throw new Error(`block ${number}'s header does not hash to the validated block's hash`);
-  return { checkpoint, builtIn, byFevm: check.byFevm, handoffs, slot: Number(u.attested_header.beacon.slot), signers, top: topNumber, headers: chain.length, node };
+  // The whole chain of checks again, in Fe (light.fe in the module): SSZ
+  // roots, branches, every signature by fevm's precompiles, the headers.
+  let inFe, inFeDoc;
+  // Only a module built with light.fe has the export (next/, from Fe's latest
+  // commit, does not): without it the check is skipped and the result says so.
+  if (module && !JSON.stringify(module.manifest).includes('"light_client"')) inFe = { skipped: true };
+  else if (module) {
+    step("Light client: the whole check again in Fe, inside the module (light.fe)…");
+    inFeDoc = { checkpoint: root, boot, updates: raw, head: u, headers: chain, number, hash };
+    inFe = await lightClientInFe(module, inFeDoc);
+  }
+  return { checkpoint, builtIn, byFevm: check.byFevm, handoffs, slot: Number(u.attested_header.beacon.slot), signers, top: topNumber, headers: chain.length, node, inFe, inFeDoc };
 }
 
 /**
@@ -281,4 +294,32 @@ export async function advance(root = CHECKPOINT.root, step = () => {}, fevm) {
   }
   const next = { root: hex(headerRoot(u.finalized_header.beacon)), slot: Number(u.finalized_header.beacon.slot) };
   return { from: checkpoint, next, handoffs, signers, byFevm: check.byFevm };
+}
+
+/**
+ * The light client's whole check run by the module's `light_client` export
+ * (web/src/light.fe): the nodes' answers as they came, plus the points the
+ * host decompresses (each committee's 512 keys as EIP-2537 G1, each signature
+ * as G2), which light.fe checks against their compressed forms. Returns the
+ * head's signers as counted in Fe, or what Fe refused.
+ */
+export async function lightClientInFe({ wasm, manifest }, { checkpoint, boot, updates, head, headers, number, hash }) {
+  const G1 = bls12_381.G1.ProjectivePoint ?? bls12_381.G1.Point;
+  const keys = (c) => c.pubkeys.map((k) => hex(g1(G1.fromHex(k.slice(2)).toAffine())));
+  const sig = (a) => hex(g2(bls12_381.longSignatures.Signature.fromHex(a.sync_committee_signature.slice(2)).toAffine()));
+  let doc;
+  try {
+    doc = {
+      checkpoint, bootstrap: boot, updates, head, headers, number: String(number), hash,
+      points: { bootstrap: keys(boot.current_sync_committee), updates: updates.map((u) => keys(u.next_sync_committee)) },
+      signatures: { updates: updates.map((u) => sig(u.sync_aggregate)), head: sig(head.sync_aggregate) },
+    };
+  } catch (e) {
+    return { error: `a key or signature is not a point on the curve (${e.message})` };
+  }
+  const guest = await instantiate(new Uint8Array(wasm), { manifest, files: { "light.json": JSON.stringify(doc) } });
+  const reply = guest.callReply("light_client", "light.json");
+  const said = (guest.host.stdout ?? "").trim();
+  if (!reply.ok) return { error: `the module could not run light_client (${JSON.stringify(reply)})` };
+  return reply.value === 1 ? { ok: true, said } : { error: said || "light.fe refused the chain" };
 }

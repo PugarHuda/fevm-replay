@@ -70,7 +70,8 @@ onmessage = async ({ data }) => {
       const hash = JSON.parse(live.files.block).result.hash;
       anchored = { hash, ...await anchor(live.number, hash) };
       try {
-        anchored.light = await lightClient(live.number, hash, headersBetween, step, data.checkpoint, fevmPrecompiles(bytes, manifest));
+        anchored.light = await lightClient(live.number, hash, headersBetween, step, data.checkpoint, fevmPrecompiles(bytes, manifest), { wasm: bytes, manifest });
+        delete anchored.light.inFeDoc; // the input light.fe checked; the page needs only the verdict
       } catch (e) {
         anchored.light = { error: e.message };
       }

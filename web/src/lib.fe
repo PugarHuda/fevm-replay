@@ -521,3 +521,24 @@ uses (files: mut Files, out: mut Stdout)
     println!("}")
     Reply::ok(1)
 }
+
+/// The light client's whole check, in Fe (`light.fe`): `name` holds what
+/// the beacon and RPC nodes gave and the host's decompressed points (see
+/// `light::check`). Replies 1 if the block's hash is the chain's from the
+/// checkpoint, through every handoff, each signature checked by fevm's
+/// BLS12-381 precompiles.
+#[unsafe(export)]
+pub fn light_client(name: HostText) -> Reply
+uses (files: mut Files, out: mut Stdout)
+{
+    let data = match read_all(name) {
+        Result::Ok(data) => data,
+        Result::Err(code) => {
+            return Reply::error(code)
+        },
+    }
+    let Result::Ok(doc) = parse(data.as_slice()) else {
+        return Reply::error(100)
+    }
+    Reply::ok(if ingot::light::check(doc) > 0 { 1 } else { 0 })
+}

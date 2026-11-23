@@ -135,7 +135,7 @@ if (rc) {
         if (tampered) mark();
         const l = data.anchored?.light;
         anchored = l && !l.error
-          ? ` Its hash is the chain's: ${l.signers} of 512 of the sync committee signed it (light client, each signature checked by noble and by fevm).`
+          ? ` Its hash is the chain's: ${l.signers} of 512 of the sync committee signed it (light client, each signature checked by noble and by fevm${l.inFe?.ok ? "; the whole chain checked again in Fe by light.fe, inside the module" : ""}).`
           : l?.error ? ` The light client could not confirm its hash (${l.error}).` : "";
       }
       const lines = data.out.split("\n").filter((l) => !/^(DIFF|STATE|ERROR|REQUESTS)/.test(l));

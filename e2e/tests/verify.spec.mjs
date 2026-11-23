@@ -89,6 +89,7 @@ test("a block near the head, fetched by the browser, its hash checked by the lig
   const out = await page.locator("#bout").textContent();
   expect(out).toMatch(/Light client: from the checkpoint written in lightclient\.mjs/);
   expect(out).toMatch(/checked twice: by noble, and by fevm itself/);
+  expect(out).toContain("Then light.fe, inside the module, checked the whole chain again in Fe");
   // The save link gives back the fetched block as an archive.
   const save = page.locator("#bsave a").first();
   await expect(save).toHaveAttribute("download", /^0x[0-9a-f]+\.tar\.gz$/);

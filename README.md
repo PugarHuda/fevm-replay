@@ -898,7 +898,14 @@ author nor its servers:
 3. **The block.** A MATCH rests on the block hash, and for a block near the
    head the page checks that hash with a light client from a finalized
    checkpoint, each sync committee signature verified twice (noble, and
-   fevm's own BLS12-381 precompiles in Fe). A checkpoint given in the
+   fevm's own BLS12-381 precompiles in Fe). Then the whole light client runs
+   again in Fe, inside the module (`web/src/light.fe`): the checkpoint's
+   committee proven in its state, each handoff signed and proven, the head
+   signed, its execution payload under the signed body root, the headers
+   hashed back; JavaScript only decompresses points, and light.fe checks
+   each against its compressed form. `node web/lightfe-test.mjs` runs it on a
+   live block and shows a changed signature, participation bit, header,
+   execution hash, committee key or checkpoint each refused. A checkpoint given in the
    address is labelled as not the built-in one; one the beacon nodes do not
    know confirms nothing.
 
