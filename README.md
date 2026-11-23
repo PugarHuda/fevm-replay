@@ -692,6 +692,13 @@ They agree on all 93 mainnet blocks validated statelessly so far (26,424,722
 to 26,467,760, taken on six days), 26,424,772's EIP-7002 withdrawal request among them. One setting is mainnet's own: `Config::osaka()`
 carries Osaka's blob schedule (6/9), and mainnet runs BPO2's (14/21, EIP-7892).
 
+On the seventh day (23 Nov, after the numbers above were taken) eight more
+blocks near the head, 26,474,247 to 26,474,295, 1,586 transactions, were
+fetched the way the page fetches them and validated by `chain`: every
+transaction MATCH, fevm's stateRoot is the header's, and fevm_chain agrees on
+all eight. They are not in the 93 above, whose figures (witness, EIP-4762,
+Glamsterdam, geth and ethereumjs comparisons) were measured on those blocks.
+
 ### Beside rsp, zeth and light clients
 
 The shape is the one zkVM block provers use: rsp and zeth fetch a block's
