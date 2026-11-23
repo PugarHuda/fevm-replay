@@ -989,7 +989,12 @@ deployed code, and an ordinary swap. Its data comes from `trace`:
 | `src/certify.fe` | the certificate page |
 | `src/source.fe` | a selector's `msg` variant and `recv` arm in a port's source, for lack of a source map |
 | `ingots/replay_core/` | every module above under that path: no file, process or network, so it builds natively and for WebAssembly |
-| `web/` | the WebAssembly build: `verify` (proofs) and `validate_block` (a whole block); `web/tailcalls.py` makes its calls in tail position tail calls |
+| `web/` | the WebAssembly build: `verify` (proofs), `validate_block` (a whole block), `witness_keys`, `witness_gas`, `precompiles`, `amsterdam_tx` and `light_client`; `web/tailcalls.py` makes its calls in tail position tail calls |
+| `web/src/light.fe` | the light client's whole check in Fe (`light_client`): SSZ roots with fevm's SHA-256, Merkle branches, sync committee signatures with fevm's EIP-2537 precompiles, the execution headers hashed back; each host-decompressed point checked against its compressed form |
+| `site/wasm/lightclient.mjs` | the light client in JavaScript (Altair protocol, BLS by noble and again by fevm's precompiles), then light.fe on the same answers |
+| `site/wasm/provenance.mjs` | the module's Sigstore attestation, found by its SHA-256 on GitHub and verified with WebCrypto: DSSE signature, Fulcio chain, repository/workflow/commit, Rekor's signed timestamp, inclusion proof and checkpoint |
+| `site/wasm/block-worker.mjs`, `live.mjs`, `block.mjs`, `cli.mjs` | the page's worker, the browser's fetcher for a block near the head, the archive reader, and the same check from Node.js |
+| `e2e/` | the site used as a visitor would (Playwright, axe-core), in Chromium, Firefox, WebKit and on a phone |
 | `src/lib.fe` | the CLI: `fetch`, `fetch-block`, `fetch-code`, `fetch-hashes`, `fetch-proofs`, `block`, `range`, `chain`, `trace`, `opgas`, `fuzz`, `fuzz-pair`, `fuzz-usdt`, `fuzz-dai`, `fuzz-proxy`, `fuzz-block`, `mutants`, `mutants-system`, `system`, `certify`, `follow`, replaying fixture files |
 | `src/tests.fe`, `src/proof_tests.fe` | unit tests for the helpers; the proof tests run on a real proof and header from mainnet |
 | `ports/weth9` | WETH9 in Fe, for shadow replay |

@@ -251,7 +251,7 @@ const checker = (fevm, step) => {
  * given, runs fevm's precompiles (`fevmPrecompiles`) to check each signature
  * a second time.
  */
-export async function lightClient(number, hash, headers, step = () => {}, root = CHECKPOINT.root, fevm, module) {
+export async function lightClient(number, hash, headers, step = () => {}, root = CHECKPOINT.root, fevm, module, { forgeForFe = false } = {}) {
   const check = checker(fevm, step);
   const { checkpoint, builtIn, handoffs, update: u, signers, node, boot, raw } = await follow(root, "optimistic_update", step, check);
   const top = execution(u.attested_header);
@@ -276,7 +276,14 @@ export async function lightClient(number, hash, headers, step = () => {}, root =
   else if (module) {
     step("Light client: the whole check again in Fe, inside the module (light.fe)…");
     inFeDoc = { checkpoint: root, boot, updates: raw, head: u, headers: chain, number, hash };
-    inFe = await lightClientInFe(module, inFeDoc);
+    // forgeForFe: one participation bit of the head's signature flipped, for
+    // light.fe alone (after the JavaScript check passed), to show it refuses.
+    const given = forgeForFe ? structuredClone(inFeDoc) : inFeDoc;
+    if (forgeForFe) {
+      const b = given.head.sync_aggregate.sync_committee_bits;
+      given.head.sync_aggregate.sync_committee_bits = b.slice(0, 2) + (b[2] === "f" ? "e" : "f") + b.slice(3);
+    }
+    inFe = { ...(await lightClientInFe(module, given)), forged: forgeForFe };
   }
   return { checkpoint, builtIn, byFevm: check.byFevm, handoffs, slot: Number(u.attested_header.beacon.slot), signers, top: topNumber, headers: chain.length, node, inFe, inFeDoc };
 }

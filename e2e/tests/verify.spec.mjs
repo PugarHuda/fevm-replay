@@ -172,3 +172,13 @@ test("the page checks where its module came from: the Sigstore attestation verif
   await expect(prov.getByRole("link").first()).toHaveAttribute("href", /github\.com\/PugarHuda\/fevm-replay\/commit\/[0-9a-f]{40}$/);
   await expect(prov.getByRole("link").nth(1)).toHaveAttribute("href", /search\.sigstore\.dev\/\?logIndex=\d+$/);
 });
+
+test("a block near the head with one bit of the head's signature flipped for light.fe: light.fe refuses, the page says so @live", async ({ page }) => {
+  await page.goto("verify.html?block=live", { waitUntil: "networkidle" });
+  await page.getByLabel(/flip one bit of the head's signature/).check();
+  await validate(page);
+  const out = await page.locator("#bout").textContent();
+  test.skip(/did not serve a live block/.test(out), "free nodes refused");
+  expect(out).toContain("With one bit of the head's signature flipped for it, light.fe, inside the module, refused the chain");
+  expect(out).toContain("the signature over the head does not hold");
+});

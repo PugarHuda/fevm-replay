@@ -8,8 +8,8 @@ authors:
 repository-code: "https://github.com/PugarHuda/fevm-replay"
 url: "https://fevm-replay.vercel.app"
 license: Apache-2.0
-version: 0.8.4
-date-released: "2026-11-22"
+version: 0.8.5
+date-released: "2026-11-23"
 keywords:
   - Ethereum
   - Fe

@@ -18,7 +18,7 @@ measurements around it, and what it turned up went back upstream.
 
 **Site and documentation:** https://fevm-replay.vercel.app (mirror: https://pugarhuda.github.io/fevm-replay/)
 
-**Try it first (no install):** [validate a block fresh from the chain's head in your browser](https://fevm-replay.vercel.app/verify.html?block=live): fevm, compiled from Fe to WebAssembly, proves it against every root in its header, and a light client checks its hash: Ethereum's sync committee signed a header that hashes back to it. Or [watch the 4-minute tour](https://fevm-replay.vercel.app/#tour).
+**Try it first (no install):** [validate a block fresh from the chain's head in your browser](https://fevm-replay.vercel.app/verify.html?block=live): fevm, compiled from Fe to WebAssembly, proves it against every root in its header, and a light client checks its hash, in JavaScript and again in Fe inside the module: Ethereum's sync committee signed a header that hashes back to it. Or [watch the 5-minute tour](https://fevm-replay.vercel.app/#tour).
 
 **Also try:** [would your transaction survive Glamsterdam?](https://fevm-replay.vercel.app/glamsterdam.html) Paste a recent transaction, or check a whole block near the head.
 
@@ -56,11 +56,12 @@ Replaying is fast: those 5,129 transactions take 5.9 seconds once fetched.
 | **For EIP authors** | Measured on 93 mainnet blocks over 6 days ([findings](docs/stateless-findings.md)): code is 46% of a stateless witness; EIP-4762 (Draft) would cost 26% more gas, and 40% of transactions, sent with the same gas limit, would run out of gas. Exempting the coinbase, as the draft exempts the sender and target, brings that to 15%: it saves ETH transfers (62% short, 1.7% exempt) but not contract calls (28%, still 23%: code and storage). Code at half price would bring it to 6.0%, free code to 1.5%. The charges match ethereumjs's independent EIP-4762 implementation on all 20,636 transactions. Under Glamsterdam's execution rules (fevm's `Config::amsterdam()`, checked against geth's on 3,718 of them), the same transactions sent with the same gas limits: 35% would fail, mostly for EIP-8037's state gas, 26% more gas ([more](#every-root-in-the-header)) |
 | **Fe ports** | 5 ports (USDT, every Uniswap V2 pair, WETH9, DAI, USDC's proxy) certified by mainnet replay, mainnet mutations, fuzzing and mutation testing ([verified page](https://fevm-replay.vercel.app/verified.html)). Also all four of Ethereum's system contracts (EIP-4788, EIP-2935, EIP-7002, EIP-7251), ported from assembly: on 93 mainnet blocks they store and return what the deployed ones do, and with all four system calls run by the Fe ports every root in the header still matches; the mainnet transactions that call them run identically ([more](#ethereums-own-system-contracts-in-fe)) |
 | **Gas vs Solidity** | On 57,034 mainnet calls in identical transactions, the five Fe ports used 3.3% less gas than the deployed solc bytecode; 59 of 61 functions are cheaper (USDT −4.4%, WETH9 −4.0%, DAI −1.6%, pair −1.1%, USDC proxy −1.0%). The system contracts go the other way: hand-written assembly beats them by 24 to 2,026 gas a call ([per function](docs/gas.md)) |
-| **Fe-specific** | Effects prove validation needs no file, process or network, so the same Fe compiles to WebAssembly with fevm in it: [validate a whole mainnet block in your browser](https://fevm-replay.vercel.app/verify.html), every root in its header, including a block near the chain's head your browser fetches itself from public nodes, its hash checked by a light client against Ethereum's sync committee signatures, which fevm's own BLS12-381 precompiles verify too (all 93 stateless blocks validate in the module); `const fn` + `static_assert` check the blob fee against a real block; std units, `core::fixed`, `msg`/`recv` ([Fe highlight](#fe-highlight)) |
+| **Fe-specific** | Effects prove validation needs no file, process or network, so the same Fe compiles to WebAssembly with fevm in it: [validate a whole mainnet block in your browser](https://fevm-replay.vercel.app/verify.html), every root in its header, including a block near the chain's head your browser fetches itself from public nodes, its hash checked by a light client against Ethereum's sync committee signatures, which fevm's own BLS12-381 precompiles verify too, and then by the whole light client again in Fe inside the module (`web/src/light.fe`) (all 93 stateless blocks validate in the module); `const fn` + `static_assert` check the blob fee against a real block; std units, `core::fixed`, `msg`/`recv` ([Fe highlight](#fe-highlight)) |
 | **Found** | 4 bugs in the Fe ports (one in our own EIP-7002 port, found by validating a mainnet block on it), 2 node tracer bugs, the transactions the Osaka fork changed, where Fe's code cost more than solc's ([argotorg/fe#2002](https://github.com/argotorg/fe/issues/2002), since fixed in Fe's std), and that Fe's WebAssembly backend emits fevm's tail-call dispatch as plain calls, which overflow a browser's stack ([`web/tailcalls.py`](web/tailcalls.py) works around it), and that even as tail calls each still takes a frame of the module's own 1 MiB stack, so 38 of 51 mainnet blocks trap until it is 64 MiB |
 | **Upstream** | fe#2056 (wasm tail calls; our repro and cause) was fixed in [argotorg/fe#2060](https://github.com/argotorg/fe/pull/2060), verified here on all 93 blocks; fe#2002 led to `Call::forward_delegatecall` in Fe's std ([argotorg/fe#2004](https://github.com/argotorg/fe/pull/2004), merged); fe#2059 (INVALID) and [fevm#33](https://github.com/fe-lang/fevm/pull/33) (EEST v21.0.3) open; our request in [fevm#26](https://github.com/fe-lang/fevm/issues/26) became the operand stack in `Tracer::step` ([fevm#32](https://github.com/fe-lang/fevm/pull/32)); dRPC is deploying a fix for the tracer bug we reported |
 | **Beside fevm's chain** | fevm now imports blocks itself ([`fevm_chain`](https://github.com/fe-lang/fevm/tree/main/ingots/chain)), on a full world and its conformance fixtures. fevm-replay is the other half: mainnet blocks, a *partial* world from the parent's proofs, the state root computed from that witness, and Fe ports in place of Solidity. It builds on that fevm and runs each block through `fevm_chain` and `fevm::Block` too: both drivers agree with the header on all 93 blocks ([more](#beside-fevms-chain-layer)) |
 | **Watch** | [5-minute tour](https://fevm-replay.vercel.app/#tour) ([`demo/tour-v8.mp4`](demo/tour-v8.mp4)): the site and real terminal runs, driven like a user, with captions, highlights and a neural voice |
+| **Check it** | Without trusting us ([how](#check-it-without-trusting-us)): the release binary's build provenance (`gh attestation verify`); the browser module's Sigstore attestation, verified by the page and the CLI themselves; the block's hash by a light client, in JavaScript and again in Fe inside the module (`web/src/light.fe`). The front page lets you check a real header's roots, or watch a forged one refused |
 | **Try** | No Fe needed: [three commands](#try-it-without-fe) with the release binary; with Node.js alone, `node wasm/cli.mjs` (in the release) validates a block near the head, as the browser page does |
 
 The rest of this README is the full account: [problem](#the-problem),
@@ -724,6 +725,17 @@ client protocol):
 4. Hash execution headers back from that block to the validated one; each
    header's keccak256 must be the next one's `parentHash`.
 
+Then all four steps run again in Fe, inside the same WebAssembly module
+([`web/src/light.fe`](web/src/light.fe), the `light_client` export): SSZ
+roots with fevm's SHA-256, Merkle branches, each signature with fevm's
+EIP-2537 precompiles (G1 MSM, map to G2, pairing) and the reduction into the
+field with its MODEXP, the execution headers with keccak256. JavaScript only
+decompresses the points, and light.fe checks each against the compressed
+form it came from. On a live block, `node web/lightfe-test.mjs` (in the
+E2E workflow) shows it agree, then refuse a changed signature, participation
+bit, execution header, execution block hash, committee key or checkpoint;
+verify.html can flip a bit of the head's signature for light.fe to refuse.
+
 ```
 light client: from the built-in checkpoint 0xa4faecb4… (slot 15704032), 1 sync committee handoff(s),
 393/512 signed slot 15704490 (BLS checked by noble and by fevm's own BLS12-381 precompiles,
@@ -772,8 +784,8 @@ Each release carries the executable for x86-64 Linux (or WSL), the ports'
 bytecode and the fixtures:
 
 ```sh
-curl -sL https://github.com/PugarHuda/fevm-replay/releases/latest/download/fevm-replay-v0.8.4-x86_64-linux.tar.gz | tar xz
-cd fevm-replay-v0.8.4-x86_64-linux
+curl -sL https://github.com/PugarHuda/fevm-replay/releases/latest/download/fevm-replay-v0.8.5-x86_64-linux.tar.gz | tar xz
+cd fevm-replay-v0.8.5-x86_64-linux
 ./fevm_replay fixtures/mainnet/*.json            # 7 real transactions, all MATCH
 mkdir proven && tar xzf fixtures/proven/0x19335e5.tar.gz -C proven
 ./fevm_replay chain proven/0x19335e5             # a mainnet block, every root in its header
@@ -785,7 +797,9 @@ cd ../.. && ./fevm_replay amsterdam proven/0x19335e5
                                                  # the same block under Glamsterdam's rules: what would fail, and why
 node wasm/cli.mjs --save                         # Node.js 22+ only: a block near the head, fetched from public
                                                  # nodes and validated by the WebAssembly module the browser runs;
-                                                 # --save keeps it, for ./fevm_replay chain
+                                                 # --save keeps it, for ./fevm_replay chain; its hash is checked
+                                                 # by the light client (in JS, then in Fe: light.fe), and the
+                                                 # module's own Sigstore provenance is verified (--offline skips it)
 ```
 
 From v0.8.4 each archive and executable carries a build provenance
@@ -793,7 +807,7 @@ attestation (SLSA, signed through Sigstore by this repository's release
 workflow), so you need not take the binary on trust:
 
 ```sh
-gh attestation verify fevm-replay-v0.8.4-x86_64-linux.tar.gz -R PugarHuda/fevm-replay
+gh attestation verify fevm-replay-v0.8.5-x86_64-linux.tar.gz -R PugarHuda/fevm-replay
 ```
 
 Then fetch a live block, prove it and replay it as a chain (needs `curl`):
@@ -877,7 +891,7 @@ author nor its servers:
 
 1. **The executable.** Each release archive from v0.8.4 carries build
    provenance signed through Sigstore by the release workflow, naming the
-   tag and commit: `gh attestation verify fevm-replay-v0.8.4-x86_64-linux.tar.gz -R PugarHuda/fevm-replay`.
+   tag and commit: `gh attestation verify fevm-replay-v0.8.5-x86_64-linux.tar.gz -R PugarHuda/fevm-replay`.
    An archive changed by one byte is refused.
 2. **The browser module.** CI rebuilds `site/wasm/fevm_replay_web.wasm` from
    source and requires it byte for byte; verify.html prints the SHA-256 of
@@ -926,7 +940,8 @@ What a MATCH or a clean certificate rests on:
   or without proofs.
 - **A live block's hash rests on a light client.** The browser and
   `node wasm/cli.mjs` check it from one finalized beacon block root in
-  `site/wasm/lightclient.mjs` through Ethereum's sync committee signatures
+  `site/wasm/lightclient.mjs` through Ethereum's sync committee signatures,
+  and light.fe checks the same chain again in Fe inside the module
   ([more](#beside-rsp-zeth-and-light-clients)). A checkpoint older than the
   weak subjectivity period (about two weeks of validator churn) should be
   replaced; the native `chain` checks a saved block's headers against each
