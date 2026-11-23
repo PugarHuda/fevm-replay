@@ -219,14 +219,16 @@ export const scenes: Scene[] = [
   {
     id: 'light',
     kind: 'cast',
-    cast: 'light-client.cast',
-    termTitle: 'WSL: node wasm/cli.mjs, recorded run (asciinema)',
+    cast: 'light-fe.cast',
+    termTitle: 'WSL: node wasm/cli.mjs from the v0.8.6 release, recorded run (asciinema)',
     narration:
-      "From a terminal, the same module validates a block three behind the head: 223 of 223 transactions match, every root holds. Its hash is checked as a light client checks it: from a finalized checkpoint, through Ethereum's sync committee, 511 of 512 signed, and each signature is verified twice, the second time by fevm's own BLS12-381 precompiles, written in Fe.",
-    source: 'demo/casts/light-client.cast (real run of node wasm/cli.mjs, v0.8.2 release); README "Beside rsp, zeth and light clients"',
+      "From a terminal, the same module validates a block near the head: 224 of 224 transactions match, every root holds. Its hash is checked as a light client checks it, from a finalized checkpoint through Ethereum's sync committee: 510 of 512 signed. Then light.fe, a light client written in Fe inside the same module, checks the whole chain again, every signature with fevm's own BLS12-381 precompiles. Last, the CLI verifies where its WebAssembly came from: a Sigstore attestation from this repository's workflow.",
+    source: 'demo/casts/light-fe.cast (real run of node wasm/cli.mjs, v0.8.6 release: 224/224, 510/512, light.fe holds, provenance verified); README "Beside rsp, zeth and light clients"',
     cues: [
-      { at: '223 of 223', target: { sel: '#term', line: 1 } },
-      { at: 'from a finalized checkpoint', target: { sel: '#term', line: 4 } },
+      { at: '224 of 224', target: { sel: '#term', line: 1 } },
+      { at: 'from a finalized checkpoint', target: { sel: '#term', line: 3 } },
+      { at: 'Then light.fe', target: { sel: '#term', line: 4 } },
+      { at: 'Last, the CLI', target: { sel: '#term', line: 6 } },
     ],
   },
   {

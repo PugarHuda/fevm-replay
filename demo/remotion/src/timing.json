@@ -565,42 +565,59 @@
   }
  },
  "light": {
-  "audio": 24.504,
+  "audio": 33.6,
   "captions": [
    {
-    "start": 0.084041,
-    "end": 4.170166,
-    "text": "From a terminal, the same module validates a block three behind the head:"
+    "start": 0.105041,
+    "end": 3.855041,
+    "text": "From a terminal, the same module validates a block near the head:"
    },
    {
-    "start": 4.170166,
-    "end": 8.823541,
-    "text": "223 of 223 transactions match, every root holds."
+    "start": 3.855041,
+    "end": 8.319333,
+    "text": "224 of 224 transactions match, every root holds."
    },
    {
-    "start": 8.823541,
-    "end": 11.712166,
-    "text": "Its hash is checked as a light client checks it:"
+    "start": 8.319333,
+    "end": 11.102958,
+    "text": "Its hash is checked as a light client checks it,"
    },
    {
-    "start": 11.712166,
-    "end": 16.86975,
-    "text": "from a finalized checkpoint, through Ethereum's sync committee, 511 of 512 signed,"
+    "start": 11.102958,
+    "end": 14.086125,
+    "text": "from a finalized checkpoint through Ethereum's sync committee:"
    },
    {
-    "start": 16.86975,
-    "end": 23.581916,
-    "text": "and each signature is verified twice, the second time by fevm's own BLS12-381 precompiles,"
+    "start": 14.086125,
+    "end": 16.134458,
+    "text": "510 of 512 signed."
    },
    {
-    "start": 23.581916,
-    "end": 24.501666,
-    "text": "written in Fe."
+    "start": 16.134458,
+    "end": 20.997916,
+    "text": "Then light.fe, a light client written in Fe inside the same module,"
+   },
+   {
+    "start": 20.997916,
+    "end": 27.027291,
+    "text": "checks the whole chain again, every signature with fevm's own BLS12-381 precompiles."
+   },
+   {
+    "start": 27.027291,
+    "end": 30.850833,
+    "text": "Last, the CLI verifies where its WebAssembly came from:"
+   },
+   {
+    "start": 30.850833,
+    "end": 33.587790999999996,
+    "text": "a Sigstore attestation from this repository's workflow."
    }
   ],
   "cues": {
-   "223 of 223": 4.170166,
-   "from a finalized checkpoint": 11.712166
+   "224 of 224": 3.855041,
+   "from a finalized checkpoint": 11.102958,
+   "Then light.fe": 16.134458,
+   "Last, the CLI": 27.027291
   }
  },
  "glamcheck": {

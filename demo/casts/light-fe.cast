@@ -1,0 +1,7 @@
+{"version": 2, "width": 150, "height": 16, "timestamp": 1795431113, "env": {"SHELL": "/bin/bash", "TERM": "xterm-256color"}}
+[0.005328, "o", "\u001b[1;32m$\u001b[0m node wasm/cli.mjs | grep -E \"transactions MATCH|stateRoot|light client|every root|module:\"\r\n"]
+[44.330056, "o", "chain block: 224/224 transactions MATCH (100%)\r\nstate root: fevm's end state (519 accounts and 1646 slots written) on the parent's witness (10406 nodes, 3588 KiB) hashes to the header's stateRoot\r\n"]
+[53.926689, "o", "light client: from the built-in checkpoint 0xa4faecb4… (slot 15704032), 2 sync committee handoff(s), 510/512 signed slot 15717260 (BLS checked by noble and by fevm's own BLS12-381 precompiles, 3 signature(s)) (execution block 26477357), 9 headers hashed back to this block: its hash is the chain's\r\n"]
+[53.926863, "o", "light client in Fe: light.fe, inside the module, checked the same chain itself (SSZ roots, branches, every signature by fevm's precompiles, the headers): it holds\r\n"]
+[53.927642, "o", "every root holds (2.55 s in WebAssembly)\r\n"]
+[54.719233, "o", "module: sha256 2f031f45fd8aed5d…, built by PugarHuda/fevm-replay/.github/workflows/pages.yml@refs/heads/main at 9647f84; Sigstore attestation verified (Fulcio chain, Rekor entry 4051368417)\r\n"]
