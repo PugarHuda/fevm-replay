@@ -2,8 +2,8 @@
   "manifest_version": 1,
   "module": {
     "file": "fevm_replay_web.wasm",
-    "sha256": "dd6ee37f0f4d62266d348e73af016ce0fac957dc43cc5d0a83224c5977b88558",
-    "size": 4197843,
+    "sha256": "96f76c2242d729dedca7d5b8a60b32b241823b3ea0c4d4ac75762f92952479d9",
+    "size": 4339529,
     "initial_memory_pages": 18
   },
   "contract_version": 3,
@@ -119,6 +119,21 @@
         }
       ],
       "result": null
+    },
+    {
+      "name": "light_client",
+      "kind": "function",
+      "params": [
+        {
+          "name": "name",
+          "type": "HostText",
+          "wasm": ["i32", "i32"]
+        }
+      ],
+      "result": {
+        "type": "Reply",
+        "wasm": ["i64"]
+      }
     },
     {
       "name": "memory",

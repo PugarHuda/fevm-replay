@@ -270,8 +270,8 @@ export async function lightClient(number, hash, headers, step = () => {}, root =
   // The whole chain of checks again, in Fe (light.fe in the module): SSZ
   // roots, branches, every signature by fevm's precompiles, the headers.
   let inFe, inFeDoc;
-  // Only a module built with light.fe has the export (next/, from Fe's latest
-  // commit, does not): without it the check is skipped and the result says so.
+  // Only a module built with light.fe has the export (both served modules
+  // do); without it the check is skipped and the result says so.
   if (module && !JSON.stringify(module.manifest).includes('"light_client"')) inFe = { skipped: true };
   else if (module) {
     step("Light client: the whole check again in Fe, inside the module (light.fe)…");

@@ -182,3 +182,13 @@ test("a block near the head with one bit of the head's signature flipped for lig
   expect(out).toContain("With one bit of the head's signature flipped for it, light.fe, inside the module, refused the chain");
   expect(out).toContain("the signature over the head does not hold");
 });
+
+test("a block near the head with the module from Fe's latest commit: light.fe runs in it too @live", async ({ page }) => {
+  await page.goto("verify.html?block=live", { waitUntil: "networkidle" });
+  await page.locator("#bnext").check();
+  const verdict = await validate(page);
+  const out = await page.locator("#bout").textContent();
+  test.skip(/did not serve a live block/.test(out), "free nodes refused");
+  expect(verdict).toMatch(/^Every root holds.*Fe's latest commit/);
+  expect(out).toContain("Then light.fe, inside the module, checked the whole chain again in Fe");
+});
