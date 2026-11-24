@@ -114,6 +114,13 @@ if (rc) {
     };
     if (tampered && !live) mark();
     const worker = new Worker("wasm/block-worker.mjs", { type: "module" });
+    // The worker's script did not load (offline) or it crashed: free the buttons.
+    worker.onerror = (e) => {
+      worker.terminate();
+      rc.disabled = liveButton.disabled = false;
+      document.querySelectorAll(".root .state").forEach((s) => { s.textContent = "not checked"; });
+      say.textContent = `Could not run fevm here: ${e.message || "its script did not load; check the connection"}.`;
+    };
     worker.onmessage = ({ data }) => {
       if (data.step) { say.textContent = data.step; return; }
       worker.terminate();

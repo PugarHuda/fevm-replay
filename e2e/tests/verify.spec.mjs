@@ -192,3 +192,10 @@ test("a block near the head with the module from Fe's latest commit: light.fe ru
   expect(verdict).toMatch(/^Every root holds.*Fe's latest commit/);
   expect(out).toContain("Then light.fe, inside the module, checked the whole chain again in Fe");
 });
+
+test("the validator's worker script does not load: the page says so and Validate works again", async ({ page }) => {
+  await page.route("**/wasm/block-worker.mjs", (r) => r.abort());
+  await page.getByRole("button", { name: "Validate", exact: true }).click();
+  await expect(page.locator("#bout")).toContainText("the validator stopped");
+  await expect(page.getByRole("button", { name: "Validate", exact: true })).toBeEnabled();
+});

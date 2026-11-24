@@ -144,3 +144,13 @@ test("front page: the newest block instead, its own header shown and checked, it
   await expect(say).toContainText("8 of 8 fields match, from 71 transactions", { timeout: 200_000 });
   await expect(page.locator("#rc-txs")).toHaveText("the 71 transactions");
 });
+
+test("front page: fevm's worker script does not load, the page says so and frees both buttons", async ({ page }) => {
+  await page.route("**/wasm/block-worker.mjs", (r) => r.abort());
+  await page.goto("index.html", { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Check these roots in your browser" }).click();
+  await expect(page.locator("#rc-say")).toContainText("Could not run fevm here");
+  await expect(page.locator("#rc-run")).toBeEnabled();
+  await expect(page.locator("#rc-live")).toBeEnabled();
+  await expect(page.locator(".root .state").first()).toHaveText("not checked");
+});
